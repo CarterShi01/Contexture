@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Role Runtime Atlas</title>
+<style>
+  :root {
+    --bg: #F5F6F7;
+    --surface: #FFFFFF;
+    --surface-2: #ECEEF2;
+    --ink: #12141A;
+    --ink-dim: #565C68;
+    --ink-faint: #868C97;
+    --line: #DBDFE3;
+    --line-strong: #C3C8CF;
+    --accent: #4451D6;
+    --accent-ink: #FFFFFF;
+    --accent-soft: #E8E9FA;
+    --warn: #A85A22;
+    --warn-soft: #F5E7D9;
+
+    --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
+    --font-body: Charter, 'Iowan Old Style', 'Palatino Linotype', Georgia, 'Songti SC', 'Noto Serif SC', serif;
+
+    --radius-sm: 3px;
+    --radius-md: 6px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #13151B;
+      --surface: #1A1D25;
+      --surface-2: #21252F;
+      --ink: #ECEDF1;
+      --ink-dim: #A0A6B2;
+      --ink-faint: #6B7180;
+      --line: #2B2F3A;
+      --line-strong: #3A3F4C;
+      --accent: #8B94FF;
+      --accent-ink: #10121A;
+      --accent-soft: #262B48;
+      --warn: #E0954F;
+      --warn-soft: #362A1E;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+
+  html, body {
+    background: var(--bg);
+    color: var(--ink);
+  }
+
+  body {
+    margin: 0;
+    font-family: var(--font-body);
+    font-size: 16.5px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: var(--accent); }
+  a:focus-visible, button:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  code, .mono {
+    font-family: var(--font-mono);
+  }
+
+  .page {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 56px 24px 96px;
+  }
+
+  .prose {
+    max-width: 680px;
+  }
+
+  /* ---------- header ---------- */
+
+  header.hero {
+    margin-bottom: 40px;
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 0 0 14px;
+  }
+
+  h1.title {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: clamp(28px, 4.4vw, 40px);
+    letter-spacing: -0.01em;
+    line-height: 1.12;
+    margin: 0 0 14px;
+    text-wrap: balance;
+  }
+
+  .dek {
+    font-family: var(--font-body);
+    font-style: italic;
+    font-size: 18px;
+    color: var(--ink-dim);
+    max-width: 640px;
+    margin: 0 0 22px;
+    text-wrap: pretty;
+  }
+
+  .statline {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--ink-faint);
+    letter-spacing: 0.02em;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 10px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+  }
+  .statline b { color: var(--ink-dim); font-weight: 600; }
+  .statline .sep { color: var(--line-strong); }
+
+  /* ---------- index / nav ---------- */
+
+  nav.index {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    padding: 18px 22px 20px;
+    margin-bottom: 56px;
+  }
+  nav.index .eyebrow { margin-bottom: 12px; }
+  nav.index ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 9px;
+  }
+  nav.index li {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+  }
+  nav.index .num {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--ink-faint);
+    width: 1.6em;
+    flex: none;
+  }
+  nav.index a {
+    text-decoration: none;
+    color: var(--ink);
+    font-weight: 600;
+  }
+  nav.index a:hover { color: var(--accent); }
+  nav.index .desc {
+    color: var(--ink-faint);
+    font-size: 14px;
+  }
+
+  /* ---------- plates ---------- */
+
+  section.plate {
+    padding-top: 30px;
+    margin-top: 30px;
+    border-top: 1px solid var(--line);
+    scroll-margin-top: 20px;
+  }
+  section.plate:first-of-type {
+    border-top: none;
+  }
+
+  .plate-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 8px;
+  }
+
+  h2.plate-title {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 23px;
+    margin: 0 0 6px;
+    text-wrap: balance;
+  }
+
+  .plate-claim {
+    color: var(--ink-dim);
+    font-size: 16px;
+    margin: 0 0 22px;
+    max-width: 640px;
+  }
+
+  .figure-wrap {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    padding: 18px;
+    overflow-x: auto;
+    margin: 0 0 18px;
+  }
+
+  figure { margin: 0; }
+  figcaption {
+    font-size: 13.5px;
+    color: var(--ink-faint);
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--line);
+  }
+
+  pre.mermaid {
+    margin: 0;
+    background: transparent;
+  }
+  .mermaid-fallback {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--ink-dim);
+    white-space: pre-wrap;
+    display: none;
+  }
+
+  .plate-notes {
+    display: grid;
+    gap: 10px;
+    font-size: 15.5px;
+    color: var(--ink);
+    max-width: 680px;
+  }
+  .plate-notes code {
+    background: var(--surface-2);
+    border-radius: var(--radius-sm);
+    padding: 0.1em 0.35em;
+    font-size: 0.87em;
+    color: var(--ink);
+  }
+  .plate-notes strong { color: var(--ink); }
+
+  .callout {
+    background: var(--accent-soft);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-md);
+    padding: 12px 16px;
+    font-size: 14.5px;
+    color: var(--ink);
+    max-width: 680px;
+  }
+  .callout.warn {
+    background: var(--warn-soft);
+    border-color: var(--warn);
+  }
+  .callout code { background: transparent; padding: 0; }
+
+  /* ---------- directory tree ---------- */
+
+  ul.tree {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  ul.tree ul {
+    list-style: none;
+    margin: 4px 0 4px 0;
+    padding: 0 0 0 1.35em;
+    border-left: 1px solid var(--line);
+  }
+  ul.tree li { margin: 5px 0; }
+  .tree .row {
+    display: flex;
+    gap: 0.85em;
+    align-items: baseline;
+    flex-wrap: wrap;
+  }
+  .tree .path {
+    font-family: var(--font-mono);
+    font-size: 13.5px;
+    color: var(--accent);
+    white-space: nowrap;
+  }
+  .tree .path.dir { color: var(--ink); font-weight: 600; }
+  .tree .desc {
+    font-family: var(--font-body);
+    font-size: 13.5px;
+    color: var(--ink-faint);
+  }
+
+  /* ---------- footer ---------- */
+
+  footer {
+    margin-top: 64px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--ink-faint);
+    display: grid;
+    gap: 6px;
+  }
+
+  @media (max-width: 640px) {
+    .page { padding: 36px 16px 72px; }
+    h1.title { font-size: 26px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <header class="hero">
+    <p class="eyebrow">role-runtime-starter · v0.0.1 · Contexture</p>
+    <h1 class="title">Role Runtime Atlas</h1>
+    <p class="dek">把渐进式披露(progressive disclosure)对象模型拆开看的一份地图集——文件怎么依赖、类怎么组合、一次编译和一次工具调用各自怎么流经这些类。</p>
+    <p class="statline">
+      <span><b>17</b> 源文件</span><span class="sep">·</span>
+      <span><b>42</b> 个类</span><span class="sep">·</span>
+      <span><b>0</b> 处循环依赖</span><span class="sep">·</span>
+      <span><b>17/17</b> 测试通过</span><span class="sep">·</span>
+      <span>tag <b>v0.0.1</b> @ <b>93d9991</b></span>
+    </p>
+  </header>
+
+  <nav class="index" aria-label="图鉴目录">
+    <p class="eyebrow">图鉴目录 — 建议按顺序看</p>
+    <ol>
+      <li><span class="num">00</span><a href="#plate-00">目录结构</a><span class="desc">— 先认路,17 个文件各装什么</span></li>
+      <li><span class="num">01</span><a href="#plate-01">层级地图</a><span class="desc">— 文件之间谁依赖谁,六层零循环</span></li>
+      <li><span class="num">02</span><a href="#plate-02">对象模型</a><span class="desc">— 类怎么继承、组合成一棵树</span></li>
+      <li><span class="num">03</span><a href="#plate-03">编译路径</a><span class="desc">— LLM 能看见的 context 怎么算出来</span></li>
+      <li><span class="num">04</span><a href="#plate-04">执行路径</a><span class="desc">— 一次工具调用怎么被二次授权</span></li>
+    </ol>
+  </nav>
+
+  <section class="plate" id="plate-00">
+    <p class="plate-eyebrow">Plate 00</p>
+    <h2 class="plate-title">目录结构</h2>
+    <p class="plate-claim">17 个源文件,每个文件只装一小撮互相配合的类——不是一类一文件,是一个内聚概念一文件。</p>
+
+    <div class="figure-wrap">
+      <ul class="tree">
+        <li>
+          <div class="row"><span class="path dir">src/role_runtime/</span></div>
+          <ul>
+            <li><div class="row"><span class="path">types.py</span><span class="desc">共享类型别名,零内部依赖</span></div></li>
+            <li><div class="row"><span class="path">constants.py</span><span class="desc">MCP 协议版本号等常量</span></div></li>
+            <li><div class="row"><span class="path">errors.py</span><span class="desc">9 个异常类,一条继承链</span></div></li>
+            <li><div class="row"><span class="path">context.py</span><span class="desc">ContextNode · CompileLevel — 渐进披露的统一契约</span></div></li>
+            <li><div class="row"><span class="path">skill.py</span><span class="desc">Skill</span></div></li>
+            <li><div class="row"><span class="path">data.py</span><span class="desc">DataSource · DataBinding · DataProvider 等 7 个</span></div></li>
+            <li><div class="row"><span class="path">role.py</span><span class="desc">Role — 递归组合的团队树</span></div></li>
+            <li><div class="row"><span class="path">registry.py</span><span class="desc">RoleRegistry — 路径解析 + 环检测</span></div></li>
+            <li><div class="row"><span class="path">compiler.py</span><span class="desc">RoleCompiler — 渐进披露编译器</span></div></li>
+            <li><div class="row"><span class="path">runtime.py</span><span class="desc">RoleRuntime — 执行边界,二次授权</span></div></li>
+            <li>
+              <div class="row"><span class="path dir">mcp/</span></div>
+              <ul>
+                <li><div class="row"><span class="path">models.py</span><span class="desc">MCPTool · MCPServer · ToolAnnotations</span></div></li>
+                <li><div class="row"><span class="path">binding.py</span><span class="desc">MCPBinding — 最小权限关系对象</span></div></li>
+                <li><div class="row"><span class="path">protocol.py</span><span class="desc">JSON-RPC 2.0 消息构造</span></div></li>
+                <li><div class="row"><span class="path">transport.py</span><span class="desc">MCPTransport 接口 + 两种实现</span></div></li>
+                <li><div class="row"><span class="path">client.py</span><span class="desc">MCPClient — 串起 protocol + transport</span></div></li>
+              </ul>
+            </li>
+          </ul>
+        </li>
+        <li><div class="row"><span class="path dir">examples/kubernetes_team.py</span><span class="desc">k8s 排障 / 运维双角色示例</span></div></li>
+        <li><div class="row"><span class="path dir">tests/</span><span class="desc">17 个单测,全部通过</span></div></li>
+        <li><div class="row"><span class="path dir">docs/01-role-object-model.md</span><span class="desc">设计推导文档</span></div></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="plate" id="plate-01">
+    <p class="plate-eyebrow">Plate 01</p>
+    <h2 class="plate-title">层级地图</h2>
+    <p class="plate-claim">按实际 import 语句追出来的依赖图——六层,单向,零循环。</p>
+
+    <div class="figure-wrap">
+      <figure>
+        <pre class="mermaid">
+flowchart TB
+    subgraph L0["Layer 0 · 无内部依赖"]
+        types["types.py"]
+        constants["constants.py"]
+        errors["errors.py"]
+    end
+    subgraph L1["Layer 1 · 生命周期契约"]
+        context["context.py<br/>ContextNode · CompileLevel"]
+    end
+    subgraph L2["Layer 2 · 叶子节点类型"]
+        skill["skill.py<br/>Skill"]
+        data["data.py<br/>DataSource · DataBinding · DataProvider"]
+        models["mcp/models.py<br/>MCPTool · MCPServer"]
+        protocol["mcp/protocol.py<br/>JSON-RPC 消息"]
+        transport["mcp/transport.py<br/>MCPTransport"]
+    end
+    subgraph L3["Layer 3 · 关系与装配"]
+        binding["mcp/binding.py<br/>MCPBinding"]
+        client["mcp/client.py<br/>MCPClient"]
+    end
+    subgraph L4["Layer 4 · 组合体"]
+        role["role.py<br/>Role"]
+    end
+    subgraph L5["Layer 5 · 编排"]
+        registry["registry.py<br/>RoleRegistry"]
+        compiler["compiler.py<br/>RoleCompiler"]
+    end
+    subgraph L6["Layer 6 · 执行边界"]
+        runtime["runtime.py<br/>RoleRuntime"]
+    end
+
+    context --> skill
+    context --> data
+    context --> models
+    models --> protocol
+    models --> binding
+    protocol --> client
+    transport --> client
+    data --> role
+    skill --> role
+    binding --> role
+    role --> registry
+    role --> compiler
+    data --> runtime
+    client --> runtime
+    models --> runtime
+    registry --> runtime
+    compiler --> runtime
+        </pre>
+        <figcaption>箭头方向 = 谁 import 谁。<code>mcp/models.py</code> 被三条不同的线指向(protocol、binding、runtime 都要用到 <code>MCPTool</code> / <code>MCPServer</code>),是全图入度最高的节点——改它的字段签名,波及面最大。</figcaption>
+      </figure>
+    </div>
+
+    <div class="plate-notes">
+      <p><code>role_runtime/__init__.py</code> 和 <code>mcp/__init__.py</code> 没画进去——它们只做 re-export,不参与依赖方向,是给外部用的统一导入入口。</p>
+    </div>
+  </section>
+
+  <section class="plate" id="plate-02">
+    <p class="plate-eyebrow">Plate 02</p>
+    <h2 class="plate-title">对象模型</h2>
+    <p class="plate-claim">四个 <code>ContextNode</code> 子类共享同一套 route / active 生命周期;<code>MCPServer</code> 被有意排除在外。</p>
+
+    <div class="figure-wrap">
+      <figure>
+        <pre class="mermaid">
+classDiagram
+    class ContextNode {
+        &lt;&lt;abstract&gt;&gt;
+        +name : str
+        +description : str
+        +compile(level)
+        #_compile_route()
+        #_compile_active()*
+    }
+    class Role {
+        +instructions : str
+        +children : Role[]
+        +skills : Skill[]
+        +mcp_bindings : MCPBinding[]
+        +data_bindings : DataBinding[]
+    }
+    class Skill {
+        +instructions : str
+    }
+    class MCPTool {
+        +input_schema
+        +output_schema
+        +annotations : ToolAnnotations
+    }
+    class DataSource {
+        +source_id : str
+        +uri : str
+        +provider_id : str
+    }
+    class MCPServer {
+        +server_id : str
+        +tools : MCPTool[]
+    }
+    class MCPBinding {
+        +allowed_tools : str[]
+        +read_only_tools : str[]
+        +server : MCPServer
+    }
+    class DataBinding {
+        +access : DataAccess
+        +classification
+        +source : DataSource
+    }
+    class RoleRegistry {
+        +root : Role
+        +resolve(path)
+    }
+    class RoleCompiler {
+        +compile(role, request)
+    }
+    class RoleRuntime {
+        +root_role : Role
+        +mcp_clients
+        +data_providers
+        +call_tool()
+        +read_data()
+    }
+    class MCPClient {
+        +call_tool(tool, args)
+    }
+
+    ContextNode &lt;|-- Role
+    ContextNode &lt;|-- Skill
+    ContextNode &lt;|-- MCPTool
+    ContextNode &lt;|-- DataSource
+    Role o-- Role : children
+    Role o-- Skill : skills
+    Role o-- MCPBinding : mcp_bindings
+    Role o-- DataBinding : data_bindings
+    MCPBinding --&gt; MCPServer : server
+    MCPServer o-- MCPTool : tools
+    DataBinding --&gt; DataSource : source
+    RoleRegistry --&gt; Role : root
+    RoleCompiler --&gt; Role : compiles
+    RoleRuntime --&gt; RoleRegistry : uses
+    RoleRuntime --&gt; RoleCompiler : uses
+    RoleRuntime --&gt; MCPClient : dispatches
+        </pre>
+        <figcaption>虚线该有却没有:<code>MCPServer</code> 不继承 <code>ContextNode</code>。LLM 选的是 <code>get_pod_logs</code> 这个 tool,不是 <code>production-kubernetes</code> 这台 server——把 server 排除在多态层级外,是防止连接细节泄漏进 LLM 的抽象层。</figcaption>
+      </figure>
+    </div>
+
+    <div class="plate-notes">
+      <p><code>MCPBinding</code> 和 <code>DataBinding</code> 是结构上同构的两个关系对象(都是"Role 到某个外部资源的最小权限视图"),但物理位置不对称——前者单独在 <code>mcp/binding.py</code>,后者揉在 <code>data.py</code> 里。目前 <code>data.py</code> 只有 145 行,还没到必须拆分的复杂度。</p>
+    </div>
+  </section>
+
+  <section class="plate" id="plate-03">
+    <p class="plate-eyebrow">Plate 03</p>
+    <h2 class="plate-title">编译路径 — LLM 看见什么</h2>
+    <p class="plate-claim"><code>RoleCompiler</code> 只读,不执行。默认只吐 route 卡片,选中的能力才展开成 active 细节。</p>
+
+    <div class="figure-wrap">
+      <figure>
+        <pre class="mermaid">
+sequenceDiagram
+    participant Host
+    participant Runtime as RoleRuntime
+    participant Registry as RoleRegistry
+    participant Comp as RoleCompiler
+    participant R as Role
+    participant B as MCPBinding
+
+    Host->>Runtime: compile(role_path, request)
+    Runtime->>Registry: resolve(role_path)
+    Registry-->>Runtime: Role
+    Runtime->>Comp: compile(role, request)
+    Comp->>R: compile(ACTIVE)
+    R-->>Comp: instructions + 子 Role / Skill / Tool / Data 的 route 卡片
+    loop 对 selection 里每个 skill_name / tool_ref / data_ref
+        Comp->>R: get_skill / get_mcp_binding_for_tool_ref / get_data_binding
+        Comp->>B: compile_tool_ref(ref, ACTIVE)
+        B-->>Comp: 完整 inputSchema
+    end
+    Comp-->>Runtime: CompiledRoleContext
+    Runtime-->>Host: role 详情 + 仅被选中的能力
+        </pre>
+        <figcaption>Role 被 active 编译时不会递归展开子 Role——子 Role、Skill、Tool、Data 永远只吐 route 卡片,只有 <code>CapabilitySelection</code> 里显式点名的那几个,才在 loop 里单独升级到 active。</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="plate" id="plate-04">
+    <p class="plate-eyebrow">Plate 04</p>
+    <h2 class="plate-title">执行路径 — 二次授权怎么挡下来</h2>
+    <p class="plate-claim">context 里看不见的工具早被挡在外面;<code>RoleRuntime</code> 假装不知道这件事,执行前重新查一遍。</p>
+
+    <div class="figure-wrap">
+      <figure>
+        <pre class="mermaid">
+sequenceDiagram
+    participant LLM
+    participant Runtime as RoleRuntime
+    participant Registry as RoleRegistry
+    participant B as MCPBinding
+    participant Client as MCPClient
+    participant Server as MCP Server
+
+    LLM->>Runtime: call_tool(role_path, tool_ref, args, approved?)
+    Runtime->>Registry: resolve(role_path)
+    Registry-->>Runtime: Role
+    Runtime->>B: get_mcp_binding_for_tool_ref(tool_ref)
+    Runtime->>B: require_tool_ref(tool_ref)
+    alt 工具未被授权
+        B-->>Runtime: CapabilityDeniedError
+        Runtime-->>LLM: 拒绝
+    else 已授权,非 read-only 且未 approved
+        Runtime-->>LLM: ConfirmationRequired
+    else 已授权(read-only 或已 approved)
+        Runtime->>Client: call_tool(tool, arguments)
+        Client->>Server: tools/call (JSON-RPC 2.0)
+        Server-->>Client: result
+        Client-->>Runtime: ToolCallOutcome
+        Runtime-->>LLM: result
+    end
+        </pre>
+        <figcaption>三条分支对应三种结局:没授权直接拒绝、授权了但是"非只读又没批准"要求二次确认、授权且安全才真正发出 <code>tools/call</code>。协议层的 <code>readOnlyHint</code> 只是远端给的提示,真正拍板的是 host 自己维护的 <code>read_only_tools</code> 白名单。</figcaption>
+      </figure>
+    </div>
+
+    <div class="callout warn">
+      <strong>同一套检查,两个入口。</strong> <code>read_data</code> / <code>write_data</code> 走的是完全平行的逻辑——<code>write_data</code> 永远要求 <code>approved=True</code>,没有"read-only 就放行"这条捷径,因为写操作没有天然安全的子集。
+    </div>
+  </section>
+
+  <footer>
+    <div>role-runtime-starter · git@github.com:CarterShi01/Contexture.git · tag v0.0.1 (93d9991)</div>
+    <div>本页纯手工维护,不随代码自动生成——架构变了记得回来改这份文件(见旁边 vendor/mermaid.min.js 是本地渲染依赖)。</div>
+  </footer>
+
+</div>
+
+<script src="./vendor/mermaid.min.js"></script>
+<script>
+  (function () {
+    var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: prefersDark ? 'dark' : 'default',
+      securityLevel: 'loose',
+      fontFamily: "'IBM Plex Mono', ui-monospace, monospace"
+    });
+    mermaid.run({ querySelector: '.mermaid' }).catch(function (err) {
+      console.error('Mermaid render failed:', err);
+      document.querySelectorAll('pre.mermaid').forEach(function (node) {
+        node.classList.add('mermaid-fallback');
+        node.style.display = 'block';
+      });
+    });
+  })();
+</script>
+
+</body>
+</html>
