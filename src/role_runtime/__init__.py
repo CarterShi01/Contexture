@@ -8,15 +8,6 @@ from .compiler import (
 )
 from .constants import JSON_RPC_VERSION, MCP_PROTOCOL_VERSION
 from .context import CompileLevel, ContextNode
-from .data import (
-    DataAccess,
-    DataBinding,
-    DataClassification,
-    DataProvider,
-    DataReadResult,
-    DataSource,
-    InMemoryDataProvider,
-)
 from .errors import (
     CapabilityDeniedError,
     ConfirmationRequired,
@@ -36,9 +27,12 @@ from .mcp import (
     MCPBinding,
     MCPClient,
     MCPRequestFactory,
+    MCPResource,
     MCPServer,
     MCPTool,
     MCPTransport,
+    ResourceCatalog,
+    ResourceReadOutcome,
     StreamableHTTPTransport,
     ToolAnnotations,
     ToolCallOutcome,
@@ -46,7 +40,7 @@ from .mcp import (
 )
 from .registry import RoleRegistry
 from .role import Role
-from .runtime import RoleRuntime
+from .runtime import RoleRuntime, ServerCatalogRefresh
 from .skill import Skill
 
 __all__ = [
@@ -58,14 +52,7 @@ __all__ = [
     "CompiledRoleContext",
     "ConfirmationRequired",
     "ContextNode",
-    "DataAccess",
-    "DataBinding",
-    "DataClassification",
-    "DataProvider",
-    "DataReadResult",
-    "DataSource",
     "DuplicateNameError",
-    "InMemoryDataProvider",
     "InMemoryTransport",
     "JSONRPCRequest",
     "JSONRPCResponse",
@@ -75,6 +62,7 @@ __all__ = [
     "MCPProtocolError",
     "MCPRemoteError",
     "MCPRequestFactory",
+    "MCPResource",
     "MCPServer",
     "MCPTool",
     "MCPTransport",
@@ -82,11 +70,14 @@ __all__ = [
     "MCP_PROTOCOL_VERSION",
     "ModelValidationError",
     "NodeNotFoundError",
+    "ResourceCatalog",
+    "ResourceReadOutcome",
     "Role",
     "RoleCompiler",
     "RoleRegistry",
     "RoleRuntime",
     "RoleRuntimeError",
+    "ServerCatalogRefresh",
     "Skill",
     "StreamableHTTPTransport",
     "ToolAnnotations",

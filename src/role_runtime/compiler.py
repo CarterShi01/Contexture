@@ -16,11 +16,11 @@ class CapabilitySelection:
 
     skill_names: tuple[str, ...] = ()
     tool_refs: tuple[str, ...] = ()
-    data_refs: tuple[str, ...] = ()
+    resource_refs: tuple[str, ...] = ()
 
     @property
     def is_empty(self) -> bool:
-        return not (self.skill_names or self.tool_refs or self.data_refs)
+        return not (self.skill_names or self.tool_refs or self.resource_refs)
 
 
 @dataclass(slots=True, frozen=True, kw_only=True)
@@ -33,12 +33,16 @@ class CompileRequest:
 
 @dataclass(slots=True, frozen=True, kw_only=True)
 class CompiledRoleContext:
-    """The terminal intermediate representation passed toward an LLM host."""
+    """The terminal intermediate representation passed toward an LLM host.
+
+    Activated resources carry descriptors only. Reading resource content is a
+    RoleRuntime operation and never happens while context is compiled.
+    """
 
     role: CompiledContext
     activated_skills: tuple[CompiledContext, ...] = ()
     activated_mcp_tools: tuple[CompiledContext, ...] = ()
-    activated_data_sources: tuple[CompiledContext, ...] = ()
+    activated_mcp_resources: tuple[CompiledContext, ...] = ()
 
     def to_dict(self) -> CompiledContext:
         return {
@@ -46,7 +50,7 @@ class CompiledRoleContext:
             "activated_capabilities": {
                 "skills": list(self.activated_skills),
                 "mcp_tools": list(self.activated_mcp_tools),
-                "data_sources": list(self.activated_data_sources),
+                "mcp_resources": list(self.activated_mcp_resources),
             },
         }
 
@@ -81,14 +85,16 @@ class RoleCompiler:
                 binding.compile_tool_ref(tool_ref, CompileLevel.ACTIVE)
             )
 
-        activated_data = tuple(
-            role.get_data_binding(source_ref).compile_source(CompileLevel.ACTIVE)
-            for source_ref in normalized.selection.data_refs
-        )
+        activated_resources: list[CompiledContext] = []
+        for resource_ref in normalized.selection.resource_refs:
+            binding = role.get_mcp_binding_for_resource_ref(resource_ref)
+            activated_resources.append(
+                binding.compile_resource_ref(resource_ref, CompileLevel.ACTIVE)
+            )
 
         return CompiledRoleContext(
             role=role.compile(CompileLevel.ACTIVE),
             activated_skills=activated_skills,
             activated_mcp_tools=tuple(activated_tools),
-            activated_data_sources=activated_data,
+            activated_mcp_resources=tuple(activated_resources),
         )

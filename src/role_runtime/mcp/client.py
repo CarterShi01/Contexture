@@ -1,15 +1,15 @@
-"""A focused MCP 2026-07-28 client for tool discovery and invocation."""
+"""A focused MCP 2026-07-28 client for tool and resource access."""
 
 from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
 from itertools import count
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping, TypeVar
 
 from ..errors import MCPProtocolError, MCPRemoteError, ModelValidationError
 from ..types import JsonObject, JsonValue
-from .models import MCPTool
+from .models import MCPResource, MCPTool
 from .protocol import (
     ClientInfo,
     JSONRPCResponse,
@@ -18,6 +18,17 @@ from .protocol import (
     validate_x_mcp_headers,
 )
 from .transport import MCPTransport
+
+_Item = TypeVar("_Item")
+
+
+@dataclass(slots=True, frozen=True, kw_only=True)
+class _Page:
+    """One decoded page of a paginated MCP listing."""
+
+    warnings: tuple[str, ...]
+    ttl_ms: int | None
+    cache_scope: str | None
 
 
 @dataclass(slots=True, frozen=True, kw_only=True)
@@ -28,6 +39,53 @@ class ToolCatalog:
     warnings: tuple[str, ...] = ()
     ttl_ms: int | None = None
     cache_scope: str | None = None
+
+
+@dataclass(slots=True, frozen=True, kw_only=True)
+class ResourceCatalog:
+    """A complete, paginated resources/list result assembled by the client."""
+
+    resources: tuple[MCPResource, ...]
+    warnings: tuple[str, ...] = ()
+    ttl_ms: int | None = None
+    cache_scope: str | None = None
+
+
+@dataclass(slots=True, frozen=True, kw_only=True)
+class ResourceReadOutcome:
+    """A resources/read result carrying one or more content blocks."""
+
+    uri: str
+    contents: tuple[JsonObject, ...]
+    raw: JsonObject
+
+    @property
+    def text(self) -> str | None:
+        """Join every textual block, or None when the resource is binary."""
+
+        texts = [
+            block["text"]
+            for block in self.contents
+            if isinstance(block.get("text"), str)
+        ]
+        if not texts:
+            return None
+        return "\n".join(texts)
+
+    @classmethod
+    def from_result(cls, uri: str, result: Mapping[str, Any]) -> ResourceReadOutcome:
+        raw_contents = result.get("contents")
+        if not isinstance(raw_contents, list) or not all(
+            isinstance(item, dict) for item in raw_contents
+        ):
+            raise MCPProtocolError(
+                "resources/read result.contents must be an array of objects."
+            )
+        return cls(
+            uri=uri,
+            contents=tuple(deepcopy(raw_contents)),
+            raw=deepcopy(dict(result)),
+        )
 
 
 @dataclass(slots=True, frozen=True, kw_only=True)
@@ -77,7 +135,7 @@ class MCPClient:
     client_info: ClientInfo = field(
         default_factory=lambda: ClientInfo(
             name="role-runtime-starter",
-            version="0.1.0",
+            version="0.0.2",
         )
     )
     client_capabilities: JsonObject = field(default_factory=dict)
@@ -95,7 +153,65 @@ class MCPClient:
     async def list_tools(self) -> ToolCatalog:
         """Fetch all pages from tools/list and exclude malformed tool entries."""
 
-        tools: list[MCPTool] = []
+        def parse(payload: Mapping[str, Any]) -> MCPTool:
+            tool = MCPTool.from_protocol_dict(payload)
+            validate_x_mcp_headers(tool)
+            return tool
+
+        tools, page = await self._collect_pages(
+            "tools/list",
+            result_key="tools",
+            item_label="tool",
+            identity_key="name",
+            parse_item=parse,
+        )
+        return ToolCatalog(
+            tools=tuple(tools),
+            warnings=page.warnings,
+            ttl_ms=page.ttl_ms,
+            cache_scope=page.cache_scope,
+        )
+
+    async def list_resources(self) -> ResourceCatalog:
+        """Fetch all pages from resources/list and exclude malformed entries."""
+
+        resources, page = await self._collect_pages(
+            "resources/list",
+            result_key="resources",
+            item_label="resource",
+            identity_key="uri",
+            parse_item=MCPResource.from_protocol_dict,
+        )
+        return ResourceCatalog(
+            resources=tuple(resources),
+            warnings=page.warnings,
+            ttl_ms=page.ttl_ms,
+            cache_scope=page.cache_scope,
+        )
+
+    async def read_resource(self, resource: MCPResource) -> ResourceReadOutcome:
+        """Read one resource using its protocol URI, not the host resource_ref."""
+
+        result = await self._request(
+            "resources/read",
+            params={"uri": resource.uri},
+        )
+        if not isinstance(result, Mapping):
+            raise MCPProtocolError("resources/read result must be an object.")
+        return ResourceReadOutcome.from_result(resource.uri, result)
+
+    async def _collect_pages(
+        self,
+        method: str,
+        *,
+        result_key: str,
+        item_label: str,
+        identity_key: str,
+        parse_item: Callable[[Mapping[str, Any]], _Item],
+    ) -> tuple[list[_Item], _Page]:
+        """Follow every cursor of a paginated listing, skipping bad entries."""
+
+        items: list[_Item] = []
         warnings: list[str] = []
         cursor: str | None = None
         seen_cursors: set[str] = set()
@@ -107,38 +223,39 @@ class MCPClient:
             if cursor is not None:
                 params["cursor"] = cursor
 
-            result = await self._request("tools/list", params=params)
+            result = await self._request(method, params=params)
             if not isinstance(result, Mapping):
-                raise MCPProtocolError("tools/list result must be an object.")
+                raise MCPProtocolError(f"{method} result must be an object.")
 
-            raw_tools = result.get("tools")
-            if not isinstance(raw_tools, list):
-                raise MCPProtocolError("tools/list result.tools must be an array.")
+            raw_items = result.get(result_key)
+            if not isinstance(raw_items, list):
+                raise MCPProtocolError(
+                    f"{method} result.{result_key} must be an array."
+                )
 
-            for index, raw_tool in enumerate(raw_tools):
-                if not isinstance(raw_tool, Mapping):
-                    warnings.append(f"Ignored tool at index {index}: not an object.")
+            for index, raw_item in enumerate(raw_items):
+                if not isinstance(raw_item, Mapping):
+                    warnings.append(
+                        f"Ignored {item_label} at index {index}: not an object."
+                    )
                     continue
                 try:
-                    tool = MCPTool.from_protocol_dict(raw_tool)
-                    validate_x_mcp_headers(tool)
+                    items.append(parse_item(raw_item))
                 except ModelValidationError as exc:
-                    tool_name = raw_tool.get("name", f"index {index}")
-                    warnings.append(f"Ignored tool {tool_name!r}: {exc}")
-                    continue
-                tools.append(tool)
+                    identity = raw_item.get(identity_key, f"index {index}")
+                    warnings.append(f"Ignored {item_label} {identity!r}: {exc}")
 
             raw_ttl = result.get("ttlMs")
             if raw_ttl is not None:
                 if isinstance(raw_ttl, bool) or not isinstance(raw_ttl, int):
-                    raise MCPProtocolError("tools/list ttlMs must be an integer.")
+                    raise MCPProtocolError(f"{method} ttlMs must be an integer.")
                 ttl_ms = raw_ttl
 
             raw_scope = result.get("cacheScope")
             if raw_scope is not None:
                 if raw_scope not in {"public", "private"}:
                     raise MCPProtocolError(
-                        "tools/list cacheScope must be 'public' or 'private'."
+                        f"{method} cacheScope must be 'public' or 'private'."
                     )
                 cache_scope = raw_scope
 
@@ -147,15 +264,14 @@ class MCPClient:
                 break
             if not isinstance(next_cursor, str) or not next_cursor:
                 raise MCPProtocolError(
-                    "tools/list nextCursor must be a non-empty string."
+                    f"{method} nextCursor must be a non-empty string."
                 )
             if next_cursor in seen_cursors:
-                raise MCPProtocolError("tools/list returned a repeated cursor.")
+                raise MCPProtocolError(f"{method} returned a repeated cursor.")
             seen_cursors.add(next_cursor)
             cursor = next_cursor
 
-        return ToolCatalog(
-            tools=tuple(tools),
+        return items, _Page(
             warnings=tuple(warnings),
             ttl_ms=ttl_ms,
             cache_scope=cache_scope,

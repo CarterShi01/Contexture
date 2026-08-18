@@ -6,8 +6,12 @@ from dataclasses import dataclass, field
 from typing import ClassVar, Iterable
 
 from .context import CompileLevel, ContextNode
-from .data import DataBinding
-from .errors import DuplicateNameError, ModelValidationError, NodeNotFoundError
+from .errors import (
+    CapabilityDeniedError,
+    DuplicateNameError,
+    ModelValidationError,
+    NodeNotFoundError,
+)
 from .mcp.binding import MCPBinding
 from .skill import Skill
 from .types import CompiledContext
@@ -15,13 +19,12 @@ from .types import CompiledContext
 
 @dataclass(slots=True, kw_only=True)
 class Role(ContextNode):
-    """A responsibility boundary composed from roles, skills, MCP, and data."""
+    """A responsibility boundary composed from roles, skills, and MCP grants."""
 
     instructions: str
     children: list[Role] = field(default_factory=list)
     skills: list[Skill] = field(default_factory=list)
     mcp_bindings: list[MCPBinding] = field(default_factory=list)
-    data_bindings: list[DataBinding] = field(default_factory=list)
 
     kind: ClassVar[str] = "role"
 
@@ -42,10 +45,6 @@ class Role(ContextNode):
         self._require_unique(
             (binding.server.server_id for binding in self.mcp_bindings),
             "MCP server bindings",
-        )
-        self._require_unique(
-            (binding.source.source_id for binding in self.data_bindings),
-            "data source bindings",
         )
 
     @staticmethod
@@ -79,22 +78,39 @@ class Role(ContextNode):
         )
 
     def get_mcp_binding_for_tool_ref(self, tool_ref: str) -> MCPBinding:
-        server_id, separator, _ = tool_ref.partition("/")
-        if not separator or not server_id:
-            raise NodeNotFoundError(
-                f"Tool reference {tool_ref!r} must use '<server_id>/<tool_name>'."
-            )
-        binding = self.get_mcp_binding(server_id)
+        binding = self._binding_from_ref(tool_ref, "Tool", "<server_id>/<tool_name>")
         binding.require_tool_ref(tool_ref)
         return binding
 
-    def get_data_binding(self, source_ref: str) -> DataBinding:
-        for binding in self.data_bindings:
-            if binding.source.source_id == source_ref:
-                return binding
-        raise NodeNotFoundError(
-            f"Data binding {source_ref!r} was not found on role {self.name!r}."
+    def get_mcp_binding_for_resource_ref(self, resource_ref: str) -> MCPBinding:
+        binding = self._binding_from_ref(
+            resource_ref,
+            "Resource",
+            "<server_id>/<uri>",
         )
+        binding.require_resource_ref(resource_ref)
+        return binding
+
+    def _binding_from_ref(self, ref: str, label: str, shape: str) -> MCPBinding:
+        """Resolve the binding behind a host reference on an authorization path.
+
+        A role with no binding to the named server is denied rather than
+        reported as a lookup miss, so every refusal reaching a host through
+        get_mcp_binding_for_* is a single exception type.
+        """
+
+        server_id, separator, remainder = ref.partition("/")
+        if not separator or not server_id or not remainder:
+            raise NodeNotFoundError(
+                f"{label} reference {ref!r} must use {shape!r}."
+            )
+        try:
+            return self.get_mcp_binding(server_id)
+        except NodeNotFoundError as exc:
+            raise CapabilityDeniedError(
+                f"Role {self.name!r} has no binding for server {server_id!r}, so "
+                f"{label.lower()} {ref!r} is not granted."
+            ) from exc
 
     def _compile_active(self) -> CompiledContext:
         return {
@@ -111,8 +127,9 @@ class Role(ContextNode):
                 for binding in self.mcp_bindings
                 for tool_route in binding.compile_tool_routes()
             ],
-            "available_data_sources": [
-                binding.compile_source(CompileLevel.ROUTE)
-                for binding in self.data_bindings
+            "available_mcp_resources": [
+                resource_route
+                for binding in self.mcp_bindings
+                for resource_route in binding.compile_resource_routes()
             ],
         }

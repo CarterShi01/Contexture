@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "role-runtime-starter"
-version = "0.1.0"
-description = "Progressive Role, Skill, MCP, and Data object model for Python agent hosts"
+version = "0.0.2"
+description = "Progressive Role, Skill, and MCP object model for Python agent hosts"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [

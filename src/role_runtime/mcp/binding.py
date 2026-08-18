@@ -7,25 +7,31 @@ from dataclasses import dataclass, field
 from ..context import CompileLevel
 from ..errors import CapabilityDeniedError, DuplicateNameError, ModelValidationError
 from ..types import CompiledContext
-from .models import MCPServer, MCPTool
+from .models import MCPResource, MCPServer, MCPTool
 
 
 @dataclass(slots=True, kw_only=True)
 class MCPBinding:
-    """A role-specific projection of one server's tool catalog.
+    """A role-specific projection of one server's tool and resource catalog.
 
-    allowed_tools is the authorization allowlist. read_only_tools is a trusted
-    host classification used by RoleRuntime to decide whether explicit approval
-    is required. Protocol ToolAnnotations are not used for authorization.
+    allowed_tools and allowed_resources are the authorization allowlists.
+    read_only_tools is a trusted host classification used by RoleRuntime to
+    decide whether explicit approval is required before a tool runs. Protocol
+    ToolAnnotations are not used for authorization.
+
+    Resources need no second list: MCP resources are read-only at the protocol
+    level, so being on allowed_resources is the whole grant.
     """
 
     server: MCPServer
     allowed_tools: list[str] = field(default_factory=list)
     read_only_tools: list[str] = field(default_factory=list)
+    allowed_resources: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self._validate_unique(self.allowed_tools, "allowed_tools")
         self._validate_unique(self.read_only_tools, "read_only_tools")
+        self._validate_unique(self.allowed_resources, "allowed_resources")
 
         unknown = [
             tool_name
@@ -36,6 +42,17 @@ class MCPBinding:
             raise ModelValidationError(
                 f"Binding for server {self.server.server_id!r} references "
                 f"unknown tools: {unknown}."
+            )
+
+        unknown_resources = [
+            uri
+            for uri in self.allowed_resources
+            if not self.server.has_resource(uri)
+        ]
+        if unknown_resources:
+            raise ModelValidationError(
+                f"Binding for server {self.server.server_id!r} references "
+                f"unknown resources: {unknown_resources}."
             )
 
         ungranted_read_only = [
@@ -52,9 +69,9 @@ class MCPBinding:
     @staticmethod
     def _validate_unique(values: list[str], field_name: str) -> None:
         if len(values) != len(set(values)):
-            raise DuplicateNameError(f"{field_name} contains duplicate tool names.")
+            raise DuplicateNameError(f"{field_name} contains duplicate entries.")
         if any(not value.strip() for value in values):
-            raise ModelValidationError(f"{field_name} contains an empty tool name.")
+            raise ModelValidationError(f"{field_name} contains an empty entry.")
 
     def is_tool_allowed(self, tool_name: str) -> bool:
         return tool_name in self.allowed_tools
@@ -98,3 +115,40 @@ class MCPBinding:
     ) -> CompiledContext:
         tool_name = self.server.parse_tool_ref(tool_ref)
         return self.compile_tool(tool_name, level)
+
+    def is_resource_allowed(self, uri: str) -> bool:
+        return uri in self.allowed_resources
+
+    def require_resource(self, uri: str) -> MCPResource:
+        if not self.is_resource_allowed(uri):
+            raise CapabilityDeniedError(
+                f"Resource {uri!r} is not allowed by the binding for server "
+                f"{self.server.server_id!r}."
+            )
+        return self.server.get_resource(uri)
+
+    def require_resource_ref(self, resource_ref: str) -> MCPResource:
+        uri = self.server.parse_resource_ref(resource_ref)
+        return self.require_resource(uri)
+
+    def compile_resource_routes(self) -> list[CompiledContext]:
+        return [
+            self.server.compile_resource(uri, CompileLevel.ROUTE)
+            for uri in self.allowed_resources
+        ]
+
+    def compile_resource(
+        self,
+        uri: str,
+        level: CompileLevel | str = CompileLevel.ACTIVE,
+    ) -> CompiledContext:
+        self.require_resource(uri)
+        return self.server.compile_resource(uri, level)
+
+    def compile_resource_ref(
+        self,
+        resource_ref: str,
+        level: CompileLevel | str = CompileLevel.ACTIVE,
+    ) -> CompiledContext:
+        uri = self.server.parse_resource_ref(resource_ref)
+        return self.compile_resource(uri, level)

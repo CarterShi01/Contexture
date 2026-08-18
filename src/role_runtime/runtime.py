@@ -1,4 +1,4 @@
-"""Host-side orchestration for compilation, MCP execution, and data access."""
+"""Host-side orchestration for compilation and MCP execution."""
 
 from __future__ import annotations
 
@@ -6,16 +6,29 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from .compiler import CompileRequest, CompiledRoleContext, RoleCompiler
-from .data import DataProvider, DataReadResult
 from .errors import (
     ConfirmationRequired,
     ModelValidationError,
     NodeNotFoundError,
 )
-from .mcp.client import MCPClient, ToolCallOutcome, ToolCatalog
+from .mcp.client import (
+    MCPClient,
+    ResourceCatalog,
+    ResourceReadOutcome,
+    ToolCallOutcome,
+    ToolCatalog,
+)
 from .mcp.models import MCPServer
 from .registry import RoleRegistry
 from .role import Role
+
+
+@dataclass(slots=True, frozen=True, kw_only=True)
+class ServerCatalogRefresh:
+    """The tool and resource catalogs discovered by one refresh."""
+
+    tools: ToolCatalog
+    resources: ResourceCatalog
 
 
 @dataclass(slots=True, kw_only=True)
@@ -24,7 +37,6 @@ class RoleRuntime:
 
     root_role: Role
     mcp_clients: dict[str, MCPClient] = field(default_factory=dict)
-    data_providers: dict[str, DataProvider] = field(default_factory=dict)
     compiler: RoleCompiler = field(default_factory=RoleCompiler)
 
     registry: RoleRegistry = field(init=False)
@@ -62,81 +74,56 @@ class RoleRuntime:
                 "requires explicit approval."
             )
 
-        client = self.mcp_clients.get(binding.server.server_id)
-        if client is None:
-            raise NodeNotFoundError(
-                f"No MCP client is registered for server "
-                f"{binding.server.server_id!r}."
-            )
+        client = self._require_client(binding.server.server_id)
         return await client.call_tool(tool, arguments)
 
-    async def read_data(
+    async def read_resource(
         self,
         role_path: str,
-        source_ref: str,
-    ) -> DataReadResult:
-        role = self.registry.resolve(role_path)
-        binding = role.get_data_binding(source_ref)
-        binding.require_read()
-        provider = self.data_providers.get(binding.source.provider_id)
-        if provider is None:
-            raise NodeNotFoundError(
-                f"No data provider is registered with id "
-                f"{binding.source.provider_id!r}."
-            )
-        return await provider.read(binding.source)
+        resource_ref: str,
+    ) -> ResourceReadOutcome:
+        """Read a granted resource after a second host-side authorization check.
 
-    async def write_data(
-        self,
-        role_path: str,
-        source_ref: str,
-        value: Any,
-        *,
-        approved: bool = False,
-    ) -> None:
-        role = self.registry.resolve(role_path)
-        binding = role.get_data_binding(source_ref)
-        binding.require_write()
-        if not approved:
-            raise ConfirmationRequired(
-                f"Writing data source {source_ref!r} requires explicit approval."
-            )
-        provider = self.data_providers.get(binding.source.provider_id)
-        if provider is None:
-            raise NodeNotFoundError(
-                f"No data provider is registered with id "
-                f"{binding.source.provider_id!r}."
-            )
-        await provider.write(binding.source, value)
+        No approval gate exists here because MCP resources are read-only at the
+        protocol level. The allowlist on MCPBinding is the whole grant.
+        """
 
-    async def refresh_server_catalog(self, server_id: str) -> ToolCatalog:
-        """Discover a new tool catalog without silently breaking role grants."""
+        role = self.registry.resolve(role_path)
+        binding = role.get_mcp_binding_for_resource_ref(resource_ref)
+        resource = binding.require_resource_ref(resource_ref)
+
+        client = self._require_client(binding.server.server_id)
+        return await client.read_resource(resource)
+
+    async def refresh_server_catalog(self, server_id: str) -> ServerCatalogRefresh:
+        """Rediscover one server without silently breaking existing role grants.
+
+        Both catalogs are validated before either is replaced, so a rejected
+        resource catalog cannot leave the server holding refreshed tools.
+        """
 
         server = self.get_server(server_id)
-        client = self.mcp_clients.get(server_id)
-        if client is None:
-            raise NodeNotFoundError(
-                f"No MCP client is registered for server {server_id!r}."
-            )
+        client = self._require_client(server_id)
 
-        catalog = await client.list_tools()
-        discovered_names = {tool.name for tool in catalog.tools}
-        granted_names = {
-            tool_name
-            for _, role in self.registry.iter_roles()
-            for binding in role.mcp_bindings
-            if binding.server.server_id == server_id
-            for tool_name in binding.allowed_tools
-        }
-        missing_grants = sorted(granted_names - discovered_names)
-        if missing_grants:
-            raise ModelValidationError(
-                f"Refreshed server catalog {server_id!r} is missing tools that "
-                f"existing role bindings grant: {missing_grants}."
-            )
+        tool_catalog = await client.list_tools()
+        resource_catalog = await client.list_resources()
 
-        server.replace_tools(list(catalog.tools))
-        return catalog
+        self._require_grants_survive(
+            server_id,
+            discovered={tool.name for tool in tool_catalog.tools},
+            granted=self._granted_names(server_id, "allowed_tools"),
+            label="tools",
+        )
+        self._require_grants_survive(
+            server_id,
+            discovered={resource.uri for resource in resource_catalog.resources},
+            granted=self._granted_names(server_id, "allowed_resources"),
+            label="resources",
+        )
+
+        server.replace_tools(list(tool_catalog.tools))
+        server.replace_resources(list(resource_catalog.resources))
+        return ServerCatalogRefresh(tools=tool_catalog, resources=resource_catalog)
 
     def get_server(self, server_id: str) -> MCPServer:
         try:
@@ -145,6 +132,38 @@ class RoleRuntime:
             raise NodeNotFoundError(
                 f"MCP server {server_id!r} is not referenced by this role tree."
             ) from exc
+
+    def _require_client(self, server_id: str) -> MCPClient:
+        client = self.mcp_clients.get(server_id)
+        if client is None:
+            raise NodeNotFoundError(
+                f"No MCP client is registered for server {server_id!r}."
+            )
+        return client
+
+    def _granted_names(self, server_id: str, attribute: str) -> set[str]:
+        return {
+            name
+            for _, role in self.registry.iter_roles()
+            for binding in role.mcp_bindings
+            if binding.server.server_id == server_id
+            for name in getattr(binding, attribute)
+        }
+
+    @staticmethod
+    def _require_grants_survive(
+        server_id: str,
+        *,
+        discovered: set[str],
+        granted: set[str],
+        label: str,
+    ) -> None:
+        missing = sorted(granted - discovered)
+        if missing:
+            raise ModelValidationError(
+                f"Refreshed server catalog {server_id!r} is missing {label} that "
+                f"existing role bindings grant: {missing}."
+            )
 
     def _index_servers(self) -> dict[str, MCPServer]:
         indexed: dict[str, MCPServer] = {}
