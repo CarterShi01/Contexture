@@ -1,0 +1,18 @@
+[project]
+name = "oc-goal"
+version = "0.1.0"
+description = "One-creator's Goal domain, served through Contexture."
+requires-python = ">=3.10"
+dependencies = ["contexture-mcp"]
+
+# This project is served, not distributed: no build system, never installed
+# into the environment. `contexture serve` finds it by the table below and puts
+# this directory on sys.path.
+[tool.uv]
+package = false
+
+[tool.contexture]
+# The name a connecting host sees.
+name = "oc-goal"
+# Every root this server offers. A root is a role nothing else contains.
+roots = ["oc_goal.goal:GoalDomain"]
