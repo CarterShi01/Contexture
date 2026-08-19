@@ -326,14 +326,14 @@
 <div class="page">
 
   <header class="hero">
-    <p class="eyebrow">contexture · v0.0.4</p>
+    <p class="eyebrow">contexture · v0.0.5</p>
     <h1 class="title">Contexture Atlas</h1>
     <p class="dek">一份把框架拆开看的地图集——业务怎么声明一次、分层谁依赖谁、类怎么组合、同一份声明怎么变成一个 Claude Code 和 Codex 都能连的原生 MCP Server。</p>
     <p class="statline">
-      <span><b>35</b> 框架源文件</span><span class="sep">·</span>
-      <span><b>80</b> 个类</span><span class="sep">·</span>
-      <span><b>7</b> 层单向依赖</span><span class="sep">·</span>
-      <span><b>143/143</b> 测试通过</span><span class="sep">·</span>
+      <span><b>22</b> 框架源文件</span><span class="sep">·</span>
+      <span><b>36</b> 个类</span><span class="sep">·</span>
+      <span><b>5</b> 层单向依赖 + 1 副路</span><span class="sep">·</span>
+      <span><b>104</b> 个测试用例</span><span class="sep">·</span>
       <span>MCP <b>2026-07-28</b></span>
     </p>
   </header>
@@ -353,13 +353,13 @@
     <code>MCPBinding</code> / <code>protocol/</code> / <code>execution.py</code>
     描述的是"别人家的能力"和"怎么去调它"——那是宿主该干的事,不是提供方。
     删掉之后 <code>core</code> 只剩四个概念,且真的不知道 MCP 存在;
-    src 从 5613 行降到 3132 行。
+    src 从 5613 行降到 3105 行。
   </div>
 
   <nav class="index" aria-label="图鉴目录">
     <p class="eyebrow">图鉴目录 — 建议按顺序看</p>
     <ol>
-      <li><span class="num">00</span><a href="#plate-00">目录结构</a><span class="desc">— 先认路,25 个源文件各装什么</span></li>
+      <li><span class="num">00</span><a href="#plate-00">目录结构</a><span class="desc">— 先认路,22 个框架源文件各装什么</span></li>
       <li><span class="num">01</span><a href="#plate-01">分层地图</a><span class="desc">— 五层各管什么,谁能依赖谁</span></li>
       <li><span class="num">02</span><a href="#plate-02">文件依赖</a><span class="desc">— 文件之间的真实 import 图</span></li>
       <li><span class="num">03</span><a href="#plate-03">对象模型</a><span class="desc">— 类怎么继承、组合成一棵树</span></li>
@@ -374,57 +374,66 @@
   <section class="plate" id="plate-00">
     <p class="plate-eyebrow">Plate 00</p>
     <h2 class="plate-title">目录结构</h2>
-    <p class="plate-claim">25 个框架源文件,目录本身就是架构。主路是 <code>core → compiler → discovery → server</code>,<code>targets/</code> 是唯一的副路。每个文件只装一小撮互相配合的类。</p>
+    <p class="plate-claim">22 个框架源文件(不含 <code>__init__.py</code> 与 examples),目录本身就是架构。主路是 <code>core → compiler → discovery → server</code>,<code>targets/</code> 是唯一的副路。每个文件只装一小撮互相配合的类。</p>
 
     <div class="figure-wrap">
       <ul class="tree">
         <li>
-          <div class="row"><span class="path dir">src/contexture/</span></div>
+          <div class="row"><span class="path dir">src/contexture/</span><span class="desc">3105 行 · 34 个 .py(含 6 个 <code>__init__.py</code>)</span></div>
           <ul>
-            <li><div class="row"><span class="path">__init__.py</span><span class="desc">公开门面 — 只导出 core + compiler,上层要显式 import</span></div></li>
-            <li><div class="row"><span class="path">compiler.py</span><span class="desc">4 类 — RoleCompiler · CompileRequest · CapabilitySelection · CompiledRoleContext</span></div></li>
-            <li><div class="row"><span class="path">discovery.py</span><span class="desc"><strong>v0.0.4 新增</strong> · 3 类 — Ref 寻址 · CapabilityGraph · DisclosureEngine</span></div></li>
+            <li><div class="row"><span class="path">__init__.py</span><span class="desc">67 行 — 公开门面,只导出 core + compiler;server / targets 要显式 import</span></div></li>
+            <li><div class="row"><span class="path">compiler.py</span><span class="desc">70 行 · 4 类 — <strong>RoleCompiler</strong> · CompileRequest · CapabilitySelection · CompiledRoleContext</span></div></li>
+            <li><div class="row"><span class="path">discovery.py</span><span class="desc">295 行 · 3 类 — Ref 寻址 · CapabilityGraph · DisclosureEngine</span></div></li>
             <li>
-              <div class="row"><span class="path dir">core/</span><span class="desc">对象模型 · 零 I/O · 零协议 · 唯一必须的层</span></div>
+              <div class="row"><span class="path dir">core/</span><span class="desc">对象模型 · 零 I/O · 零线路 · 不知道 MCP 存在 · 唯一必须的层</span></div>
               <ul>
-                <li><div class="row"><span class="path">types.py</span><span class="desc">共享类型别名,零内部依赖</span></div></li>
-                <li><div class="row"><span class="path">constants.py</span><span class="desc">只剩包名与版本号——协议版本号随出站方向一起走了</span></div></li>
-                <li><div class="row"><span class="path">coercion.py</span><span class="desc">协议字段的校验型转换</span></div></li>
-                <li><div class="row"><span class="path">errors.py</span><span class="desc">6 类 — 以 ContextureError 为根的异常树</span></div></li>
-                <li><div class="row"><span class="path">context.py</span><span class="desc">2 类 — ContextNode · CompileLevel,渐进披露的统一契约</span></div></li>
-                <li><div class="row"><span class="path">declarative.py</span><span class="desc">2 类 · 266 行 — 类体 → Declaration 的收集与校验</span></div></li>
-                <li><div class="row"><span class="path">skill.py</span><span class="desc">Skill — 可复用的过程知识</span></div></li>
-                <li><div class="row"><span class="path">role.py</span><span class="desc">Role — 递归组合的团队树 + 声明式入口;四个字段全是"自己声明的东西"</span></div></li>
-                <li><div class="row"><span class="path">tools.py</span><span class="desc"><strong>Tool</strong> — 自己实现的可执行能力,schema 从 <code>invoke</code> 签名推导</span></div></li>
-                <li><div class="row"><span class="path">resources.py</span><span class="desc"><strong>Resource</strong> — 自己产出的内容,只描述,字节按需产生</span></div></li>
-                <li><div class="row"><span class="path">registry.py</span><span class="desc">RoleRegistry — 路径解析 + 环检测</span></div></li>
+                <li><div class="row"><span class="path">types.py</span><span class="desc">11 行 — 共享类型别名,零内部依赖</span></div></li>
+                <li><div class="row"><span class="path">constants.py</span><span class="desc">8 行 — 只剩包名与版本号;协议版本号随出站方向一起走了</span></div></li>
+                <li><div class="row"><span class="path">errors.py</span><span class="desc">39 行 · 6 类 — 以 ContextureError 为根的异常树</span></div></li>
+                <li><div class="row"><span class="path">context.py</span><span class="desc">67 行 · 2 类 — ContextNode · CompileLevel,渐进披露的统一契约</span></div></li>
+                <li><div class="row"><span class="path">declarative.py</span><span class="desc">278 行 · 2 类 — 类体 → Declaration 的收集与校验;<strong>四个节点类型都用它</strong></span></div></li>
+                <li><div class="row"><span class="path">skill.py</span><span class="desc">80 行 — <strong>Skill</strong>,可复用的过程知识</span></div></li>
+                <li><div class="row"><span class="path">tools.py</span><span class="desc">101 行 — <strong>Tool</strong>,自己实现的可执行能力;schema 从 <code>invoke</code> 签名推导</span></div></li>
+                <li><div class="row"><span class="path">resources.py</span><span class="desc">97 行 — <strong>Resource</strong>,自己产出的内容;只描述,字节按需产生</span></div></li>
+                <li><div class="row"><span class="path">role.py</span><span class="desc">226 行 — <strong>Role</strong>,递归组合的团队树 + 声明式入口;四个字段全是"自己声明的东西"</span></div></li>
+                <li><div class="row"><span class="path">registry.py</span><span class="desc">65 行 — RoleRegistry,路径解析 + 环检测</span></div></li>
               </ul>
             </li>
             <li>
-              <div class="row"><span class="path dir">server/</span><span class="desc"><strong>v0.0.4 新增 · 主路终点</strong> — 原生 MCP Server,唯一 import 官方 SDK 的层</span></div>
+              <div class="row"><span class="path dir">server/</span><span class="desc"><strong>主路终点</strong> — 原生 MCP Server,唯一 import 官方 SDK 的层</span></div>
               <ul>
-                <li><div class="row"><span class="path">app.py</span><span class="desc">ContextureApp — 业务唯一需要接触的对象;不继承 SDK 的 MCPServer,而是组合它</span></div></li>
-                <li><div class="row"><span class="path">projection.py</span><span class="desc">声明 → MCP 表面的翻译层,<strong>不含任何业务规则</strong></span></div></li>
-                <li><div class="row"><span class="path">instructions.py</span><span class="desc">bootstrap 文案 — 前 512 字自包含(Codex),总长 &lt;2KB(Claude Code)</span></div></li>
-                <li><div class="row"><span class="path">registration.py</span><span class="desc">生成指向<strong>本 server</strong> 的宿主配置——取代了"生成上下文文件"</span></div></li>
+                <li><div class="row"><span class="path">app.py</span><span class="desc">100 行 — ContextureApp,业务唯一需要接触的对象;不继承 SDK 的 MCPServer,而是组合它</span></div></li>
+                <li><div class="row"><span class="path">projection.py</span><span class="desc">197 行 · 2 类 — 声明 → MCP 表面的翻译层,<strong>不含任何业务规则</strong></span></div></li>
+                <li><div class="row"><span class="path">instructions.py</span><span class="desc">44 行 — bootstrap 文案,前 512 字自包含(Codex),总长 &lt;2KB(Claude Code)</span></div></li>
+                <li><div class="row"><span class="path">registration.py</span><span class="desc">97 行 — 生成指向<strong>本 server</strong> 的宿主配置;不 import 包内任何东西</span></div></li>
               </ul>
             </li>
             <li>
-              <div class="row"><span class="path dir">examples/incident/</span><span class="desc"><strong>v0.0.4 新增</strong> — 确定性的 K8s 故障诊断 demo,只依赖公开 API</span></div>
-            </li>
-            <li>
-              <div class="row"><span class="path dir">targets/</span><span class="desc">按 Agent 渲染 · <strong>副路</strong>:给连不上 MCP 的 runtime</span></div>
+              <div class="row"><span class="path dir">targets/</span><span class="desc">按 Agent 渲染 · <strong>唯一副路</strong>:给连不上 MCP 的 runtime</span></div>
               <ul>
-                <li><div class="row"><span class="path">base.py</span><span class="desc">4 类 · 291 行 — Artifact · ArtifactSet · TargetAdapter · 能力矩阵</span></div></li>
-                <li><div class="row"><span class="path">markdown.py</span><span class="desc">三个适配器共用的 front matter / 能力表格渲染</span></div></li>
-                <li><div class="row"><span class="path">claude_code.py</span><span class="desc">CLAUDE.md · .claude/skills/*/SKILL.md</span></div></li>
-                <li><div class="row"><span class="path">codex.py</span><span class="desc">AGENTS.md</span></div></li>
-                <li><div class="row"><span class="path">cursor.py</span><span class="desc">.cursor/rules/*.mdc</span></div></li>
-                <li><div class="row"><span class="path">writer.py</span><span class="desc">3 类 — <strong>全包唯一写磁盘的地方</strong>,支持 plan / dry-run</span></div></li>
+                <li><div class="row"><span class="path">base.py</span><span class="desc">224 行 · 4 类 — Artifact · ArtifactSet · TargetCapabilities · TargetAdapter</span></div></li>
+                <li><div class="row"><span class="path">markdown.py</span><span class="desc">100 行 — 三个适配器共用的 front matter / 能力表格渲染</span></div></li>
+                <li><div class="row"><span class="path">claude_code.py</span><span class="desc">116 行 — CLAUDE.md · .claude/skills/*/SKILL.md</span></div></li>
+                <li><div class="row"><span class="path">codex.py</span><span class="desc">89 行 — AGENTS.md</span></div></li>
+                <li><div class="row"><span class="path">cursor.py</span><span class="desc">118 行 — .cursor/rules/*.mdc</span></div></li>
+                <li><div class="row"><span class="path">writer.py</span><span class="desc">137 行 · 3 类 — <strong>全包唯一写磁盘的地方</strong>,支持 plan / dry-run</span></div></li>
               </ul>
             </li>
-        <li><div class="row"><span class="path dir">tests/</span><span class="desc">9 个测试文件,含分层约束、I/O 边界,以及<strong>真起子进程走 stdio</strong> 的端到端验证</span></div></li>
-        <li><div class="row"><span class="path dir">docs/</span><span class="desc">01 对象模型 · 02 框架分层 · adr/001 主路翻转 · adr/003 移除出站 · verification/ 宿主实测 · atlas 本页</span></div></li>
+            <li>
+              <div class="row"><span class="path dir">examples/incident/</span><span class="desc">确定性的 K8s 故障诊断 demo,只依赖公开 API</span></div>
+              <ul>
+                <li><div class="row"><span class="path">fixtures.py</span><span class="desc">88 行 — 那一个固定事故:CrashLoopBackOff,14 次重启,缺 DB_URL</span></div></li>
+                <li><div class="row"><span class="path">tools.py</span><span class="desc">112 行 — 三个只读 tool + 两个 dataclass 返回类型</span></div></li>
+                <li><div class="row"><span class="path">skills.py</span><span class="desc">41 行 — 那段只有 get_context 才吐出来的诊断过程</span></div></li>
+                <li><div class="row"><span class="path">role.py</span><span class="desc">29 行 — 把 skill / tool / resource 绑成一个职责边界</span></div></li>
+                <li><div class="row"><span class="path">resources.py</span><span class="desc">24 行 — CrashLoopBackOff runbook</span></div></li>
+                <li><div class="row"><span class="path">server.py</span><span class="desc">27 行 — <code>contexture-incident-demo</code> 的入口</span></div></li>
+              </ul>
+            </li>
+          </ul>
+        </li>
+        <li><div class="row"><span class="path dir">tests/</span><span class="desc">8 个测试文件 · 104 个用例,含分层约束、I/O 边界,以及<strong>真起子进程走 stdio</strong> 的端到端验证</span></div></li>
+        <li><div class="row"><span class="path dir">docs/</span><span class="desc">01 对象模型 · 02 框架分层 · adr/001 主路翻转 · adr/002 per-call context(提案) · adr/003 移除出站 · verification/ 宿主实测 · atlas 本页</span></div></li>
       </ul>
     </div>
 
@@ -495,55 +504,72 @@ flowchart TB
       <figure>
         <pre class="mermaid">
 flowchart TB
-    subgraph CORE["contexture.core — 对象模型"]
+    subgraph CORE["contexture.core — 对象模型 · 不知道 MCP 存在"]
         direction TB
-        base["types · constants · errors<br/><i>零内部依赖</i>"]
+        base["types.py · constants.py · errors.py<br/><i>零内部依赖,几乎人人 import</i>"]
         context["context.py<br/>ContextNode · CompileLevel"]
-        decl["declarative.py<br/>Declaration 收集"]
+        decl["declarative.py<br/>类体 → Declaration"]
         skill["skill.py<br/>Skill"]
         tools["tools.py<br/>Tool"]
         resources["resources.py<br/>Resource"]
         role["role.py<br/>Role"]
         registry["registry.py<br/>RoleRegistry"]
     end
-    subgraph SERVER["contexture.server — 唯一 import mcp"]
+
+    compiler["<b>compiler.py</b><br/>RoleCompiler · CompileRequest<br/>CapabilitySelection · CompiledRoleContext"]
+    discovery["<b>discovery.py</b><br/>Ref · CapabilityGraph<br/>DisclosureEngine"]
+
+    subgraph SERVER["contexture.server — 唯一 import 官方 SDK"]
+        direction TB
+        instr["instructions.py<br/>bootstrap 文案"]
+        proj["projection.py<br/>声明 → MCP 表面"]
         app["app.py<br/>ContextureApp"]
-        proj["projection.py"]
-        instr["instructions.py"]
-        reg["registration.py"]
+        reg["registration.py<br/>宿主启动配置<br/><i>零包内依赖</i>"]
     end
     subgraph TARGETS["contexture.targets — 副路"]
+        direction TB
         tbase["base.py<br/>Artifact · TargetAdapter"]
         md["markdown.py"]
         adapters["claude_code · codex · cursor"]
         writer["writer.py<br/><i>唯一写磁盘的地方</i>"]
     end
-
-    compiler["compiler.py<br/>RoleCompiler"]
-    discovery["discovery.py<br/>Ref · CapabilityGraph<br/>DisclosureEngine"]
+    sdk[["官方 MCP SDK<br/>mcp · mcp_types"]]
 
     base --> context
+    base --> decl
     context --> skill
     context --> tools
     context --> resources
+    decl --> skill
+    decl --> tools
+    decl --> resources
     decl --> role
     skill --> role
     tools --> role
     resources --> role
     role --> registry
     role --> compiler
+    compiler --> discovery
+    registry --> discovery
+    role --> instr
+    tools --> proj
+    resources --> proj
+    discovery --> proj
+    discovery --> app
+    proj --> app
+    instr --> app
+    sdk --> proj
+    sdk --> app
     role --> tbase
+    registry --> tbase
     tbase --> md
     md --> adapters
     tbase --> writer
-    compiler --> discovery
-    registry --> discovery
-    discovery --> app
-    discovery --> proj
-    app --> proj
-    instr --> app
+
+    style compiler stroke-width:3px
+    style discovery stroke-width:3px
         </pre>
-        <figcaption>箭头方向 = 谁 import 谁。<code>core/role.py</code> 是入度最高的节点——四个概念全在它身上汇合。ADR 003 之后 <code>core</code> 里的 DAG 只剩一条主干:<code>context → {skill, tools, resources} → role → registry</code>。</figcaption>
+        <figcaption>箭头方向 = 被 import 者 → import 者。<code>role.py</code> 出度最高:它是四个概念汇合的地方,也是 compiler / registry / instructions / targets 共同的入口。<code>declarative.py</code> 同时喂给 Skill、Tool、Resource、Role 四个类型——类体声明这条路对四者一视同仁。<code>registration.py</code> 是全包唯一一个不 import 包内任何东西的模块,它只拼一段启动命令。<code>types</code> / <code>errors</code> 的扇出没有画全,否则线会盖住图。</figcaption>
       </figure>
     </div>
 
@@ -557,7 +583,7 @@ flowchart TB
   <section class="plate" id="plate-03">
     <p class="plate-eyebrow">Plate 03</p>
     <h2 class="plate-title">对象模型</h2>
-    <p class="plate-claim">四个 <code>ContextNode</code> 子类共享同一套 route / active 生命周期,而且只有这四个。<code>Role</code> 的每个字段都是"它自己声明的东西"——没有第二条腿。</p>
+    <p class="plate-claim">四个 <code>ContextNode</code> 子类共享同一套 route / active 生命周期,而且只有这四个。<code>Role</code> 的每个字段都是"它自己声明的东西"——没有第二条腿。<code>RoleCompiler</code> 是模型与披露之间那道唯一的门:节点知道怎么编译自己,<strong>但"编译谁、编译到哪一档"由它决定</strong>。</p>
 
     <div class="figure-wrap">
       <figure>
@@ -592,15 +618,31 @@ classDiagram
         +read()
     }
     class RoleCompiler {
-        +compile(role, request)
+        +compile(role, request) CompiledRoleContext
+    }
+    class CompileRequest {
+        +level : CompileLevel
+        +selection : CapabilitySelection
+    }
+    class CapabilitySelection {
+        +skill_names : str[]
+    }
+    class CompiledRoleContext {
+        +role : dict
+        +activated_skills : dict[]
+        +to_dict()
     }
     class RoleRegistry {
-        +resolve(path)
+        +resolve(path) Role
         +iter_roles()
     }
     class DisclosureEngine {
         +discover(ref)
         +get_context(ref)
+    }
+    class Ref {
+        +kind · role_path · leaf
+        +parse(raw)$
     }
 
     ContextNode &lt;|-- Role
@@ -611,12 +653,17 @@ classDiagram
     Role o-- Skill : skills
     Role o-- Tool : tools
     Role o-- Resource : resources
-    RoleCompiler --&gt; Role : compiles
-    RoleRegistry --&gt; Role : resolves
-    DisclosureEngine --&gt; RoleCompiler : uses
-    DisclosureEngine --&gt; RoleRegistry : uses
+
+    RoleCompiler ..&gt; Role : compiles
+    CompileRequest *-- CapabilitySelection
+    RoleCompiler ..&gt; CompileRequest : takes
+    RoleCompiler ..&gt; CompiledRoleContext : returns
+    RoleRegistry ..&gt; Role : resolves
+    DisclosureEngine *-- RoleCompiler
+    DisclosureEngine ..&gt; RoleRegistry : uses
+    DisclosureEngine ..&gt; Ref : addresses by
         </pre>
-        <figcaption>图里该有却没有的东西:没有 server 对象,没有授权关系对象,没有出站客户端。一个 Role 声明一个 Tool,那就是全部关系——<strong>拥有不需要授权</strong>。四个类全部由业务层继承,而且没有一个知道 MCP 存在。</figcaption>
+        <figcaption>实线菱形 = 组合,虚线箭头 = 使用。上半部是业务继承的四个类型,下半部是框架自己用的机制,两者之间只通过 <code>compile(level)</code> 这一个方法接触。图里该有却没有的东西:没有 server 对象,没有授权关系对象,没有出站客户端——一个 Role 声明一个 Tool,那就是全部关系,<strong>拥有不需要授权</strong>。</figcaption>
       </figure>
     </div>
 
@@ -693,40 +740,42 @@ flowchart LR
   <section class="plate" id="plate-05">
     <p class="plate-eyebrow">Plate 05</p>
     <h2 class="plate-title">多目标渲染 — 声明一次,三种表达</h2>
-    <p class="plate-claim">这是 v0.0.3 的核心价值:同一棵 Role 树进去,三种 Agent 各自能读的文件出来,<strong>并如实报告每个目标丢了什么</strong>。</p>
+    <p class="plate-claim">副路,但没退化:同一棵 Role 树进去,三种 Agent 各自能读的文件出来,<strong>并如实报告每个目标丢了什么</strong>。ADR 003 之后能力矩阵从五项收到三项——"能不能生成 server 配置"和"能不能表达工具白名单"两项随出站方向一起消失了。</p>
 
     <div class="figure-wrap">
       <figure>
         <pre class="mermaid">
 flowchart LR
-    role["<b>Role 树</b><br/>engineering-team<br/>+ 3 个专家角色<br/>+ 2 个 Skill<br/>+ 2 个 MCP Server"]
+    role["<b>Role 树</b><br/>engineering-team<br/>+ 2 个专家角色<br/>+ 1 个 Skill<br/>+ 自己的 Tool / Resource"]
 
-    subgraph AD["TargetAdapter · 各声明自己的能力矩阵"]
+    subgraph AD["TargetAdapter · 各声明自己的能力矩阵(3 项)"]
         direction TB
-        cc["<b>ClaudeCodeAdapter</b><br/>skill 文件 ✓ · 嵌套角色 ✓<br/>渐进披露 ✓ · 工具白名单 ✗"]
-        cx["<b>CodexAdapter</b><br/>skill 文件 ✗ · 嵌套角色 ✗<br/>渐进披露 ✗ · 工具白名单 ✗"]
-        cu["<b>CursorAdapter</b><br/>skill 文件 ✓ · 嵌套角色 ✗<br/>渐进披露 ✓ · 工具白名单 ✗"]
+        cc["<b>ClaudeCodeAdapter</b><br/>skill 文件 ✓ · 渐进披露 ✓<br/>嵌套角色 ✓"]
+        cx["<b>CodexAdapter</b><br/>skill 文件 ✗ · 渐进披露 ✗<br/>嵌套角色 ✗"]
+        cu["<b>CursorAdapter</b><br/>skill 文件 ✓ · 渐进披露 ✓<br/>嵌套角色 ✗"]
     end
 
-    a1["CLAUDE.md<br/>.claude/skills/*/SKILL.md<br/>.mcp.json"]
-    a2["AGENTS.md<br/>.codex/config.toml"]
-    a3[".cursor/rules/*.mdc<br/>.cursor/mcp.json"]
-    notes["<b>notes[]</b><br/>每个 ✗ 自动变成一条说明"]
+    a1["CLAUDE.md<br/>.claude/skills/*/SKILL.md"]
+    a2["AGENTS.md"]
+    a3[".cursor/rules/*.mdc"]
+    n0["notes = 0<br/><i>无损,所以沉默</i>"]
+    n3["notes = 3"]
+    n2["notes = 2"]
     writer["<b>writer</b><br/>plan() 只比对<br/>write() 才落盘"]
 
     role --> cc --> a1
     role --> cx --> a2
     role --> cu --> a3
-    cc -.-> notes
-    cx -.-> notes
-    cu -.-> notes
+    cc -.-> n0
+    cx -.-> n3
+    cu -.-> n2
     a1 --> writer
     a2 --> writer
     a3 --> writer
 
-    style notes stroke-width:3px
+    style n0 stroke-width:3px
         </pre>
-        <figcaption>能力矩阵是<strong>数据</strong>,不是每个适配器手写的警告:基类拿声明与矩阵求差,自动生成 notes。最要命的一行是"工具白名单 ✗"——三个目标<strong>都</strong>无法表达 per-role 工具授权,所以授权只能由 host 兜住。把这件事说出来是重点:一个看着权威、却悄悄放宽了授权的产物,是安全问题而不是格式问题。</figcaption>
+        <figcaption>能力矩阵是<strong>数据</strong>,不是每个适配器手写的警告:基类拿声明与矩阵求差,自动生成 notes。上面三个数字是跑出来的,不是估的——Codex 三项全丢所以三条,Cursor 丢嵌套角色所以两条(第二条是它自己补的:规则名是扁平命名空间)。<strong>Claude Code 现在一条都不报</strong>,因为三项能力全满,它真的没丢东西;测试因此改成"有损必报、无损必沉默"两条断言。</figcaption>
       </figure>
     </div>
 
@@ -736,6 +785,9 @@ flowchart LR
       线路整个交给了官方 SDK。这两条同样有测试守着(基于 AST,不是字符串匹配)。</p>
       <p>摘要是内容哈希,所以"已安装的产物是否已经漂移"可以直接比对得出;
       writer 也据此跳过内容未变的文件,不去无谓地改动时间戳。</p>
+      <p><strong>一个被顺带修掉的坑。</strong> 能力表格从前只渲染 binding 里的<em>外部</em> tool,
+      也就是说角色<em>自己</em>的 <code>Tool</code> / <code>Resource</code> 从来没进过任何产物。
+      现在表格指向本地能力,<code>Access</code> 列取 <code>Tool.read_only</code>。</p>
     </div>
   </section>
 
@@ -773,7 +825,7 @@ sequenceDiagram
   <section class="plate" id="plate-07">
     <p class="plate-eyebrow">Plate 07</p>
     <h2 class="plate-title">MCP 投影 — 声明怎么变成扁平的 MCP 表面</h2>
-    <p class="plate-claim">这是 v0.0.4 的核心转换。<code>server/projection.py</code> 是全仓库唯一知道线路长什么样的地方,而它<strong>不含任何业务规则</strong>——它做的全部事情就是翻译。</p>
+    <p class="plate-claim">这是主路的核心转换。<code>server/projection.py</code> 是全仓库唯一知道线路长什么样的地方,而它<strong>不含任何业务规则</strong>——它做的全部事情就是翻译。</p>
 
     <div class="figure-wrap">
       <figure>
@@ -883,9 +935,9 @@ sequenceDiagram
   </section>
 
   <footer>
-    <div>contexture · git@github.com:CarterShi01/Contexture.git · v0.0.3</div>
-    <div>设计文档:docs/01-role-object-model.md(对象模型) · docs/02-framework-layers.md(框架分层)</div>
-    <div>contexture · v0.0.4 · 本页纯手工维护,不随代码自动生成——架构变了记得回来改这份文件(旁边 vendor/mermaid.min.js 是本地离线渲染依赖)。</div>
+    <div>contexture · v0.0.5 · git@github.com:CarterShi01/Contexture.git</div>
+    <div>设计文档:docs/01-role-object-model.md(对象模型) · docs/02-framework-layers.md(框架分层) · docs/adr/(001 主路翻转 · 002 per-call context 提案 · 003 移除出站)</div>
+    <div>本页纯手工维护,不随代码自动生成——架构变了记得回来改这份文件(旁边 vendor/mermaid.min.js 是本地离线渲染依赖)。</div>
     <div>改完跑一次 node docs/atlas/check.mjs 校验每张图能否解析(需先 npm install jsdom@22)。</div>
   </footer>
 

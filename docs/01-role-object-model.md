@@ -509,8 +509,15 @@ The result contains the active Role surface and only the selected active Skill
 details.
 
 The compiler never executes a Tool and never reads a Resource. It produces
-context. Navigation over the graph belongs to `DisclosureEngine` above it
-(§17.4), which is what the server actually calls.
+context.
+
+It is deliberately a separate object rather than a method. A `ContextNode` knows
+how to compile *itself*; the compiler decides **which** node and **at which
+level**, and a `CompileRequest` is where that decision is written down. Folding
+it into `ContextNode.compile` would scatter that policy across every node type
+and leave a request with nowhere to live. `DisclosureEngine` (§17.4) is built on
+top of this seam — `contexture.discovery` imports `contexture.compiler`, never
+the reverse.
 
 ### 17.3 RoleRegistry
 

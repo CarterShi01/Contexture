@@ -45,7 +45,9 @@ The outbound direction is removed, not relocated.
 
 Gone: `MCPTool`, `MCPResource`, `ToolAnnotations`, `MCPServer`,
 `ServerConnection` / `StdioConnection` / `HTTPConnection`, `MCPBinding`, the
-`contexture.protocol` package, and `contexture.execution`. With them go
+`contexture.protocol` package, `contexture.execution`, and `core/coercion.py` —
+whose validating conversions existed only for the two `from_protocol_dict`
+constructors. With them go
 `Role.mcp_bindings`, the four `get_mcp_binding*` accessors, the two
 `available_mcp_*` keys, the binding branch of `RoleCompiler`, and the
 outbound-only exceptions.
@@ -85,7 +87,9 @@ through.
 
 ## Consequences
 
-- `src` drops from 5613 to 3132 lines; the test suite from twelve files to nine.
+- `src` drops from 5613 to 3105 lines, and from 35 framework source files to 22;
+  the test suite from thirteen test files to eight, and 36 classes remain in the
+  framework.
 - One `Tool` concept and one `Resource` concept. The three-way ambiguity that
   made "which Tool do you mean?" a real question is gone.
 - `core/constants.py` holds a package name and a version. The layer is finally
@@ -101,16 +105,19 @@ through.
 - `ClaudeCodeAdapter` now reports no losses, because with server configuration
   out of scope it has none. The target tests assert that a lossy adapter reports
   and a lossless one stays quiet.
-- `RoleCompiler` survives with `CapabilitySelection` reduced to `skill_names`. It
-  is thin — `DisclosureEngine` is what the server calls — and whether it earns its
-  place is an open question, not something this ADR settles.
+- `RoleCompiler` survives, with `CapabilitySelection` reduced to `skill_names`,
+  and it stays. A `ContextNode` knows how to compile *itself*; the compiler is
+  what decides **which** node and **at which level**, and it is the seam
+  `DisclosureEngine` is built on — `discovery` imports `compiler`, not the
+  reverse. Collapsing it into `ContextNode.compile` would push that policy into
+  every node and leave nowhere for a compile request to be expressed. It is
+  thinner than it was; it is not vestigial.
 - Design 01 and Design 02 lost or rewrote nine sections between them, and the
   atlas lost a plate. That is the real cost of having left the decision half
   made in ADR 001: the documentation had already been written around it.
 
 ## Not done here
 
-- Whether `RoleCompiler` should collapse into `ContextNode.compile`.
 - The per-call context object and the options struct (ADR 002), still proposed.
 - Any proxy or gateway capability. If one is ever wanted, it starts from this
   smaller core rather than from the objects removed here.
