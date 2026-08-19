@@ -353,6 +353,10 @@ src/contexture/
 - [`docs/adr/003-remove-the-outbound-half.md`](docs/adr/003-remove-the-outbound-half.md)
   — why the client half ADR 001 left alone was removed instead, and what that
   gave up.
+- [`docs/adr/004-progressive-disclosure-as-a-lazy-role-tree.md`](docs/adr/004-progressive-disclosure-as-a-lazy-role-tree.md)
+  — **proposed.** Tools and resources are resident today, so only prose is
+  deferred; this argues for a fixed gateway surface, an eager role skeleton with
+  lazy capability detail, and the class design that holds it.
 - [`docs/atlas/index.html`](docs/atlas/index.html) — an offline visual atlas;
   open it directly in a browser. After editing it, run
   `npm install jsdom@22 && node docs/atlas/check.mjs` to confirm every diagram
