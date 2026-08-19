@@ -40,6 +40,29 @@ answers one question:
 
 A concept that does neither is a spare part, however well made.
 
+## The programming model
+
+The framework is built as an object model, and the business layer extends it by
+inheritance. There is no registration call, no manifest to keep in step with the
+code, and no decorator that can drift away from the class it decorates:
+
+```python
+class GetPodLogs(Tool):            # a capability you own
+class DiagnoseCrashLoop(Skill):    # a procedure you own
+class CrashLoopRunbook(Resource):  # content you own
+class IncidentResponder(Role):     # the boundary that holds them
+```
+
+Each base class states one contract and derives the rest from what the subclass
+already says. The class name becomes the node name, the docstring becomes the
+routing description, and a tool's input schema is read off the type hints on
+`invoke`. Nothing is written twice, so nothing can fall out of sync.
+
+Inversion of control runs the other way from a library: you never construct a
+server, dispatch a request, parse arguments, or serialize a result. You declare
+what you own and hand the roots to `ContextureApp`; the framework calls your
+code, not the reverse.
+
 ## The problem
 
 A system that wants to work with several agents ends up maintaining the same
