@@ -26,8 +26,24 @@ class Skill(ContextNode):
             '''Diagnose why a Kubernetes Pod is failing.'''
 
             instructions = "1. Inspect status. 2. Read logs."
+
+    A Skill and a Role both carry instructions, and the difference is whether
+    the node holds anything. A Role's instructions orchestrate its members; a
+    Skill holds none, so its instructions are the whole of it and opening one
+    is the end of a path rather than a step along it. A method that needs its
+    own tools to be kept away from its siblings' tools is a child Role, not a
+    Skill.
+
+    Against a Tool the split is who performs the work: a Tool is executed by
+    the framework and returns a result, a Skill is executed by the model and
+    returns nothing. Work that has to be judged rather than computed can only
+    be a Skill — which is also why a Skill is the right home for a procedure
+    whose steps are existing tools, with no code of its own to run.
     """
 
+    #: The complete procedure. There is no second, fuller copy anywhere: this
+    #: text reaches an agent only when the skill is opened, so anything left
+    #: out of it is not disclosed late — it is not disclosed at all.
     instructions: str
 
     kind: ClassVar[str] = "skill"

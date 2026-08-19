@@ -152,10 +152,25 @@ opposite context requirements.
 
 ```text
 description  = when should the Host or model select this Role?
-instructions = how should the selected Role behave?
+instructions = how should the selected Role behave, and how should it use
+               what it holds?
 ```
 
 This distinction is the foundation of progressive disclosure.
+
+The second half of that question is what makes a composite Role work. A Role
+that coordinates others does nothing itself, so every word of its instructions
+is about its members: which branch a task belongs to, what order they run in,
+and what must be established before one of them is opened. `KubernetesPlatform`
+in `examples/incident/` holds two child Roles and no tools, and its
+instructions are entirely orchestration — *route to the specialism the task
+belongs to, and open only that one; diagnose before remediating*.
+
+Nothing else can carry that text. Opening a Role returns its instructions
+alongside a route card for every member, and a card is three short strings —
+it says what a member is, never when to reach for it relative to its siblings.
+An agent that is handed cards without that sentence is left to infer the order
+from the names.
 
 ## 7. Step 3: Skill as reusable workflow knowledge
 

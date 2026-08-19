@@ -34,6 +34,18 @@ class Tool(ContextNode):
     host can decide whether to ask a human before running the tool, and it must
     never appear in the tool's input schema.
 
+    A Tool is the only node the framework executes on the agent's behalf, and
+    that is what separates it from the other three. A Skill describes work the
+    model performs; a Tool performs work the model asked for. So the question
+    that places something here is whether the answer can be *computed* — if
+    producing it requires judgement, the model must do it and what belongs in
+    the declaration is a Skill.
+
+    A read-only Tool and a Resource look alike from outside and are not: this
+    derives an answer from the arguments it is given, while a Resource is
+    content that already exists at a stable URI and is merely fetched. If two
+    calls with no arguments must return the same bytes, it is a Resource.
+
     **One instance serves the whole process, so `invoke` must be re-entrant.**
     A Tool is built once, when the tree is, and every call to it — from every
     session, and from calls a host issues in parallel on one session — arrives

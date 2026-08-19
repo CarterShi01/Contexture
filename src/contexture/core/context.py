@@ -12,7 +12,19 @@ from .types import CompiledContext
 
 
 class CompileLevel(str, Enum):
-    """The two disclosure levels shared by all context nodes."""
+    """The two disclosure levels shared by all context nodes.
+
+    Two, and there is no third, because an agent is only ever in one of two
+    states with respect to a node: it has not chosen it yet, or it has. ROUTE
+    serves the first and must stay cheap enough that a whole sibling set can be
+    shown at once — a choice made among a subset of the alternatives is a
+    guess. ACTIVE serves the second and can be as expensive as the work
+    requires, because by then the agent has committed and nothing is being paid
+    for speculatively.
+
+    A middle level would have to answer "what does a node say to an agent that
+    is halfway through choosing it", and there is no such moment.
+    """
 
     ROUTE = "route"
     ACTIVE = "active"
@@ -27,7 +39,15 @@ class ContextNode(ABC):
     Concrete node types decide what their active representation contains.
     """
 
+    #: The machine-facing address. It is the last segment of the reference
+    #: that opens this node, so it is chosen for uniqueness within its parent,
+    #: not for readability.
     name: str
+
+    #: The one sentence a model reads while deciding whether to open this node.
+    #: It answers "should I go here", never "what will I find inside" — the
+    #: inside is what opening delivers, and describing it twice is how the two
+    #: copies start disagreeing.
     description: str
 
     kind: ClassVar[str] = "context_node"

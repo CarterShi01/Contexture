@@ -444,7 +444,7 @@
     <div class="figure-wrap">
       <ul class="tree">
         <li>
-          <div class="row"><span class="path dir">src/contexture/</span><span class="desc">3090 行 · 28 个 .py(含 6 个 <code>__init__.py</code>)</span></div>
+          <div class="row"><span class="path dir">src/contexture/</span><span class="desc">3314 行 · 28 个 .py(含 6 个 <code>__init__.py</code>)</span></div>
           <ul>
             <li><div class="row"><span class="path">__init__.py</span><span class="desc">51 行 — 公开门面,只导出<strong>用来声明</strong>的东西;<code>ContextTree</code> 是用来<strong>运行</strong>的,故意不在这里</span></div></li>
             <li><div class="row"><span class="path">cli.py</span><span class="desc">416 行 · 3 类 — <code>contexture new</code> 生成项目 · <code>contexture serve</code> 起服务 · <code>contexture list</code> 打印它会服务什么 · <code>contexture demo</code>。骑在所有层之上,被任何层 import 都算违规</span></div></li>
@@ -455,12 +455,12 @@
                 <li><div class="row"><span class="path">types.py</span><span class="desc">11 行 — 共享类型别名,零内部依赖</span></div></li>
                 <li><div class="row"><span class="path">constants.py</span><span class="desc">8 行 — 只剩包名与版本号;协议版本号随出站方向一起走了</span></div></li>
                 <li><div class="row"><span class="path">errors.py</span><span class="desc">126 行 · 6 类 — 以 ContextureError 为根的异常树。<strong>NodeNotFoundError 不带散文</strong>:它有两个读者(开发者 / agent),携带事实,各自渲染</span></div></li>
-                <li><div class="row"><span class="path">context.py</span><span class="desc">67 行 · 2 类 — ContextNode · CompileLevel,渐进披露的统一契约</span></div></li>
+                <li><div class="row"><span class="path">context.py</span><span class="desc">87 行 · 2 类 — ContextNode · CompileLevel,渐进披露的统一契约</span></div></li>
                 <li><div class="row"><span class="path">declarative.py</span><span class="desc">278 行 · 2 类 — 类体 → Declaration 的收集与校验;<strong>四个节点类型都用它</strong></span></div></li>
-                <li><div class="row"><span class="path">skill.py</span><span class="desc">80 行 — <strong>Skill</strong>,可复用的过程知识</span></div></li>
-                <li><div class="row"><span class="path">tools.py</span><span class="desc">101 行 — <strong>Tool</strong>,自己实现的可执行能力;schema 从 <code>invoke</code> 签名推导</span></div></li>
-                <li><div class="row"><span class="path">resources.py</span><span class="desc">97 行 — <strong>Resource</strong>,自己产出的内容;只描述,字节按需产生</span></div></li>
-                <li><div class="row"><span class="path">role.py</span><span class="desc">233 行 — <strong>Role</strong>,递归组合的团队树 + 声明式入口;成员名跨种类唯一,这是 ref 能变成纯路径的前提,也是 <code>member()</code> 能跨种类查找的依据</span></div></li>
+                <li><div class="row"><span class="path">skill.py</span><span class="desc">96 行 — <strong>Skill</strong>,可复用的过程知识</span></div></li>
+                <li><div class="row"><span class="path">tools.py</span><span class="desc">128 行 — <strong>Tool</strong>,自己实现的可执行能力;schema 从 <code>invoke</code> 签名推导</span></div></li>
+                <li><div class="row"><span class="path">resources.py</span><span class="desc">107 行 — <strong>Resource</strong>,自己产出的内容;只描述,字节按需产生</span></div></li>
+                <li><div class="row"><span class="path">role.py</span><span class="desc">268 行 — <strong>Role</strong>,递归组合的团队树 + 声明式入口;成员名跨种类唯一,这是 ref 能变成纯路径的前提,也是 <code>member()</code> 能跨种类查找的依据</span></div></li>
               </ul>
             </li>
             <li>
@@ -469,7 +469,7 @@
                 <li><div class="row"><span class="path">contract.py</span><span class="desc">220 行 · 1 类 — <strong>agent 读到的一切</strong>:五个动词的名字与描述 · PREAMBLE · 查找失败怎么变成一句话。<strong>不 import SDK</strong></span></div></li>
                 <li><div class="row"><span class="path">app.py</span><span class="desc">105 行 — ContextureApp,业务唯一需要接触的对象;不继承 SDK 的 MCPServer,而是组合它</span></div></li>
                 <li><div class="row"><span class="path">projection.py</span><span class="desc">223 行 · 2 类 — 把 contract 挂到 SDK 上(循环注册,不是五处 add_tool)· Dispatch(推 schema 与校验参数,<strong>不上表面</strong>)· 两扇门的一致性检查。<code>project()</code> 不返回任何东西:表面固定之后它只能复述常量</span></div></li>
-                <li><div class="row"><span class="path">instructions.py</span><span class="desc">78 行 — 只管把 contract <strong>塞进某个宿主的版面</strong>:前 512 字自包含(Codex),总长 &lt;2KB(Claude Code)</span></div></li>
+                <li><div class="row"><span class="path">instructions.py</span><span class="desc">130 行 — 只管把 contract <strong>塞进某个宿主的版面</strong>:前 512 字自包含(Codex),总长 &lt;2KB(Claude Code)</span></div></li>
                 <li><div class="row"><span class="path">registration.py</span><span class="desc">96 行 — 生成指向<strong>本 server</strong> 的宿主配置;不 import 包内任何东西</span></div></li>
               </ul>
             </li>
@@ -484,7 +484,7 @@
                 <li><div class="row"><span class="path">skills.py</span><span class="desc">65 行 — 两段只有 <code>contexture_open</code> 才吐出来的过程知识</span></div></li>
                 <li><div class="row"><span class="path">role.py</span><span class="desc">81 行 — kubernetes-platform 协调 incident-response 与 deployment-ops</span></div></li>
                 <li><div class="row"><span class="path">resources.py</span><span class="desc">34 行 — CrashLoopBackOff runbook + 回滚策略</span></div></li>
-                <li><div class="row"><span class="path">server.py</span><span class="desc">27 行 — 可直接 <code>python -m</code> 起的 demo 入口;宿主用 <code>contexture demo</code></span></div></li>
+                <li><div class="row"><span class="path">server.py</span><span class="desc">28 行 — 可直接 <code>python -m</code> 起的 demo 入口;宿主用 <code>contexture demo</code></span></div></li>
               </ul>
             </li>
           </ul>

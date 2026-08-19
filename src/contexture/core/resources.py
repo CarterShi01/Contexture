@@ -30,8 +30,18 @@ class Resource(ContextNode):
     must stay cheap, so `read()` runs only when something actually reads it:
     discovering a hundred runbooks costs a hundred descriptions, not a hundred
     documents.
+
+    What makes something a Resource rather than a read-only Tool is that it is
+    already there. A tool computes an answer from the arguments it is handed;
+    a resource takes none, and two reads return the same document until the
+    document itself changes. The practical consequence is addressing: only a
+    resource can be named from outside the tree, which is why a skill's
+    procedure can cite one by its own URI and be followed literally.
     """
 
+    #: The resource's own name for itself, independent of where it hangs in
+    #: the role tree. `tree.resource()` accepts either this or the tree
+    #: reference, so a document can be cited the way its author would write it.
     uri: str
     mime_type: str | None = None
 

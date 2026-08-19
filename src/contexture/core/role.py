@@ -54,7 +54,32 @@ class Role(ContextNode):
     `tests/test_projection.py` holds the statelessness this depends on.
     """
 
+    #: How this role behaves once opened, and how it uses what it holds.
+    #:
+    #: The second half is what a composite role runs on. Opening a role returns
+    #: this text alongside a route card for each member, and a card says what a
+    #: member is, never when to reach for it relative to its siblings. A role
+    #: that coordinates others owns no tools at all, so every word here is
+    #: orchestration — which branch a task belongs to, and what has to be
+    #: established before one of them is opened.
     instructions: str
+    # Which of the four a thing belongs in is the modelling decision this
+    # framework asks a business to make, and the four questions are:
+    #
+    #   children   Is this a branch a session enters *instead of* its
+    #              siblings? Since ADR 007 the role axis is lazy, so a child
+    #              costs one round trip to reach and nothing at all to anyone
+    #              who never goes there — its card arrives only when this role
+    #              is opened. Splitting work that a single task needs both
+    #              halves of buys the round trip and none of the saving.
+    #   skills     Is this a method rather than a capability — something the
+    #              model performs by following it, using tools that belong to
+    #              the role rather than to the method?
+    #   tools      Can the framework execute this deterministically? If the
+    #              answer is "the model has to judge", it is a skill.
+    #   resources  Is this content that exists whether or not anybody asks?
+    #              A read-only tool computes an answer from arguments; a
+    #              resource is already there and has its own stable URI.
     children: list[Role] = field(default_factory=list)
     skills: list[Skill] = field(default_factory=list)
     tools: list[Tool] = field(default_factory=list)
@@ -181,7 +206,8 @@ def _validate_declaration(
     if declaration.instructions is None:
         raise DeclarationError(
             f"{cls.__name__} must state `instructions`; a Role without them "
-            "has nothing to disclose once it becomes the active role."
+            "has nothing to disclose once it becomes the active role, and a "
+            "role that holds other nodes has nowhere to say how they are used."
         )
 
     declarative.require_unique(
