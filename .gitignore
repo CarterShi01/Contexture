@@ -1,9 +1,11 @@
 __pycache__/
 *.pyc
 *.egg-info/
+build/
+dist/
 .venv/
 
-# Only docs/atlas/check.mjs needs these; Contexture itself has no dependencies.
+# Only docs/atlas/check.mjs needs these; Contexture's own dependency is `mcp`.
 node_modules/
 package-lock.json
 package.json

@@ -24,11 +24,11 @@ from .errors import (
     TargetRenderError,
 )
 from .registry import RoleRegistry
-from .resources import MCPResource
+from .resources import MCPResource, Resource
 from .role import Role
 from .servers import HTTPConnection, MCPServer, ServerConnection, StdioConnection
 from .skill import Skill
-from .tools import MCPTool, ToolAnnotations
+from .tools import MCPTool, Tool, ToolAnnotations
 
 __all__ = [
     "CapabilityDeniedError",
@@ -50,11 +50,13 @@ __all__ = [
     "MCP_PROTOCOL_VERSION",
     "ModelValidationError",
     "NodeNotFoundError",
+    "Resource",
     "Role",
     "RoleRegistry",
     "ServerConnection",
     "Skill",
     "StdioConnection",
     "TargetRenderError",
+    "Tool",
     "ToolAnnotations",
 ]

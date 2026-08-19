@@ -2,12 +2,12 @@
 
 **A context framework for agents.**
 
-Declare your roles, skills, tools, and resources once. Contexture progressively
-discloses that declaration and translates it into the skill and MCP surfaces
-that Claude Code, Codex, and Cursor each consume.
+Declare your roles, skills, tools, and resources once. Contexture serves them as
+a native MCP server that Claude Code, Codex, and anything else speaking MCP
+connect to directly.
 
-It does not run an agent loop, choose tools, or talk to a model. It produces
-what those runtimes read.
+It does not run an agent loop, choose tools, or talk to a model. It is what
+those runtimes connect to.
 
 ## The problem
 
@@ -26,7 +26,14 @@ and what appears only after something is selected. The answers are identical.
 Only the file formats differ — and they drift apart the moment anyone edits one
 of them.
 
-Contexture makes those answers a program.
+A generated file is a copy. Contexture serves the answer instead, so there is
+nothing to drift:
+
+```text
+Claude Code ─┐
+Codex ───────┼──── MCP ────►  one Contexture server  ────►  your declaration
+Cursor ──────┘
+```
 
 ## Declare once
 
@@ -64,49 +71,102 @@ Nothing here names an agent runtime.
 Imperative construction still works exactly as before, and a declared role is
 an ordinary `Role`, so anything that accepts one accepts the other.
 
-## Render for every target
+## Implement what it can do
+
+A tool is a typed Python method. Nothing writes a JSON Schema — the one in
+`tools/list` is derived from this signature:
+
+```python
+from contexture import Resource, Tool
+
+class GetPodLogs(Tool):
+    """Return recent container logs for one Pod."""
+
+    name = "get_pod_logs"
+    read_only = True
+
+    async def invoke(self, namespace: str, pod: str) -> str:
+        return await kubernetes.logs(namespace, pod)
+
+class CrashLoopRunbook(Resource):
+    """How to diagnose a container that keeps restarting."""
+
+    uri = "contexture://runbooks/crash-loop-backoff"
+    mime_type = "text/markdown"
+
+    async def read(self) -> str:
+        return RUNBOOK
+```
+
+`read_only` is a host classification, not an argument. It is projected onto the
+protocol's `readOnlyHint` so a host can ask a human first, and it never appears
+in an input schema — a model that could pass its own approval flag would be
+approving its own writes.
+
+## Serve it
+
+```python
+from contexture.server import ContextureApp
+
+app = ContextureApp(roots=EngineeringTeam())
+
+if __name__ == "__main__":
+    app.run(transport="stdio")
+```
+
+Then point any host at it — the same command for each:
+
+```bash
+claude mcp add contexture -- uv run my-server
+codex mcp add contexture -- uv run my-server
+```
+
+Nothing above imports `mcp`, writes JSON-RPC, or names an agent runtime.
+
+## Still rendering files, when you need to
+
+`contexture.targets` remains for runtimes that cannot connect, and reports what
+each one cannot express rather than dropping it silently:
 
 ```python
 from contexture.targets import all_adapters, render_all, write
 
 surfaces = render_all(EngineeringTeam(), all_adapters())
-
-for note in surfaces["codex"].notes:
-    print(note)
+print(surfaces["codex"].notes[0])
 # Codex has no separate skill artifact; 2 skill(s) were inlined into the main
 # context file, so their instructions are always resident.
-
-write(surfaces["claude-code"], root=".")
 ```
 
-Adapters return artifacts; they never write. A separate writer installs them,
-skips files that already match, and can report a plan without touching disk.
-
-**Losses are reported, not hidden.** Agents differ in what they can express. A
-target that cannot carry a per-role tool allowlist, or has no nested-role
-concept, says so in a note. A generated surface that looks authoritative while
-quietly dropping half a declaration is worse than no generation at all.
+This is a side road now. On the main path the only file a host still needs is
+the one naming the launch command, which `contexture.server.registration`
+emits.
 
 ## Layers
 
 ```text
 your application          declares roles, skills, tools, resources
         │  inherits / composes
-contexture.core           the object model — no I/O, no wire, no targets
+contexture.core           the object model — no I/O, no wire, no SDK
         │  compile
-contexture.compiler       route / active progressive disclosure
-        │  render
-contexture.targets        Claude Code · Codex · Cursor artifacts
-        ┊
-contexture.protocol       optional MCP wire layer, outbound and inbound
-contexture.execution      optional authorization and dispatch
-        │  consumed by
-external agent runtime    LLM loop · planning · tool selection  (not ours)
+contexture.compiler       route / active disclosure of one node
+        │  navigate
+contexture.discovery      refs, the capability graph, discover / get_context
+        │  project
+contexture.server         the native MCP server — the only layer importing mcp
+        │  MCP
+Claude Code · Codex · Cursor · any MCP host
+
+        ┊ side roads
+contexture.targets        rendered context files, for runtimes that cannot connect
+contexture.protocol       the outbound half: calling somebody else's MCP server
+contexture.execution      authorization and dispatch for those outbound calls
 ```
 
-Only `core` is mandatory. Each layer may import the ones below it and never the
-reverse, which is why a project that just wants generated context files never
-loads a transport.
+Each layer may import the ones below it and never the reverse. `core` in
+particular must not import `mcp`: an object model that reaches for a wire
+protocol has stopped being an object model. `tests/test_layering.py` enforces
+this in the AST and again at runtime, in a subprocess, so a convenient import
+fails rather than quietly reshaping the package.
 
 ## Progressive disclosure
 
@@ -118,69 +178,67 @@ node.compile("route")   # what is this, and when should it be picked?
 node.compile("active")  # the detail, now that it has been picked
 ```
 
-An active role exposes its own instructions plus route cards for its children,
-skills, tools, and resources. It never recursively activates its descendants.
-Detail arrives only for capabilities a caller explicitly selects:
+Over MCP those become two tools, and an agent navigates with them:
 
-```python
-runtime.compile(
-    "engineering-team/k8s-troubleshooter",
-    CompileRequest(
-        selection=CapabilitySelection(
-            skill_names=("inspect-pod-failure",),
-            tool_refs=("production-kubernetes/get_pod_logs",),
-        )
-    ),
-)
+```text
+contexture_discover()               → every root, one card each
+contexture_discover(role:…)         → what is under it, still only cards
+contexture_get_context(skill:…#…)   → the full procedure, here and nowhere else
 ```
+
+Each card carries the `ref` that opens it. **That ref is the agent's position,
+and the server does not remember it** — which is what makes traversal legal:
+since the 2026-07-28 revision, MCP has no protocol session, and a server may not
+vary its tool list per connection or as a side effect of earlier calls.
+`get_context` is a pure function of its ref.
+
+So the role tree is not the protocol surface. The surface is flat; the tree
+travels inside these payloads. One server therefore serves a whole forest of
+roots, instead of forcing one process per leaf role.
 
 Resources are the exception that proves the rule: their boundary is not route
-versus active but **descriptor versus content**. Compiling one at any level
-yields metadata. Only `RoleRuntime.read_resource` returns bytes.
+versus active but **descriptor versus content**. Discovering one, or opening it
+with `get_context`, yields metadata. Only reading it returns bytes.
 
-## Security model
+## Disclosure is not authorization
 
-1. An ungranted tool or resource never reaches the agent's routing surface.
-2. `MCPBinding` checks the grant again when a capability is activated.
-3. The execution layer checks it again immediately before running.
-4. A tool not host-classified as read-only requires explicit approval.
-5. Every authorization refusal is one exception type, `CapabilityDeniedError`,
-   including the case where the role holds no binding to that server at all.
-6. A refreshed server catalog may not orphan an existing grant.
+These are separate, and conflating them is the trap this design is built to
+avoid.
 
-MCP `ToolAnnotations` are kept for display and planning but treated as
-untrusted hints. `read_only_tools` on the binding is the host's own
-classification and the only thing the runtime trusts.
+On a flat surface, per-role authorization is not achievable: a tool name that
+exists can be called by anyone who can see the list. Nothing stops an agent from
+skipping discovery and calling a tool directly, and nothing should pretend to.
 
-Resources carry no read-only classification because MCP defines no write path
-for them; appearing on `allowed_resources` is the entire grant.
+**What disclosure controls is knowledge.** The procedure, its ordering, and its
+constraints live behind `contexture_get_context`. An agent that skips ahead can
+run a tool; it cannot know what the runbook says about exit code 137, or that
+restarting first repairs nothing.
 
-## Serving your own capabilities
+**Authorization stays with the host**, which the specification already makes
+responsible for keeping a human in the loop. Contexture informs that decision by
+projecting each tool's `read_only` onto `readOnlyHint`, and by never letting
+that classification become an argument a model can fill in.
 
-`MCPClient` is the outbound half of MCP. `MCPHostPort` is the inbound half —
-the boundary an application implements so its declared tools and resources can
-be served:
-
-```python
-class MCPHostPort(Protocol):
-    def register_tool(self, tool: MCPTool, handler: ToolHandler) -> None: ...
-    def register_resource(self, resource: MCPResource, provider: ResourceProvider) -> None: ...
-```
-
-`InMemoryHost` implements it in process, which is what the example uses. A
-deployable server is deliberately absent: the port is what keeps that decision
-cheap to make once two real callers have shown what it must do.
+For the outbound direction — calling somebody else's MCP server — the older
+model still applies unchanged: `MCPBinding` subsets a foreign catalog, the
+execution layer re-checks before running, and a refreshed catalog may not orphan
+an existing grant.
 
 ## Quick start
 
-Python 3.10 or newer. No runtime dependencies.
+Python 3.10 or newer.
 
 ```bash
-python run_demo.py     # declaration → three surfaces → disclosure → execution
-python run_tests.py    # 79 tests
+uv sync
+uv run contexture-incident-demo   # an MCP server over stdio
+uv run python run_tests.py        # 140 tests
 ```
 
-The example declares one team across two MCP servers:
+See [`src/contexture/examples/incident/`](src/contexture/examples/incident/) for
+a server two hosts can connect to, and
+[`docs/verification/hosts.md`](docs/verification/hosts.md) for a recorded run.
+
+The `targets` example declares one team across two external MCP servers:
 
 ```text
 engineering-team
@@ -204,6 +262,9 @@ src/contexture/
 ├── core/            object model: context, role, skill, tools, resources,
 │                    servers, binding, registry, declarative
 ├── compiler.py      route/active compilation and capability selection
+├── discovery.py     refs, the capability graph, discover / get_context
+├── server/          the MCP server: app, projection, instructions, registration
+├── examples/        reference applications built on the public API only
 ├── targets/         base, markdown, claude_code, codex, cursor, writer
 ├── protocol/        messages, transport, client, host
 └── execution.py     authorization and dispatch
@@ -215,6 +276,9 @@ src/contexture/
   model, its invariants, and why each boundary sits where it does.
 - [`docs/02-framework-layers.md`](docs/02-framework-layers.md) — the framework
   shape: declaration, compilation, targets, and the optional layers.
+- [`docs/adr/001-native-mcp-server.md`](docs/adr/001-native-mcp-server.md) — why
+  the main path became a server, what it cost, and what was deliberately left
+  alone.
 - [`docs/atlas/index.html`](docs/atlas/index.html) — an offline visual atlas;
   open it directly in a browser. After editing it, run
   `npm install jsdom@22 && node docs/atlas/check.mjs` to confirm every diagram
@@ -224,8 +288,11 @@ src/contexture/
 ## What this is not
 
 - Not an agent runtime. No planner, no agent loop, no tool selection.
-- Not a new protocol. It compiles to MCP and to each agent's own formats.
+- Not a new protocol. It speaks MCP, using the official SDK rather than its own
+  JSON-RPC implementation.
 - Not a model client. It never calls an LLM.
+- Not zero-dependency any more. Serving MCP means depending on `mcp`, and that
+  is a deliberate trade recorded in ADR 001.
 
 ## License
 

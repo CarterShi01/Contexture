@@ -21,10 +21,18 @@ PACKAGE = SOURCE_ROOT / "contexture"
 ALLOWED: dict[str, set[str]] = {
     "core": set(),
     "compiler": {"core"},
+    "discovery": {"core", "compiler"},
     "targets": {"core", "compiler"},
     "protocol": {"core"},
     "execution": {"core", "compiler", "protocol"},
+    "server": {"core", "compiler", "discovery"},
+    # Reference applications sit above everything and are imported by nothing.
+    "examples": {"core", "compiler", "discovery", "server"},
 }
+
+#: Layers permitted to import the official MCP SDK. The object model is not one
+#: of them: `core` must stay describable without a wire protocol in the room.
+SDK_LAYERS = frozenset({"server", "examples"})
 
 
 def _layer_of(path: Path) -> str:
@@ -82,6 +90,21 @@ class LayeringTests(unittest.TestCase):
                         f"{layer} must not import {imported}",
                     )
 
+    def test_only_the_server_layer_imports_the_mcp_sdk(self) -> None:
+        """The framework claim, checked rather than asserted in prose.
+
+        Business code declares roles and capabilities; the SDK appears only
+        where declarations are projected onto the wire. If `core` ever imports
+        `mcp`, the object model has quietly become a protocol binding.
+        """
+
+        for path, relative, tree in _modules():
+            if _layer_of(path) in SDK_LAYERS:
+                continue
+            with self.subTest(module=relative):
+                self.assertNotIn("mcp", _imported_packages(tree))
+                self.assertNotIn("mcp_types", _imported_packages(tree))
+
     def test_importing_core_loads_no_upper_layer(self) -> None:
         """The strongest form of the claim: check it at runtime, not in the AST."""
 
@@ -89,7 +112,8 @@ class LayeringTests(unittest.TestCase):
             "import sys; sys.path.insert(0, %r);"
             "import contexture.core;"
             "upper = [m for m in sys.modules if m.startswith('contexture.') "
-            "and m.split('.')[1] in ('protocol', 'execution', 'targets')];"
+            "and m.split('.')[1] in ('protocol', 'execution', 'targets', "
+            "'server', 'discovery', 'examples')];"
             "print(','.join(sorted(upper)))" % str(SOURCE_ROOT)
         )
         result = subprocess.run(
@@ -103,6 +127,23 @@ class LayeringTests(unittest.TestCase):
             "",
             "importing contexture.core pulled in an upper layer",
         )
+
+    def test_importing_core_does_not_load_the_mcp_sdk(self) -> None:
+        """A project that only models context should not pay for a transport."""
+
+        script = (
+            "import sys; sys.path.insert(0, %r);"
+            "import contexture.core;"
+            "print(','.join(sorted(m for m in sys.modules "
+            "if m == 'mcp' or m.startswith('mcp.'))))" % str(SOURCE_ROOT)
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        self.assertEqual(result.stdout.strip(), "")
 
 
 class IOBoundaryTests(unittest.TestCase):

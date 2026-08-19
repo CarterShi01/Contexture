@@ -5,7 +5,7 @@ layer can report it without importing the facade above itself.
 """
 
 PACKAGE_NAME = "contexture"
-PACKAGE_VERSION = "0.0.3"
+PACKAGE_VERSION = "0.0.4"
 
 MCP_PROTOCOL_VERSION = "2026-07-28"
 JSON_RPC_VERSION = "2.0"

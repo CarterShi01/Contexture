@@ -35,7 +35,17 @@ from .errors import DeclarationError
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
 #: Attribute names a declarative body uses for scalars rather than members.
-RESERVED_ATTRIBUTES = frozenset({"name", "description", "instructions", "kind"})
+RESERVED_ATTRIBUTES = frozenset(
+    {
+        "name",
+        "description",
+        "instructions",
+        "kind",
+        "uri",
+        "mime_type",
+        "read_only",
+    }
+)
 
 _T = TypeVar("_T")
 
@@ -129,9 +139,9 @@ def collect(
     the position the base established.
     """
 
-    name = _scalar(cls, "name") or derive_name(cls)
-    description = _scalar(cls, "description") or derive_description(cls)
-    instructions = _scalar(cls, "instructions")
+    name = scalar(cls, "name") or derive_name(cls)
+    description = scalar(cls, "description") or derive_description(cls)
+    instructions = scalar(cls, "instructions")
 
     if not description:
         raise DeclarationError(
@@ -206,7 +216,7 @@ def _materialize(
         ) from exc
 
 
-def _scalar(cls: type, attribute: str) -> str | None:
+def scalar(cls: type, attribute: str) -> str | None:
     """Read a scalar the class body stated, ignoring the dataclass's own slots.
 
     A plain getattr cannot be used here. `name` and `instructions` are slots on
@@ -263,4 +273,5 @@ __all__ = [
     "derive_name",
     "is_declarative",
     "require_unique",
+    "scalar",
 ]

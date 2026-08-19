@@ -22,7 +22,19 @@ class DeclarationError(ModelValidationError):
 
 
 class NodeNotFoundError(ContextureError, KeyError):
-    """Raised when a role or capability cannot be resolved."""
+    """Raised when a role or capability cannot be resolved.
+
+    KeyError is kept in the bases so existing `except KeyError` handlers still
+    work, but its `__str__` is not: KeyError reprs its argument, which wraps
+    every message in quotes. That was cosmetic while these errors stayed inside
+    Python. It is not cosmetic now that an unresolvable ref is reported to a
+    connected agent, which reads the message and is expected to correct itself.
+    """
+
+    def __str__(self) -> str:
+        if len(self.args) == 1 and isinstance(self.args[0], str):
+            return self.args[0]
+        return super(KeyError, self).__str__()
 
 
 class CapabilityDeniedError(ContextureError, PermissionError):

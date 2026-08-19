@@ -326,24 +326,30 @@
 <div class="page">
 
   <header class="hero">
-    <p class="eyebrow">contexture · v0.0.3</p>
+    <p class="eyebrow">contexture · v0.0.4</p>
     <h1 class="title">Contexture Atlas</h1>
-    <p class="dek">一份把框架拆开看的地图集——业务怎么声明一次、五个分层谁依赖谁、类怎么组合、同一份声明怎么变成三种 Agent 各自能读的文件。</p>
+    <p class="dek">一份把框架拆开看的地图集——业务怎么声明一次、分层谁依赖谁、类怎么组合、同一份声明怎么变成一个 Claude Code 和 Codex 都能连的原生 MCP Server。</p>
     <p class="statline">
-      <span><b>29</b> 源文件</span><span class="sep">·</span>
-      <span><b>63</b> 个类</span><span class="sep">·</span>
-      <span><b>5</b> 层单向依赖</span><span class="sep">·</span>
-      <span><b>79/79</b> 测试通过</span><span class="sep">·</span>
+      <span><b>35</b> 框架源文件</span><span class="sep">·</span>
+      <span><b>80</b> 个类</span><span class="sep">·</span>
+      <span><b>7</b> 层单向依赖</span><span class="sep">·</span>
+      <span><b>143/143</b> 测试通过</span><span class="sep">·</span>
       <span>MCP <b>2026-07-28</b></span>
     </p>
   </header>
 
   <div class="callout" style="margin-bottom: 40px;">
-    <strong>v0.0.3 变更：</strong>项目从"一个 role runtime"重新定位为
-    <strong>面向 Agent 的通用 Context 框架</strong>。包更名 <code>role_runtime</code> →
-    <code>contexture</code> 并拆成五层；新增<strong>类式声明</strong>(<code>class K8sOperator(Role)</code>)、
-    <strong>Target Adapter</strong>(Claude Code / Codex / Cursor)与 <strong>MCPHostPort</strong> 入站边界。
-    runtime 从产品主体降为可选层——这正是包要改名的原因。
+    <strong>v0.0.4 变更：主箭头翻转了。</strong>v0.0.3 的主线是
+    <em>声明 → 编译 → 生成 CLAUDE.md / AGENTS.md / SKILL.md → Agent 去读文件</em>；
+    v0.0.4 的主线是 <em>声明 → 一个原生 MCP Server → Agent 连上来</em>。
+    生成的文件是副本,声明一变就漂;server 是指针,不会漂。<br><br>
+    新增 <code>contexture.discovery</code>(ref 寻址与两个动词)与
+    <code>contexture.server</code>(唯一 import 官方 SDK 的层);
+    <code>core</code> 新增可执行的 <code>Tool</code> 与可读的 <code>Resource</code>,
+    与描述别人家能力的 <code>MCPTool</code> / <code>MCPResource</code> 并存。
+    <code>targets/</code> 降级为副路;<code>MCPBinding</code> 本轮未动——
+    它的最小权限模型服务的是出站方向,前提仍然成立。
+    代价:<strong>零依赖属性没有了</strong>,官方 SDK 带进 28 个包。
   </div>
 
   <nav class="index" aria-label="图鉴目录">
@@ -354,16 +360,18 @@
       <li><span class="num">02</span><a href="#plate-02">文件依赖</a><span class="desc">— 文件之间的真实 import 图</span></li>
       <li><span class="num">03</span><a href="#plate-03">对象模型</a><span class="desc">— 类怎么继承、组合成一棵树</span></li>
       <li><span class="num">04</span><a href="#plate-04">声明式前端</a><span class="desc">— 一个类体怎么变成 Role 对象</span></li>
-      <li><span class="num">05</span><a href="#plate-05">多目标渲染</a><span class="desc">— 一份声明怎么变成三种 Agent 的文件</span></li>
+      <li><span class="num">05</span><a href="#plate-05">多目标渲染</a><span class="desc">— 副路:一份声明怎么变成三种 Agent 的文件</span></li>
       <li><span class="num">06</span><a href="#plate-06">编译路径</a><span class="desc">— LLM 能看见的 context 怎么算出来</span></li>
       <li><span class="num">07</span><a href="#plate-07">执行路径</a><span class="desc">— 一次工具调用 / 资源读取怎么被二次授权</span></li>
+      <li><span class="num">08</span><a href="#plate-08">MCP 投影</a><span class="desc">— 声明怎么变成扁平的 MCP 表面</span></li>
+      <li><span class="num">09</span><a href="#plate-09">披露路径</a><span class="desc">— Agent 怎么在树上走,而服务器不记状态</span></li>
     </ol>
   </nav>
 
   <section class="plate" id="plate-00">
     <p class="plate-eyebrow">Plate 00</p>
     <h2 class="plate-title">目录结构</h2>
-    <p class="plate-claim">29 个源文件,目录本身就是架构:<code>core/</code> 是必须的对象模型,其余四层各自可选。每个文件只装一小撮互相配合的类。</p>
+    <p class="plate-claim">35 个框架源文件,目录本身就是架构。主路是 <code>core → compiler → discovery → server</code>;<code>targets/</code> 与 <code>protocol/</code> 是副路。每个文件只装一小撮互相配合的类。</p>
 
     <div class="figure-wrap">
       <ul class="tree">
@@ -372,7 +380,8 @@
           <ul>
             <li><div class="row"><span class="path">__init__.py</span><span class="desc">公开门面 — 只导出 core + compiler,上层要显式 import</span></div></li>
             <li><div class="row"><span class="path">compiler.py</span><span class="desc">4 类 · 100 行 — RoleCompiler · CompileRequest · CapabilitySelection</span></div></li>
-            <li><div class="row"><span class="path">execution.py</span><span class="desc">2 类 · 180 行 — RoleRuntime,二次授权与派发(可选层)</span></div></li>
+            <li><div class="row"><span class="path">discovery.py</span><span class="desc"><strong>v0.0.4 新增</strong> · 3 类 — Ref 寻址 · CapabilityGraph · DisclosureEngine</span></div></li>
+            <li><div class="row"><span class="path">execution.py</span><span class="desc">2 类 · 180 行 — RoleRuntime,出站调用的二次授权与派发(副路)</span></div></li>
             <li>
               <div class="row"><span class="path dir">core/</span><span class="desc">对象模型 · 零 I/O · 零协议 · 唯一必须的层</span></div>
               <ul>
@@ -384,15 +393,27 @@
                 <li><div class="row"><span class="path">declarative.py</span><span class="desc">2 类 · 266 行 — 类体 → Declaration 的收集与校验</span></div></li>
                 <li><div class="row"><span class="path">skill.py</span><span class="desc">Skill — 可复用的过程知识</span></div></li>
                 <li><div class="row"><span class="path">role.py</span><span class="desc">Role · 240 行 — 递归组合的团队树 + 声明式入口</span></div></li>
-                <li><div class="row"><span class="path">tools.py</span><span class="desc">2 类 — MCPTool · ToolAnnotations</span></div></li>
-                <li><div class="row"><span class="path">resources.py</span><span class="desc">MCPResource — 只描述,永不携带内容</span></div></li>
+                <li><div class="row"><span class="path">tools.py</span><span class="desc">3 类 — MCPTool(描述别人家的) · <strong>Tool(自己实现的,可执行)</strong> · ToolAnnotations</span></div></li>
+                <li><div class="row"><span class="path">resources.py</span><span class="desc">2 类 — MCPResource(描述别人家的) · <strong>Resource(自己实现的,可读)</strong>;两者都只描述,内容按需产生</span></div></li>
                 <li><div class="row"><span class="path">servers.py</span><span class="desc">4 类 — MCPServer + stdio/HTTP 连接描述符</span></div></li>
                 <li><div class="row"><span class="path">binding.py</span><span class="desc">MCPBinding — tool 与 resource 的最小权限关系对象</span></div></li>
                 <li><div class="row"><span class="path">registry.py</span><span class="desc">RoleRegistry — 路径解析 + 环检测</span></div></li>
               </ul>
             </li>
             <li>
-              <div class="row"><span class="path dir">targets/</span><span class="desc">按 Agent 渲染 · 一份声明多种表达</span></div>
+              <div class="row"><span class="path dir">server/</span><span class="desc"><strong>v0.0.4 新增 · 主路终点</strong> — 原生 MCP Server,唯一 import 官方 SDK 的层</span></div>
+              <ul>
+                <li><div class="row"><span class="path">app.py</span><span class="desc">ContextureApp — 业务唯一需要接触的对象;不继承 SDK 的 MCPServer,而是组合它</span></div></li>
+                <li><div class="row"><span class="path">projection.py</span><span class="desc">声明 → MCP 表面的翻译层,<strong>不含任何业务规则</strong></span></div></li>
+                <li><div class="row"><span class="path">instructions.py</span><span class="desc">bootstrap 文案 — 前 512 字自包含(Codex),总长 &lt;2KB(Claude Code)</span></div></li>
+                <li><div class="row"><span class="path">registration.py</span><span class="desc">生成指向<strong>本 server</strong> 的宿主配置——取代了"生成上下文文件"</span></div></li>
+              </ul>
+            </li>
+            <li>
+              <div class="row"><span class="path dir">examples/incident/</span><span class="desc"><strong>v0.0.4 新增</strong> — 确定性的 K8s 故障诊断 demo,只依赖公开 API</span></div>
+            </li>
+            <li>
+              <div class="row"><span class="path dir">targets/</span><span class="desc">按 Agent 渲染 · <strong>副路</strong>:给连不上 MCP 的 runtime</span></div>
               <ul>
                 <li><div class="row"><span class="path">base.py</span><span class="desc">4 类 · 291 行 — Artifact · ArtifactSet · TargetAdapter · 能力矩阵</span></div></li>
                 <li><div class="row"><span class="path">markdown.py</span><span class="desc">三个适配器共用的 front matter / 能力表格渲染</span></div></li>
@@ -403,20 +424,20 @@
               </ul>
             </li>
             <li>
-              <div class="row"><span class="path dir">protocol/</span><span class="desc">MCP 线路层 · 可选 · 出站 + 入站</span></div>
+              <div class="row"><span class="path dir">protocol/</span><span class="desc"><strong>副路</strong> · 出站:调别人家的 MCP Server</span></div>
               <ul>
                 <li><div class="row"><span class="path">messages.py</span><span class="desc">5 类 · 402 行 — JSON-RPC 2.0 构造 + 头部派生</span></div></li>
                 <li><div class="row"><span class="path">transport.py</span><span class="desc">4 类 — <strong>全包唯一碰网络的地方</strong>,含内存与 HTTP 两种实现</span></div></li>
                 <li><div class="row"><span class="path">client.py</span><span class="desc">6 类 · 344 行 — MCPClient,出站调用 tools/* 与 resources/*</span></div></li>
-                <li><div class="row"><span class="path">host.py</span><span class="desc">6 类 · 234 行 — MCPHostPort 入站边界 + InMemoryHost 参考实现</span></div></li>
+                <li><div class="row"><span class="path">host.py</span><span class="desc">6 类 · 234 行 — MCPHostPort 入站边界 + InMemoryHost;v0.0.4 起真正的入站走 <code>server/</code></span></div></li>
               </ul>
             </li>
           </ul>
         </li>
         <li><div class="row"><span class="path dir">examples/engineering_team.py</span><span class="desc">声明式示例:双 MCP Server、四个角色、两个 Skill</span></div></li>
         <li><div class="row"><span class="path dir">examples/run_demo.py</span><span class="desc">完整链路演示:声明 → 三种产物 → 渐进披露 → 授权执行</span></div></li>
-        <li><div class="row"><span class="path dir">tests/</span><span class="desc">8 个测试文件 · 84 个用例,含分层约束与 I/O 边界的强制检查</span></div></li>
-        <li><div class="row"><span class="path dir">docs/</span><span class="desc">01 对象模型 · 02 框架分层 · atlas 本页</span></div></li>
+        <li><div class="row"><span class="path dir">tests/</span><span class="desc">12 个测试文件 · 143 个用例,含分层约束、I/O 边界,以及<strong>真起子进程走 stdio</strong> 的端到端验证</span></div></li>
+        <li><div class="row"><span class="path dir">docs/</span><span class="desc">01 对象模型 · 02 框架分层 · adr/001 主路翻转 · verification/ 宿主实测 · atlas 本页</span></div></li>
       </ul>
     </div>
 
@@ -424,49 +445,61 @@
       <p><strong>不是一类一文件,是一个内聚概念一文件。</strong> 但 v0.0.2 那个塞了四个类的
       <code>mcp/models.py</code> 已按概念拆成 <code>tools</code> / <code>resources</code> /
       <code>servers</code> 三个——之前指出的"拆分粒度不统一"到此消除。</p>
-      <p>两个"唯一"是硬约束,不是习惯:<code>targets/writer.py</code> 是唯一写文件系统的模块,
-      <code>protocol/transport.py</code> 是唯一碰网络的模块。<code>tests/test_layering.py</code>
-      用 AST 遍历全包来强制这两条。</p>
+      <p>三个"唯一"是硬约束,不是习惯:<code>targets/writer.py</code> 是唯一写文件系统的模块,
+      <code>protocol/transport.py</code> 是唯一碰网络的模块,<code>server/</code> 是唯一 import
+      官方 SDK 的层。<code>tests/test_layering.py</code> 用 AST 遍历全包来强制前两条,
+      第三条还额外在子进程里真跑一次:<code>import contexture.core</code> 之后
+      <code>sys.modules</code> 里不许出现 <code>mcp</code>。</p>
     </div>
   </section>
 
   <section class="plate" id="plate-01">
     <p class="plate-eyebrow">Plate 01</p>
     <h2 class="plate-title">分层地图</h2>
-    <p class="plate-claim">五层单向依赖。只有 <code>core</code> 是必须的——想要生成上下文文件的项目,永远不会加载一个 transport。</p>
+    <p class="plate-claim">七层单向依赖。主路走到 <code>server</code>,Agent 从那里连进来。<code>core</code> 不许 import <code>mcp</code>——一个伸手去够线路协议的对象模型,已经不是对象模型了。</p>
 
     <div class="figure-wrap">
       <figure>
         <pre class="mermaid">
 flowchart TB
     biz["<b>你的应用</b><br/>声明 Role · Skill · Tool · Resource"]
-    core["<b>contexture.core</b><br/>对象模型 · 注册表 · 校验 · 声明式前端<br/><i>零 I/O · 零协议 · 零目标</i>"]
-    comp["<b>contexture.compiler</b><br/>route / active 渐进披露"]
-    targ["<b>contexture.targets</b><br/>Claude Code · Codex · Cursor 产物"]
-    proto["<b>contexture.protocol</b><br/>MCP 线路层:出站 client + 入站 host port"]
-    exec["<b>contexture.execution</b><br/>二次授权与派发"]
-    agent["<b>外部 Agent Runtime</b><br/>LLM 循环 · 规划 · 工具选择"]
+    core["<b>contexture.core</b><br/>对象模型 · 注册表 · 校验 · 声明式前端<br/><i>零 I/O · 零线路 · 不许 import mcp</i>"]
+    comp["<b>contexture.compiler</b><br/>单个节点的 route / active 披露"]
+    disc["<b>contexture.discovery</b><br/>ref 寻址 · 能力图 · discover / get_context"]
+    srv["<b>contexture.server</b><br/>原生 MCP Server · 投影 · bootstrap<br/><i>唯一 import 官方 SDK 的层</i>"]
+    agent["<b>Claude Code · Codex · Cursor</b><br/>LLM 循环 · 规划 · 工具选择"]
+
+    targ["<b>contexture.targets</b><br/>渲染成上下文文件<br/><i>副路:给连不上的 runtime</i>"]
+    proto["<b>contexture.protocol</b><br/>出站:调别人家的 MCP Server"]
+    exec["<b>contexture.execution</b><br/>出站调用的二次授权与派发"]
 
     biz -->|继承 / 组合| core
     core -->|compile| comp
-    comp -->|render| targ
-    core -.可选.-> proto
-    comp -.可选.-> exec
-    proto -.可选.-> exec
-    targ -->|产物被消费| agent
-    exec -->|tools/call| agent
+    comp -->|navigate| disc
+    disc -->|project| srv
+    srv -->|MCP| agent
+
+    comp -.副路.-> targ
+    targ -.被读取.-> agent
+    core -.出站.-> proto
+    proto -.-> exec
 
     style core stroke-width:3px
+    style srv stroke-width:3px
     style agent stroke-dasharray: 5 5
         </pre>
-        <figcaption>实线是必经之路,虚线是可选层。最右边那个虚线框<strong>不属于 Contexture</strong>——框架产出它消费的东西,但不运行它。依赖规则由包结构强制:每层只能 import 它下面的层,反向绝不允许,测试里有一条断言专门守着这个。</figcaption>
+        <figcaption>粗线两个框是主路的两端:<code>core</code> 是声明落地的地方,<code>server</code> 是 Agent 连进来的地方。虚线是副路——<code>targets</code> 仍然能生成文件,<code>protocol</code>/<code>execution</code> 仍然能调别人家的 server,但都不在主路上了。最右边那个虚线框<strong>不属于 Contexture</strong>。依赖规则由 <code>tests/test_layering.py</code> 强制:既查 AST,也在子进程里真跑一次——<code>import contexture.core</code> 之后 <code>sys.modules</code> 里不许出现 <code>mcp</code>。</figcaption>
       </figure>
     </div>
 
     <div class="plate-notes">
-      <p><strong>为什么包要改名。</strong> 叫 <code>role_runtime</code> 的时候,runtime 就是产品全部。
-      在新定位下 runtime 是可选层、模型才是产品,包名指向了最不核心的部分。现在叫
-      <code>contexture</code>,与项目名和定位一致。</p>
+      <p><strong>为什么 SDK 是硬依赖而不是可选 extra。</strong> 2026-07-28 这版协议不小:
+      取消了 <code>initialize</code> 握手,改成每请求 <code>_meta</code> 协商 + 强制的
+      <code>server/discover</code>,还得同时服务四个更老的修订。自己扛这些没有回报。
+      做成硬依赖而不是 <code>[server]</code> extra,是因为 server 现在<em>就是产品本身</em>——
+      把产品做成可选自相矛盾。代价写在明处:28 个包、37MB、零依赖属性没了。</p>
+      <p><strong>但 <code>core</code> 仍然干净。</strong> 导入 facade 不会加载 server 层,
+      也不会加载 SDK。只想建模上下文的项目,只付建模的钱。</p>
     </div>
   </section>
 
@@ -830,10 +863,122 @@ sequenceDiagram
     </div>
   </section>
 
+  <section class="plate" id="plate-08">
+    <p class="plate-eyebrow">Plate 08</p>
+    <h2 class="plate-title">MCP 投影 — 声明怎么变成扁平的 MCP 表面</h2>
+    <p class="plate-claim">这是 v0.0.4 的核心转换。<code>server/projection.py</code> 是全仓库唯一知道线路长什么样的地方,而它<strong>不含任何业务规则</strong>——它做的全部事情就是翻译。</p>
+
+    <div class="figure-wrap">
+      <figure>
+        <pre class="mermaid">
+flowchart LR
+    subgraph decl["声明 (contexture.core)"]
+        role["Role<br/><i>KubernetesIncidentResponder</i>"]
+        skill["Skill<br/><i>diagnose-crash-loop-backoff</i>"]
+        tool["Tool<br/><i>async invoke(namespace: str, pod: str)</i><br/>read_only = True"]
+        res["Resource<br/><i>uri + async read()</i>"]
+    end
+
+    subgraph surface["MCP 表面 (扁平 · 固定)"]
+        ft1["contexture_discover"]
+        ft2["contexture_get_context"]
+        bt["get_pod_status<br/>get_pod_logs<br/>get_pod_events"]
+        br["contexture://runbooks/..."]
+        instr["server instructions"]
+    end
+
+    role -->|名字 + 描述| instr
+    skill -.“不投影”.-> ft2
+    tool -->|"签名 → JSON Schema"| bt
+    tool -->|"read_only → readOnlyHint"| bt
+    res -->|"惰性 read()"| br
+    role --> ft1
+
+    style skill stroke-dasharray: 5 5
+    style bt stroke-width:3px
+        </pre>
+        <figcaption><strong>Skill 那条线是虚的,这是重点。</strong> Skill 从不成为一个 MCP tool,也从不出现在 <code>tools/list</code> 里——它的全文只在 <code>contexture_get_context</code> 的<em>返回值</em>里出现。Tool 那条实线相反:业务 tool 是<strong>原生 MCP tool</strong>,schema 从 <code>invoke</code> 的类型标注推导,没有任何人手写 JSON Schema。</figcaption>
+      </figure>
+    </div>
+
+    <div class="callout warn">
+      <strong><code>read_only</code> 走 annotation,永远不走参数。</strong>
+      它是宿主的可信分类,投影成协议的 <code>readOnlyHint</code>,让 host 决定要不要先问人。
+      如果它变成一个 input schema 里的字段,模型就能自己填 <code>approved=true</code>——
+      <em>模型批准自己的写操作,那不叫批准。</em>
+      <code>tests/test_stdio_server.py</code> 里有一条断言在真实线路上守着这件事。
+    </div>
+
+    <div class="plate-notes">
+      <p><strong>一个真实的坑。</strong> <code>@dataclass(slots=True)</code> 做返回类型时,
+      pydantic 会把 slot 描述符读成"不可序列化的默认值",<code>output_schema</code> 静默变成 <code>None</code>,
+      <code>structured_content</code> 变成 <code>null</code>——不报错,只是结果没了。
+      demo 里的 <code>PodStatus</code> 因此不带 slots,代码旁边有注释写明原因。</p>
+    </div>
+  </section>
+
+  <section class="plate" id="plate-09">
+    <p class="plate-eyebrow">Plate 09</p>
+    <h2 class="plate-title">披露路径 — Agent 怎么在树上走,而服务器不记状态</h2>
+    <p class="plate-claim">MCP 2026-07-28 规范原文:tools 列表 <code>MUST NOT</code> 因连接、或因同一连接上的其他请求而变化。所以树不能是协议表面——它得活在 payload 里。</p>
+
+    <div class="figure-wrap">
+      <figure>
+        <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant A as Claude Code / Codex
+    participant S as ContextureMCPServer
+    participant E as DisclosureEngine
+    participant G as CapabilityGraph
+
+    Note over A,S: 连接时只拿到 bootstrap(&lt;2KB,前 512 字自包含)
+    A->>S: contexture_discover()
+    S->>E: discover(None)
+    E->>G: roots
+    G-->>E: 每个 root 一张卡
+    E-->>A: [{name, description, ref}]  ← 无 instructions
+
+    A->>S: contexture_discover(ref="role:...")
+    S->>E: discover(ref)
+    E-->>A: sub_roles / skills / tools / resources,仍然只有卡
+
+    Note over A: agent 自己决定往哪走<br/>ref 存在 agent 的上下文里,不在服务器上
+    A->>S: contexture_get_context(ref="skill:...#...")
+    S->>E: get_context(ref)
+    E-->>A: 完整 instructions ← 只有这里给
+
+    A->>S: get_pod_status / get_pod_logs / get_pod_events
+    S-->>A: 证据
+    A->>S: resources/read(contexture://runbooks/...)
+    S-->>A: runbook 正文 ← 只有读的时候才产生
+        </pre>
+        <figcaption>注意<strong>没有任何一步在服务器上留下状态</strong>。<code>get_context(ref)</code> 是 ref 的纯函数,跟之前问过什么无关。agent 的"当前位置"就是它自己上下文里的那个 <code>ref</code>——像 REST,不像 session。这正是路径规划能在无状态协议上成立的原因。</figcaption>
+      </figure>
+    </div>
+
+    <div class="callout">
+      <strong>一个进程服务整片森林。</strong> 既然树在 payload 里、<code>discover</code> 负责路由,
+      就没必要在启动时用 <code>--root-role</code> 钉死一个根。
+      N 个叶子 role 仍然是 <strong>1 个进程</strong>,不是 N 个。
+    </div>
+
+    <div class="callout warn">
+      <strong>披露 ≠ 授权,这个区分必须认下来。</strong>
+      业务 tool 全在 <code>tools/list</code> 里,agent 完全可以跳过导航直接调——<em>你拦不住,也不该拦</em>。
+      扁平表面上按 role 的硬授权做不到,这是协议决定的,不是设计取舍。<br><br>
+      <strong>渐进式披露交付的是知识,不是访问权。</strong>
+      tool 能调,但"该按什么顺序看证据""exit 1 和 exit 137 怎么区分""为什么不能先重启"——
+      这些只在 <code>get_context</code> 之后才存在。
+      所以验收标准不是"证明 agent 调不到 tool",而是
+      <strong>"证明 Skill 全文只在 get_context 之后才进入上下文"</strong>。
+    </div>
+  </section>
+
   <footer>
     <div>contexture · git@github.com:CarterShi01/Contexture.git · v0.0.3</div>
     <div>设计文档:docs/01-role-object-model.md(对象模型) · docs/02-framework-layers.md(框架分层)</div>
-    <div>本页纯手工维护,不随代码自动生成——架构变了记得回来改这份文件(旁边 vendor/mermaid.min.js 是本地离线渲染依赖)。</div>
+    <div>contexture · v0.0.4 · 本页纯手工维护,不随代码自动生成——架构变了记得回来改这份文件(旁边 vendor/mermaid.min.js 是本地离线渲染依赖)。</div>
     <div>改完跑一次 node docs/atlas/check.mjs 校验每张图能否解析(需先 npm install jsdom@22)。</div>
   </footer>
 

@@ -1,11 +1,17 @@
-"""MCP tool descriptors: the callable half of a server's catalog."""
+"""Tools: the callable half of a catalog, remote and local.
+
+`MCPTool` describes a tool a remote MCP server owns. `Tool` is a tool this
+application owns and can execute itself.
+"""
 
 from __future__ import annotations
 
+import inspect
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Mapping
 
+from . import declarative
 from .coercion import optional_bool, optional_str
 from .context import ContextNode
 from .errors import ModelValidationError
@@ -161,3 +167,96 @@ class MCPTool(ContextNode):
             annotations=ToolAnnotations.from_protocol_dict(raw_annotations),
             meta=deepcopy(raw_meta),
         )
+
+
+@dataclass(slots=True, kw_only=True)
+class Tool(ContextNode):
+    """A locally implemented capability that Contexture itself can execute.
+
+    `MCPTool` above describes somebody else's tool: it carries a hand-written
+    `input_schema` because the catalog belongs to a remote server. `Tool` is the
+    other half — a capability this application owns, stated as a typed Python
+    method::
+
+        class GetPodLogs(Tool):
+            '''Return recent container logs for one Pod.'''
+
+            read_only = True
+
+            async def invoke(self, namespace: str, pod: str) -> str:
+                ...
+
+    The parameter schema is never written by hand. It is derived from
+    `invoke`'s type hints when the tool is projected onto an MCP surface, which
+    is why nothing in this layer needs to know what JSON Schema looks like.
+
+    `read_only` is a trusted host classification, not an agent-supplied
+    argument. It is projected onto the protocol's `readOnlyHint` annotation so a
+    host can decide whether to ask a human before running the tool, and it must
+    never appear in the tool's input schema.
+    """
+
+    kind: ClassVar[str] = "tool"
+
+    #: Whether running this tool leaves the world unchanged.
+    read_only: ClassVar[bool] = False
+
+    #: The class-body declaration, or None on an imperatively built Tool.
+    declaration: ClassVar[declarative.Declaration | None] = None
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        # A zero-argument super() raises TypeError in this method: dataclass
+        # slots=True rebuilds the class object, so the implicit __class__ cell
+        # still points at the discarded original. Name the class explicitly.
+        super(Tool, cls).__init_subclass__(**kwargs)
+        if not declarative.is_declarative(cls, Tool):
+            return
+        cls.declaration = declarative.collect(cls, member_types=())
+        cls.__init__ = _declarative_tool_init  # type: ignore[method-assign]
+
+    async def invoke(self, **arguments: Any) -> Any:
+        """Execute the capability. Business subclasses state real parameters."""
+
+        raise NotImplementedError(
+            f"Tool {self.name!r} does not implement invoke()."
+        )
+
+    def parameters(self) -> tuple[str, ...]:
+        """Return the parameter names `invoke` accepts, in declaration order.
+
+        This is the routing-level answer to "what does this tool need?". The
+        full JSON Schema lives on the MCP surface, which a connected agent
+        already has; repeating it inside a disclosure payload would spend
+        context on something the host has handed over anyway.
+        """
+
+        signature = inspect.signature(type(self).invoke)
+        return tuple(
+            name
+            for name, parameter in signature.parameters.items()
+            if name != "self"
+            and parameter.kind
+            not in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD)
+        )
+
+    def _compile_active(self) -> CompiledContext:
+        return {
+            **self._compile_route(),
+            "parameters": list(self.parameters()),
+            "read_only": self.read_only,
+        }
+
+
+def _declarative_tool_init(self: Tool, **overrides: Any) -> None:
+    """Build a declared Tool, letting the caller override any stated field."""
+
+    declaration = type(self).declaration
+    assert declaration is not None  # set by __init_subclass__ before rebinding
+    Tool.__init__(
+        self,
+        **{
+            "name": declaration.name,
+            "description": declaration.description,
+            **overrides,
+        },
+    )

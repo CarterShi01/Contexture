@@ -1,5 +1,16 @@
 # Design 02 — Framework Layers
 
+> **Partly superseded by [ADR 001](adr/001-native-mcp-server.md) as of v0.0.4.**
+>
+> Everything below about the object model, the declarative front end, and the
+> route/active split still holds. What changed is the **main path**. This
+> document describes rendering a declaration into per-runtime context files as
+> the primary route to an agent; in v0.0.4 that became a side road, and the
+> primary route is a native MCP server the runtimes connect to.
+>
+> Read this for the layer boundaries and the reasoning behind them; read ADR 001
+> for what replaced the target adapters at the centre, and why.
+
 ## 1. Purpose
 
 Design 01 records the object model: what a Role is, what it may reach, and how
@@ -8,7 +19,8 @@ built around that model in `0.0.3` — how a business project states its context
 how one statement reaches several agent runtimes, and which parts of the
 package are optional.
 
-The one-sentence definition the rest of this document serves:
+The one-sentence definition the rest of this document serves — accurate for
+0.0.3, and revised in v0.0.4 as noted above:
 
 ```text
 Contexture is a context framework. An application declares roles, skills,
@@ -16,6 +28,10 @@ tools, and resources once; the framework progressively discloses them and
 translates them into the skill and MCP surfaces different agent runtimes
 consume.
 ```
+
+The v0.0.4 revision replaces the second clause: the framework progressively
+discloses them and **serves** them over MCP, rather than translating them into
+what each runtime reads.
 
 It is not an agent runtime, not a protocol, and not a file generator that
 serializes one class into one file.

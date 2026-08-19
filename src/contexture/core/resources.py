@@ -1,4 +1,8 @@
-"""MCP resource descriptors: the readable half of a server's catalog."""
+"""Resources: the readable half of a catalog, remote and local.
+
+`MCPResource` describes a resource a remote MCP server owns. `Resource` is
+content this application owns and can read itself.
+"""
 
 from __future__ import annotations
 
@@ -6,9 +10,10 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Mapping
 
+from . import declarative
 from .coercion import optional_str
 from .context import ContextNode
-from .errors import ModelValidationError
+from .errors import DeclarationError, ModelValidationError
 from .types import CompiledContext, JsonObject
 
 
@@ -120,3 +125,90 @@ class MCPResource(ContextNode):
             size=raw_size,
             meta=deepcopy(raw_meta),
         )
+
+
+@dataclass(slots=True, kw_only=True)
+class Resource(ContextNode):
+    """A locally implemented resource this application can read on demand.
+
+    `MCPResource` above describes a resource a remote server owns. `Resource` is
+    the other half — content this application produces itself::
+
+        class CrashLoopRunbook(Resource):
+            '''Runbook for diagnosing CrashLoopBackOff.'''
+
+            uri = "contexture://runbooks/crash-loop-backoff"
+            mime_type = "text/markdown"
+
+            async def read(self) -> str:
+                ...
+
+    The descriptor/content split that `MCPResource` documents holds here too,
+    and for the same reason: listing a resource must stay cheap. `read()` runs
+    only when something actually asks for the bytes, so discovering a hundred
+    runbooks costs a hundred descriptions, not a hundred documents.
+    """
+
+    uri: str
+    mime_type: str | None = None
+
+    kind: ClassVar[str] = "resource"
+
+    #: The class-body declaration, or None on an imperatively built Resource.
+    declaration: ClassVar[declarative.Declaration | None] = None
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        # A zero-argument super() raises TypeError in this method: dataclass
+        # slots=True rebuilds the class object, so the implicit __class__ cell
+        # still points at the discarded original. Name the class explicitly.
+        super(Resource, cls).__init_subclass__(**kwargs)
+        if not declarative.is_declarative(cls, Resource):
+            return
+        cls.declaration = declarative.collect(cls, member_types=())
+        cls.__init__ = _declarative_resource_init  # type: ignore[method-assign]
+
+    def __post_init__(self) -> None:
+        ContextNode.__post_init__(self)
+        if not self.uri.strip():
+            raise ModelValidationError(
+                f"Resource {self.name!r} must have a non-empty URI."
+            )
+
+    async def read(self) -> str | bytes:
+        """Return the resource content. Business subclasses implement this."""
+
+        raise NotImplementedError(
+            f"Resource {self.name!r} does not implement read()."
+        )
+
+    def _compile_active(self) -> CompiledContext:
+        compiled: CompiledContext = {
+            **self._compile_route(),
+            "uri": self.uri,
+        }
+        if self.mime_type is not None:
+            compiled["mimeType"] = self.mime_type
+        return compiled
+
+
+def _declarative_resource_init(self: Resource, **overrides: Any) -> None:
+    """Build a declared Resource, letting the caller override any stated field."""
+
+    declaration = type(self).declaration
+    assert declaration is not None  # set by __init_subclass__ before rebinding
+    uri = declarative.scalar(type(self), "uri")
+    if uri is None and "uri" not in overrides:
+        raise DeclarationError(
+            f"{declaration.owner} must state a `uri`; a Resource without one "
+            "cannot be addressed."
+        )
+    Resource.__init__(
+        self,
+        **{
+            "name": declaration.name,
+            "description": declaration.description,
+            "uri": uri,
+            "mime_type": declarative.scalar(type(self), "mime_type"),
+            **overrides,
+        },
+    )
