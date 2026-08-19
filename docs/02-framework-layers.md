@@ -59,13 +59,15 @@ Business Layer            declares roles, skills, tools, resources
 contexture.core           object model, registry, validation, disclosure rules
         │  compile
 contexture.compiler       route / active selection over the model
-        │  render
-contexture.targets        Claude Code · Codex · Cursor artifacts
-        ┊  optional
-contexture.protocol       MCP wire layer: outbound client, inbound host port
-contexture.execution      authorization and dispatch
-        │  consumed by
+        │  navigate
+contexture.discovery      refs, the capability graph, discover / get_context
+        │  project
+contexture.server         the native MCP server — the only layer importing mcp
+        │  MCP
 External Agent Runtime    LLM loop, planning, tool selection  (out of scope)
+
+        ┊  side road
+contexture.targets        Claude Code · Codex · Cursor artifacts
 ```
 
 The dependency rule is one-directional and enforced by the package layout: a
@@ -100,11 +102,12 @@ class K8sOperator(Role):
     instructions = "Inspect before changing the cluster."
 
     diagnose = DiagnoseDeployment
-    cluster = MCPBinding(server=KUBERNETES, allowed_tools=["get_pods"])
+    get_pods = GetPods
+    runbook = RolloutRunbook
 ```
 
 A declared Role *is* a `Role`, so every consumer — compiler, registry, adapter,
-runtime — accepts either without knowing which door was used. Declaration adds
+server — accepts either without knowing which door was used. Declaration adds
 a second way to state the same thing; it never becomes a parallel type.
 
 ### 4.2 Why this does not contradict "composition over inheritance"
@@ -131,7 +134,8 @@ class body simply lists them.
 | `name` / `description` | explicit overrides for the two derivations |
 | a `Skill` class or instance | an entry in `skills` |
 | a `Role` class or instance | an entry in `children` |
-| an `MCPBinding` instance | an entry in `mcp_bindings` |
+| a `Tool` class or instance | an entry in `tools` |
+| a `Resource` class or instance | an entry in `resources` |
 
 Members are collected across the whole MRO, base classes first, so a subclass
 inherits what its parent declared and may replace any member by rebinding its
@@ -221,40 +225,32 @@ changes touch timestamps or wake file watchers.
 
 ## 6. The inbound boundary
 
-`MCPClient` is the outbound half of MCP: the host calling somebody else's
-server. `MCPHostPort` is the inbound half:
+Through `0.0.3` this section described a port — `MCPHostPort` — that an
+application would implement to serve its declarations, alongside an `MCPClient`
+for calling somebody else's server. Both are gone.
 
-```python
-class MCPHostPort(Protocol):
-    def register_tool(self, tool: MCPTool, handler: ToolHandler) -> None: ...
-    def register_resource(self, resource, provider) -> None: ...
-```
+`contexture.server` is the inbound boundary now, and it is not a port but a
+server: `ContextureApp` takes the declared roots, projects them onto the
+official SDK, and runs. It is the only layer that imports `mcp`, which is what
+keeps the object model describable without a wire protocol in the room. ADR 001
+records why the arrow turned around; ADR 003 records why the outbound half was
+removed rather than kept as an option.
 
-The model depends on this shape and never on a server process, so an
-application can serve its declared capabilities from a standalone process, an
-existing web service, or an in-process double without the declarations
-changing.
+## 7. Where a tool call happens
 
-`InMemoryHost` implements the port and dispatches JSON-RPC against registered
-handlers. It is a reference and a test double — no transport, no
-authentication, no lifecycle — and it is what the example uses, which is how
-the example stopped needing a hand-written fake protocol server.
-
-A deployable server is deliberately absent. The port is what keeps that
-decision cheap once two independent callers have shown what it must do.
-
-## 7. Where ToolCall and ToolResult live
-
-They are not kernel objects. The model *describes* a tool; deciding to call one
-belongs to an agent runtime, and carrying the call belongs to the protocol
-layer:
+A tool call is not a kernel object. The model *describes* a tool and knows how
+to execute one; deciding whether to call it belongs to an agent runtime, and
+carrying the call over the wire belongs to the SDK:
 
 ```text
-core           describes and compiles a Tool
-protocol       ToolResult, ResourceContents, tools/call, resources/read
-execution      rechecks the grant, then dispatches
+core           describes a Tool, and owns its `invoke`
+server         derives the schema, projects it, dispatches the call
 agent runtime  decides whether to call at all          (out of scope)
 ```
+
+There is no `ToolCall` or `ToolResult` type in this package. The SDK owns the
+wire form, and inventing a parallel one would be a second protocol wearing the
+first one's clothes.
 
 ## 8. Invariants added in 0.0.3
 
@@ -262,7 +258,7 @@ agent runtime  decides whether to call at all          (out of scope)
 
 1. `contexture.core` imports no layer above it.
 2. Only `contexture.targets.writer` performs filesystem I/O.
-3. Only `contexture.protocol` performs network I/O.
+3. No layer below `contexture.server` performs network I/O.
 
 ### Declaration
 
@@ -278,11 +274,12 @@ agent runtime  decides whether to call at all          (out of scope)
 2. Every capability a target cannot express produces a note.
 3. Identical declarations render byte-identical artifacts.
 4. An artifact path is relative and stays inside the project tree.
-5. A role's rendered surface lists only that role's own grants.
+5. A role's rendered surface lists only that role's own tools and resources.
 
 ## 9. Deliberate non-goals, restated
 
 Unchanged from Design 01 §22, and reinforced here: no agent loop, no planner,
-no model client, no orchestration, no new protocol. `0.0.3` adds a declaration
-front end and several rendering back ends around the same kernel. It does not
-move the kernel toward being a runtime.
+no model client, no orchestration, no new protocol. `0.0.3` added a declaration
+front end and several rendering back ends around the same kernel; `0.0.4` turned
+the main path into a server and removed the client half entirely (ADR 001, ADR
+003). Neither moved the kernel toward being an agent runtime.

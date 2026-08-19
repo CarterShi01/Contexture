@@ -3,8 +3,7 @@
 > Scope note: this document covers the **object model** — what a Role is, what
 > it may reach, and how much becomes visible at each disclosure level. The
 > framework built around it (class-syntax declaration, target adapters, the
-> layer boundaries, the inbound host port) is
-> [Design 02](02-framework-layers.md).
+> layer boundaries, the server) is [Design 02](02-framework-layers.md).
 
 ## 1. Purpose
 
@@ -19,16 +18,17 @@ The design targets Python and uses the Model Context Protocol revision
 The most important architectural separation is:
 
 ```text
-MCP defines how a Host communicates with capability providers.
-This project defines how a Host organizes those capabilities into Roles.
+MCP defines how an agent runtime reaches a capability provider.
+This project defines how a provider organizes its capabilities into Roles.
 ```
 
-`Role`, `Skill`, `ContextNode`, `MCPBinding`, `tool_ref`, `resource_ref`, and the
-compile levels are Host-layer concepts. They are not additions to the MCP wire
-protocol.
+`Role`, `Skill`, `ContextNode`, `ref`, and the compile levels are model-layer
+concepts. They are not additions to the MCP wire protocol, and none of them
+appears on it: the protocol surface stays flat, and the tree travels inside the
+payload of two framework tools.
 
-Tools and Resources are the two capability kinds a Server exposes, and this
-model deliberately has no third, host-private kind beside them — see §4.1.
+Tools and Resources are the two capability kinds MCP defines, and this model
+deliberately has no third kind beside them — see §4.1.
 
 ## 2. Design goals
 
@@ -37,7 +37,7 @@ The model should satisfy six goals.
 1. A Role must be an ordinary Python object.
 2. A Role may contain child Roles through object composition.
 3. A Role may reuse Skills without copying their implementation knowledge.
-4. A Role may use only an explicitly granted subset of an MCP Server.
+4. A Role owns the tools and resources it declares, and no others.
 5. The Host must progressively expose context instead of loading the complete
    team, every Skill, and every Tool schema at once.
 6. One compile interface should work across different context-node types.
@@ -61,8 +61,9 @@ For Tools, the protocol defines concepts such as:
 - optional Tool `outputSchema`
 - optional Tool annotations
 
-The Role model does not redefine these fields. `MCPTool` wraps them so that a
-protocol Tool can participate in the Host's progressive context lifecycle.
+The Role model does not redefine these fields. A `Tool` states the operation in
+Python and lets the server layer derive the protocol shape from it, so the wire
+form has exactly one author.
 
 ## 4. The vocabulary
 
@@ -70,24 +71,21 @@ protocol Tool can participate in the Host's progressive context lifecycle.
 |---|---|---|
 | `Role` | Who owns this responsibility? | Coordinate a bounded area of work. |
 | `Skill` | How should this class of work be performed? | Supply reusable workflow knowledge. |
-| `MCPTool` | Which external function can be invoked? | Describe one protocol-callable operation. |
-| `MCPResource` | Which contextual data can be read? | Describe addressable content without loading it. |
-| `MCPServer` | Which provider owns these catalogs? | Own and refresh Tool and Resource catalogs. |
-| `MCPBinding` | Which Server capabilities may this Role use? | Project a least-privilege Tool and Resource subset. |
+| `Tool` | Which operation can this Role run? | Execute one typed Python method. |
+| `Resource` | Which content can this Role read? | Address content without loading it. |
 | `RoleCompiler` | What should enter the current LLM context? | Produce a progressive context representation. |
-| `RoleRuntime` | What may actually execute? | Recheck grants and invoke MCP operations. |
+| `RoleRegistry` | Where does this role path lead? | Resolve paths and reject cycles. |
+| `DisclosureEngine` | Where is the agent, and what is next? | Answer discover and get_context over refs. |
 
 A useful shorthand is:
 
 ```text
-Role        = who
-Skill       = how
-MCPTool     = executable operation
-MCPResource = readable context
-MCPServer   = capability provider
-MCPBinding  = granted provider view
-Compiler    = context disclosure
-Runtime     = execution enforcement
+Role       = who
+Skill      = how
+Tool       = executable operation
+Resource   = readable context
+Compiler   = context disclosure
+Discovery  = navigation over the declared graph
 ```
 
 ### 4.1 Why there is no separate Data type
@@ -100,11 +98,11 @@ audit.
 
 MCP already defines Resources for exactly this purpose. The host-layer Data
 types were therefore removed and every form of contextual information —
-documents, configuration, knowledge, runbooks — is now addressed as an
-`MCPResource` behind the same `MCPBinding` that grants Tools.
+documents, configuration, knowledge, runbooks — is now declared as a
+`Resource`, whose `read()` produces the content when something asks for it.
 
-A data source that no MCP server exposes is reached by putting a small local
-MCP server in front of it, not by reintroducing a second abstraction.
+A data source with an awkward shape is wrapped by a `Resource` subclass, not by
+reintroducing a second abstraction beside it.
 
 ## 5. Step 1: Role as a recursive composite
 
@@ -287,170 +285,152 @@ the Host needed to know how the selected item should be activated.
 `kind` is a Host routing field. It is not an MCP Tool field added to the wire
 protocol.
 
-## 11. Step 5: MCPTool as a ContextNode
+## 11. Step 5: Tool as a ContextNode
 
-`MCPTool` represents the protocol Tool declaration needed by the Host and LLM.
-Its central fields are:
+A `Tool` is a capability this application owns and can execute. It is stated as
+a typed Python method:
 
 ```python
-MCPTool(
-    name=...,
-    description=...,
-    input_schema=...,
-    output_schema=...,
-    annotations=...,
-)
+class GetPodLogs(Tool):
+    """Return recent container logs for one Pod."""
+
+    name = "get_pod_logs"
+    read_only = True
+
+    async def invoke(self, namespace: str, pod: str) -> str:
+        ...
 ```
 
-The Tool is a descriptor. It is not the network connection and does not own the
-transport.
+Nothing here writes a JSON Schema. The schema published in `tools/list` is
+derived from `invoke`'s type hints when the graph is projected onto a server,
+which is why this layer never has to know what JSON Schema looks like.
+
+A Tool's route card carries its name and description. Its active surface adds
+the parameter names and the `read_only` classification — not the full schema,
+because a connected agent already received that from the protocol, and
+repeating it inside a disclosure payload would spend context on something the
+host has handed over anyway.
 
 ```text
-MCPTool describes what can be called.
-MCPClient and MCPTransport perform the call.
+Tool describes and performs one operation.
+The server layer derives its schema and carries the call.
 ```
 
-A Tool's route surface omits `inputSchema`. Its active surface includes the full
-schema only after selection.
+## 11.1 Resource as a ContextNode
 
-The model validates the MCP invariant that Tool arguments are JSON objects, so
-the root of `inputSchema` must use `type: "object"`.
-
-## 11.1 MCPResource as a ContextNode
-
-`MCPResource` describes one readable address exposed by a Server:
+A `Resource` is content this application produces:
 
 ```python
-MCPResource(
-    name="kubernetes-incident-runbook",
-    description="Operational guidance for common Kubernetes incidents.",
-    uri="resource://kubernetes/runbook/incidents",
-    mime_type="text/markdown",
-)
+class CrashLoopRunbook(Resource):
+    """How to diagnose a container that keeps restarting."""
+
+    uri = "contexture://runbooks/crash-loop-backoff"
+    mime_type = "text/markdown"
+
+    async def read(self) -> str:
+        ...
 ```
 
 The disclosure boundary that matters for a Resource is not route versus active
 but **descriptor versus content**. Its route card carries the routing name and
-description; its active surface adds the URI, media type, and size. Neither
-level ever carries bytes. Content is fetched by `MCPClient.read_resource`
-after `RoleRuntime` authorizes the read.
+description; its active surface adds the URI and media type. Neither level ever
+carries bytes: `read()` runs only when something performs `resources/read`.
 
 ```text
 Compiling a Resource yields metadata.
 Reading a Resource yields content.
 ```
 
+This is the whole reason a resource is a resource rather than a paragraph
+pasted into a Skill. Discovering a hundred runbooks costs a hundred
+descriptions, not a hundred documents.
+
 Resources need no read-only classification. MCP defines no write operation on a
-Resource, so appearing on `allowed_resources` is the entire grant.
+Resource, so there is nothing to classify.
 
-## 12. Step 6: MCPServer is infrastructure, not ContextNode
+## 12. Why there is no provider object
 
-An MCP Server owns both catalogs and provides the execution destination.
+Through `0.0.3` the model carried `MCPServer`, `MCPBinding`, and a pair of
+descriptor types for somebody else's catalog. That shape belonged to a host —
+the thing that connects *out* to providers on an agent's behalf.
+
+Contexture is the provider. It has no catalog but its own, so there is nothing
+for a provider object to point at and nothing for a binding object to subset.
+ADR 003 records the removal; the argument it rests on is that a role declares
+what it owns, and ownership needs no grant.
+
+```text
+A Role declares a Tool.  That is the whole relationship.
+```
+
+## 13. Refs are the agent's position
+
+The role tree is not the protocol surface. MCP tool and resource lists are flat
+and, since the `2026-07-28` revision, explicitly stateless: a server may not
+vary them per connection or as a side effect of an earlier call.
+
+So the graph travels inside the payload of two framework tools, and an agent's
+position in it is a **ref** the agent carries:
+
+```text
+role:engineering-team/k8s-troubleshooter
+skill:engineering-team/k8s-troubleshooter#inspect-pod-failure
+tool:engineering-team/k8s-troubleshooter#get_pod_logs
+resource:engineering-team/k8s-troubleshooter#contexture://runbooks/crash-loop
+```
+
+The leaf is separated by `#` rather than `/` because resource URIs contain
+slashes of their own, and an address a reader cannot split by eye is an address
+that will eventually be split wrong.
+
+Because the ref is the position, the server keeps none. `get_context` is a pure
+function of its ref, never of what was asked before it — which is what makes
+traversal legal on a stateless surface, and what lets one server carry a whole
+forest of roots instead of one process per leaf role.
+
+## 14. Disclosure is not authorization
+
+On a flat surface, per-role authorization is not achievable. A tool name that
+exists can be called by anyone who can see the list; nothing stops an agent from
+skipping discovery and calling a tool directly, and nothing here pretends to.
+
+What disclosure controls is **knowledge**. A Skill's procedure, its ordering,
+and its constraints live behind `contexture_get_context`. An agent that skips
+ahead can run a tool; it cannot know what the runbook says about exit code 137,
+or that restarting first repairs nothing.
+
+**Authorization stays with the host**, which the specification already makes
+responsible for keeping a human in the loop. The model informs that decision by
+projecting `read_only`, and by never letting that classification become an
+argument.
+
+```text
+Hidden is not the same as forbidden.
+Disclosure shapes what an agent knows; the host decides what it may do.
+```
+
+## 15. Why `read_only` is a classification and not an argument
+
+`read_only` is stated once, in the class body, as a `ClassVar`:
 
 ```python
-MCPServer(
-    server_id="production-kubernetes",
-    name="kubernetes",
-    tools=[...],
-    resources=[...],
-)
+class DeletePod(Tool):
+    read_only = False
 ```
 
-The Server does not inherit `ContextNode` because the LLM normally selects a
-business operation or a document, not an infrastructure endpoint.
+It is projected onto the protocol's `readOnlyHint` annotation, where a host can
+act on it, and it never appears in the tool's input schema. The reason is
+direct: a model that could pass its own approval flag would be approving its own
+writes, which is not approval at all.
+
+The same rule generalizes. Anything the framework needs to state about a call —
+as opposed to anything the model needs to supply — must reach the tool by a path
+the model cannot fill in.
 
 ```text
-The LLM selects get_pod_logs.
-The Host routes that selection to production-kubernetes.
-```
-
-Keeping `MCPServer` outside the context-node hierarchy prevents transport and
-connection details from leaking into the LLM-facing abstraction.
-
-## 13. Host references versus protocol names
-
-MCP Tool names and Resource URIs are scoped to one Server. Two Servers may both
-expose `search`, `get_logs`, or `resource://repo/README.md`.
-
-The Host therefore creates unique references:
-
-```text
-production-kubernetes/get_pod_logs
-production-kubernetes/resource://kubernetes/runbook/incidents
-```
-
-Both use the same shape, `<server_id>/<protocol identifier>`, and both are
-parsed by splitting on the **first** separator only. Because a Server id may not
-contain `/`, a Resource URI keeps working as the remainder even though it
-contains slashes and a scheme.
-
-The names serve different purposes:
-
-```text
-tool_ref      = Host-side routing and disambiguation
-Tool.name     = value sent in MCP tools/call params.name
-resource_ref  = Host-side routing and disambiguation
-Resource.uri  = value sent in MCP resources/read params.uri
-```
-
-The Host must not accidentally send a full host reference as the protocol name
-or URI.
-
-## 14. Step 7: MCPBinding as the relationship object
-
-A direct Role-to-Server reference grants too much. If a Server exposes read,
-write, and destructive Tools, a read-only Role should not automatically receive
-the entire catalog.
-
-`MCPBinding` sits between Role and Server:
-
-```python
-MCPBinding(
-    server=kubernetes_server,
-    allowed_tools=["get_pod_logs", "get_events"],
-    read_only_tools=["get_pod_logs", "get_events"],
-    allowed_resources=["resource://kubernetes/runbook/incidents"],
-)
-```
-
-The object graph becomes:
-
-```text
-Role
-└── MCPBinding
-    ├── server: MCPServer
-    ├── allowed_tools
-    ├── read_only_tools
-    └── allowed_resources
-```
-
-`allowed_tools` and `allowed_resources` are both deny-by-default. An empty list
-grants nothing.
-
-`read_only_tools` is a trusted Host classification and must be a subset of
-`allowed_tools`. Any allowed Tool not on the trusted read-only list requires
-explicit approval in the Runtime.
-
-There is deliberately no `read_only_resources`. MCP Resources are read-only at
-the protocol level, so the allowlist alone is the complete grant.
-
-Every refusal that reaches a Host through `get_mcp_binding_for_tool_ref` or
-`get_mcp_binding_for_resource_ref` is a `CapabilityDeniedError`, including the
-case where the Role holds no binding to the named Server at all. A Host
-catching authorization failures therefore needs one exception type, not two.
-
-## 15. Why protocol ToolAnnotations are not authorization
-
-MCP Tool annotations such as `readOnlyHint` and `destructiveHint` are hints. A
-remote Server controls them, so a Host cannot safely treat them as the source of
-truth for authorization.
-
-The project keeps annotations for display, planning, and diagnostics, but the
-execution policy uses the Host-owned Binding.
-
-```text
-Remote annotation = untrusted hint
-Host Binding       = trusted grant and classification
+The model fills business arguments.
+The framework fills framework arguments.
+They are never on the same plane.
 ```
 
 ## 16. Current object graph
@@ -467,62 +447,53 @@ classDiagram
         +instructions: str
         +children: Role[]
         +skills: Skill[]
-        +mcp_bindings: MCPBinding[]
+        +tools: Tool[]
+        +resources: Resource[]
     }
 
     class Skill {
         +instructions: str
     }
 
-    class MCPTool {
-        +input_schema
-        +output_schema
-        +annotations
+    class Tool {
+        +read_only: bool
+        +invoke(...)
+        +parameters()
     }
 
-    class MCPResource {
+    class Resource {
         +uri: str
         +mime_type: str
-        +size: int
-    }
-
-    class MCPServer {
-        +server_id: str
-        +tools: MCPTool[]
-        +resources: MCPResource[]
-    }
-
-    class MCPBinding {
-        +allowed_tools: str[]
-        +read_only_tools: str[]
-        +allowed_resources: str[]
+        +read()
     }
 
     ContextNode <|-- Role
     ContextNode <|-- Skill
-    ContextNode <|-- MCPTool
-    ContextNode <|-- MCPResource
+    ContextNode <|-- Tool
+    ContextNode <|-- Resource
     Role *-- Role : children
     Role *-- Skill : skills
-    Role *-- MCPBinding : grants
-    MCPBinding --> MCPServer : server
-    MCPServer *-- MCPTool : tool catalog
-    MCPServer *-- MCPResource : resource catalog
+    Role *-- Tool : tools
+    Role *-- Resource : resources
 ```
+
+Four types, one base class, and a role that holds only what it declares. Every
+one of them is subclassed by the business layer, and none of them knows that
+MCP exists.
 
 ## 17. Terminal-state additions
 
 The project includes the natural next layers so the current model does not need
 to be redesigned later.
 
-### 17.1 Resource grants
+### 17.1 Resources are declared, not granted
 
-Resources travel through the same `MCPBinding` that grants Tools. A Role that
-should read a runbook lists its URI in `allowed_resources`; a Role that should
-not simply omits it and never sees the route card.
+A Role that should read a runbook declares it; a Role that should not simply
+omits it and never sees the route card. There is no allowlist, because there is
+nothing to subset — see §12.
 
-`RoleRuntime.read_resource` rechecks the grant and calls `resources/read`. The
-compiler is not involved in loading content at any point.
+The compiler is not involved in loading content at any point. It produces the
+descriptor; `resources/read` produces the bytes.
 
 ### 17.2 RoleCompiler
 
@@ -530,25 +501,16 @@ The compiler receives a `CompileRequest` and optional `CapabilitySelection`.
 
 ```python
 CompileRequest(
-    selection=CapabilitySelection(
-        skill_names=("inspect-pod-failure",),
-        tool_refs=("production-kubernetes/get_pod_logs",),
-        resource_refs=(
-            "production-kubernetes/resource://kubernetes/runbook/incidents",
-        ),
-    )
+    selection=CapabilitySelection(skill_names=("inspect-pod-failure",))
 )
 ```
 
-The result contains:
-
-- the active Role surface;
-- only the selected active Skill details;
-- only the selected active Tool schemas;
-- only the selected active Resource descriptors.
+The result contains the active Role surface and only the selected active Skill
+details.
 
 The compiler never executes a Tool and never reads a Resource. It produces
-context.
+context. Navigation over the graph belongs to `DisclosureEngine` above it
+(§17.4), which is what the server actually calls.
 
 ### 17.3 RoleRegistry
 
@@ -561,109 +523,80 @@ engineering-team/k8s-troubleshooter
 It also detects recursive object-composition cycles. Shared Role objects may be
 reachable through multiple paths, but a Role cannot eventually contain itself.
 
-### 17.4 RoleRuntime
+### 17.4 DisclosureEngine
 
-The Runtime is the execution boundary.
-
-For a Tool call, it performs this sequence:
-
-```text
-Resolve active Role path
-        ↓
-Resolve Role's MCPBinding from tool_ref
-        ↓
-Verify the Tool is explicitly allowed
-        ↓
-Check the Host read-only classification
-        ↓
-Require approval when necessary
-        ↓
-Select MCPClient by server_id
-        ↓
-Send tools/call with the original Tool.name
-```
-
-For a Resource read, the approval step is absent because the protocol has no
-write path:
+The engine answers the two questions a connected agent actually asks, and it is
+what the server projects onto MCP:
 
 ```text
-Resolve active Role path
-        ↓
-Resolve Role's MCPBinding from resource_ref
-        ↓
-Verify the Resource is explicitly allowed
-        ↓
-Select MCPClient by server_id
-        ↓
-Send resources/read with the original Resource.uri
+discover(ref)      what is here, as routing cards — cheap, no instructions
+get_context(ref)   the detail for the one node the agent has now chosen
 ```
 
-The Runtime checks the Binding again even though ungranted capabilities were
-already hidden from the LLM context. Context omission improves behavior;
-Runtime checks provide the actual Host boundary.
+`discover` with no ref is the entry point to the forest: every root, one card
+each. With a role ref it is one step of traversal — the sub-roles, skills,
+tools, and resources directly under it, each card carrying the ref needed to go
+deeper. Cards never carry instructions.
 
-`refresh_server_catalog` rediscovers both catalogs and validates both against
-existing grants **before replacing either**, so a resource catalog that would
-orphan a grant cannot leave the Server holding half-refreshed state.
+`get_context` opens exactly one node. A Skill's complete instructions enter an
+agent's context here and nowhere else. A Resource yields its descriptor; its
+content is read over `resources/read`.
 
-### 17.5 MCPClient and MCPTransport
+Both are pure functions of their argument. The engine holds no per-connection
+state, for the reason given in §13.
 
-`MCPClient` builds self-contained requests with:
+### 17.5 The server projection
 
-- `jsonrpc: "2.0"`;
-- a non-null request id;
-- the MCP method;
-- required per-request `_meta` values;
-- the protocol version `2026-07-28`;
-- client implementation information;
-- per-request client capabilities.
+`contexture.server` is the only layer that imports the official SDK. It
+translates, and holds no business rules of its own:
 
-For Streamable HTTP, it builds the required routing headers:
+```text
+Role graph                       MCP
+------------------------------   -------------------------------------
+local Tool                       a native tool; schema from `invoke`
+local Resource                   a native resource; lazy `read`
+DisclosureEngine.discover        the tool `contexture_discover`
+DisclosureEngine.get_context     the tool `contexture_get_context`
+root roles                       server instructions
+```
 
-- `MCP-Protocol-Version`;
-- `Mcp-Method`;
-- `Mcp-Name` where required;
-- `Mcp-Param-*` values derived from valid `x-mcp-header` annotations.
-
-The transport interface is separate so an application can use HTTP, stdio, a
-mock transport, or another implementation without changing the Role model.
+Two invariants are load-bearing enough to restate here: `read_only` never
+becomes an argument (§15), and the graph never becomes the surface (§13).
 
 ## 18. Complete progressive flow
 
-A typical request follows this sequence:
+A typical interaction follows this sequence. Every step is one MCP call, and the
+agent's position between steps is the ref it carries, not state the server keeps.
 
 ```text
-1. Compile engineering-team as active.
-   - Root instructions are visible.
-   - Child Role descriptions are visible.
-   - Child instructions remain hidden.
+1. contexture_discover()
+   - Every root, one routing card each.
+   - No instructions anywhere.
 
-2. Select k8s-troubleshooter.
+2. contexture_discover("role:engineering-team")
+   - Child role cards, skill cards, tool cards, resource cards.
+   - Each card carries the ref that opens it.
+   - Still no instructions, no schemas, no content.
 
-3. Compile k8s-troubleshooter as active.
-   - Troubleshooter instructions are visible.
-   - Skill descriptions are visible.
-   - Granted Tool descriptions are visible.
-   - Granted Resource descriptions are visible.
-   - Skill instructions, Tool schemas, and Resource URIs remain hidden.
+3. contexture_get_context("skill:engineering-team#inspect-pod-failure")
+   - The skill's complete procedure enters context, here and nowhere else.
+   - Its ordering and constraints arrive with it.
 
-4. Select inspect-pod-failure, get_pod_logs, and the runbook Resource.
+4. get_pod_logs(namespace="prod", pod="payments-api-7d9c")
+   - An ordinary MCP tool call. The schema came from tools/list, derived from
+     `invoke`; the host decided whether to ask a human, informed by readOnlyHint.
+   - `Tool.invoke` runs. The model never saw a framework argument.
 
-5. Compile selected capabilities as active.
-   - Skill instructions enter context.
-   - get_pod_logs inputSchema enters context.
-   - The runbook URI and media type enter context; its content does not.
-   - Unrelated Tool schemas remain hidden.
+5. resources/read("contexture://runbooks/crash-loop-backoff")
+   - `Resource.read` runs now, and only now. Discovering the runbook cost one
+     line of description; reading it costs the document.
 
-6. The LLM produces Tool arguments, or asks to read the Resource.
-
-7. RoleRuntime checks the MCPBinding again.
-
-8. MCPClient sends tools/call using Tool.name, or resources/read using
-   Resource.uri, to the bound Server.
-
-9. The result is returned to the Host and can be added to the next LLM turn.
+6. The result returns to the agent runtime, which decides what to do next.
+   That decision is out of scope here.
 ```
+
+Steps 1–3 are disclosure and cost context in proportion to what was chosen.
+Steps 4–5 are execution and are reachable without steps 1–3 — see §14.
 
 ## 19. Core invariants
 
@@ -685,32 +618,27 @@ The implementation protects these invariants.
 
 ### MCP invariants
 
-1. Tool names are unique within one Server catalog.
-2. Resource URIs are unique within one Server catalog.
-3. Tool `inputSchema` has an object root.
-4. A Binding cannot grant a Tool or Resource absent from the Server catalog.
-5. `read_only_tools` is a subset of `allowed_tools`.
-6. `tool_ref` and `resource_ref` are used for Host routing only.
-7. A refreshed catalog may not orphan an existing grant.
-8. Every MCP request carries protocol metadata for `2026-07-28`.
+1. Tool names are unique across the whole served graph, because the protocol
+   surface is flat.
+2. Resource URIs are unique across the whole served graph, for the same reason.
+3. A tool's input schema is derived from `invoke`, never hand-written.
+4. `read_only` is projected onto `readOnlyHint` and never onto the input schema.
+5. `get_context` is a pure function of its ref.
+6. The served tool and resource lists do not vary per connection.
 
 ### Security invariants
 
-1. Hidden is not the same as unauthorized.
-2. The Runtime rechecks grants immediately before execution.
-3. Remote Tool annotations are not trusted authorization facts.
-4. Non-read-only Tools require explicit approval in the reference Runtime.
-5. Every authorization refusal is one exception type, `CapabilityDeniedError`.
-6. The Server must still enforce its own authentication and authorization.
+1. Hidden is not the same as forbidden.
+2. Disclosure controls knowledge; the host controls authorization.
+3. A framework classification never becomes an argument a model can fill in.
+4. `contexture.core` cannot import the SDK, enforced statically and at runtime.
 
 ## 20. Why direct objects are retained
 
 The current model stores direct Python objects:
 
 ```python
-Role(children=[child_role])
-MCPBinding(server=server)
-MCPServer(tools=[tool], resources=[resource])
+Role(children=[child_role], tools=[tool], resources=[resource])
 ```
 
 This is intentional because the goal is to make the object relationships easy
@@ -721,12 +649,12 @@ A persisted or distributed system will likely split declaration and runtime:
 ```text
 RoleSpec with stable references
         ↓ resolve/link
-Role runtime objects with live clients and providers
+Role objects with live implementations attached
 ```
 
-The included Registry, Client map, and Provider map already establish the
-boundaries needed for that future split. The core Role API does not need to
-change when serialization is introduced.
+The Registry and the ref grammar already establish the boundaries needed for
+that split. The core Role API does not need to change when serialization is
+introduced.
 
 ## 21. Extension points
 
@@ -736,13 +664,12 @@ core object hierarchy:
 - persisted `RoleSpec` documents and versioned references;
 - Skill packages loaded from local directories or registries;
 - MCP Prompts and resource subscriptions;
-- automatic multi-round-trip request handling;
-- stdio transport;
+- a per-call context object carrying progress, logging, and elicitation
+  (ADR 002);
 - token-budget-aware context compilation;
-- richer confirmation and organization policy engines;
-- observability, audit events, and deterministic fingerprints;
-- parallel child Role execution;
-- team-level scheduling and shared workspaces.
+- disclosure telemetry: which refs are opened, and which tools are called
+  without their skill ever being read;
+- observability, audit events, and deterministic fingerprints.
 
 Each belongs behind an existing boundary rather than inside the base Role class.
 
@@ -768,19 +695,14 @@ into a secure progressive Agent Host without invalidating the early concepts.
 | Skill | `src/contexture/core/skill.py` |
 | Role | `src/contexture/core/role.py` |
 | Class-syntax declaration | `src/contexture/core/declarative.py` |
-| MCP Tool | `src/contexture/core/tools.py` |
-| MCP Resource | `src/contexture/core/resources.py` |
-| MCP Server and connections | `src/contexture/core/servers.py` |
-| MCP Binding | `src/contexture/core/binding.py` |
+| Tool | `src/contexture/core/tools.py` |
+| Resource | `src/contexture/core/resources.py` |
 | Role path registry | `src/contexture/core/registry.py` |
 | Unified compiler | `src/contexture/compiler.py` |
+| Refs, graph, disclosure | `src/contexture/discovery.py` |
+| The MCP server | `src/contexture/server/` |
 | Target adapters | `src/contexture/targets/` |
-| JSON-RPC and request metadata | `src/contexture/protocol/messages.py` |
-| MCP transport | `src/contexture/protocol/transport.py` |
-| MCP client | `src/contexture/protocol/client.py` |
-| MCP host port | `src/contexture/protocol/host.py` |
-| Execution runtime | `src/contexture/execution.py` |
-| Complete example | `examples/engineering_team.py` |
+| Complete example | `src/contexture/examples/incident/` |
 
 ## 24. Official references
 

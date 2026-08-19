@@ -41,9 +41,15 @@ for (const key of [
   "MutationObserver",
   "trustedTypes",
 ]) {
-  if (dom.window[key] !== undefined) {
-    globalThis[key] = dom.window[key];
-  }
+  if (dom.window[key] === undefined) continue;
+  // Node 22 defines some of these on globalThis as getter-only accessors
+  // (navigator, for one), so a plain assignment throws. defineProperty
+  // replaces the descriptor instead of writing through it.
+  Object.defineProperty(globalThis, key, {
+    value: dom.window[key],
+    writable: true,
+    configurable: true,
+  });
 }
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;

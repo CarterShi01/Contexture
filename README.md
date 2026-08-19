@@ -317,10 +317,13 @@ src/contexture/
 - [`docs/01-role-object-model.md`](docs/01-role-object-model.md) — the object
   model, its invariants, and why each boundary sits where it does.
 - [`docs/02-framework-layers.md`](docs/02-framework-layers.md) — the framework
-  shape: declaration, compilation, targets, and the optional layers.
+  shape: declaration, compilation, the server, and the one side road.
 - [`docs/adr/001-native-mcp-server.md`](docs/adr/001-native-mcp-server.md) — why
   the main path became a server, what it cost, and what was deliberately left
   alone.
+- [`docs/adr/003-remove-the-outbound-half.md`](docs/adr/003-remove-the-outbound-half.md)
+  — why the client half ADR 001 left alone was removed instead, and what that
+  gave up.
 - [`docs/atlas/index.html`](docs/atlas/index.html) — an offline visual atlas;
   open it directly in a browser. After editing it, run
   `npm install jsdom@22 && node docs/atlas/check.mjs` to confirm every diagram
