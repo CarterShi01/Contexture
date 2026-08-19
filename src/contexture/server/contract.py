@@ -56,9 +56,9 @@ GATEWAY = (
             "List the top-level roles this server serves, as short routing "
             "cards. Start here, then open the one that matches the task; its "
             "sub-roles arrive with it, one level at a time, so a large tree "
-            "costs only the branch you enter. Cards never carry instructions, "
-            "tool schemas, or document content — opening is what delivers "
-            "those. Each card carries the ref that opens it."
+            "costs only the branch you enter. A role card is a name, a "
+            "sentence, and the ref that opens it — instructions and document "
+            "content arrive on opening, never here."
         ),
     ),
     GatewayTool(
@@ -69,8 +69,9 @@ GATEWAY = (
             "returns its instructions and a card for every skill, tool, "
             "resource and sub-role it holds, each with the ref that opens it "
             "and each tool with the schema needed to call it. Opening a skill "
-            "returns its complete procedure, which is available here and "
-            "nowhere else. Pass a ref taken from a card; never assemble one."
+            "returns its complete procedure, available here and nowhere else. "
+            "A tool's card is already complete, so run the tool rather than "
+            "opening it. Pass a ref taken from a card; never assemble one."
         ),
     ),
     GatewayTool(

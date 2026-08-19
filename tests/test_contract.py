@@ -43,6 +43,22 @@ class SurfaceVocabularyTests(unittest.TestCase):
             with self.subTest(tool=entry.name):
                 self.assertGreater(len(entry.description), 60)
 
+    def test_only_the_call_that_delivers_schemas_talks_about_them(self) -> None:
+        """Five descriptions are one document, and it has to agree with itself.
+
+        `contexture_discover` said cards never carry tool schemas and that
+        opening is what delivers them. Both halves misled: the cards *it*
+        returns are role cards, which have no schema to carry, while the tool
+        cards `contexture_open` returns have carried the schema since the card
+        and the tool's own ref were made to agree. An agent that believed it
+        spent a call per tool to be handed back the card it already had.
+        """
+
+        described = {entry.name: entry.description for entry in contract.GATEWAY}
+
+        self.assertIn("schema", described[contract.OPEN_TOOL])
+        self.assertNotIn("schema", described[contract.DISCOVER_TOOL])
+
 
 class PreambleTests(unittest.TestCase):
     def test_the_opening_fits_the_budget_codex_reads(self) -> None:
