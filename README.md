@@ -2,6 +2,13 @@
 
 **A context framework for agents.**
 
+MCP lets an agent *call* your system. Contexture lets an agent *understand* it.
+
+The official SDK turns a Python function into a tool. Contexture turns a domain
+into a capability graph an agent can navigate — one with responsibility
+boundaries, procedural knowledge, and a context bill you pay only for what gets
+selected.
+
 Declare your roles, skills, tools, and resources once. Contexture serves them as
 a native MCP server that Claude Code, Codex, and anything else speaking MCP
 connect to directly.
@@ -40,11 +47,13 @@ answers one question:
 
 A concept that does neither is a spare part, however well made.
 
-## The programming model
+## The programming model: Object-Oriented Programming
 
-The framework is built as an object model, and the business layer extends it by
-inheritance. There is no registration call, no manifest to keep in step with the
-code, and no decorator that can drift away from the class it decorates:
+The programming model is **Object-Oriented Programming (OOP)**. Not a decorator
+registry, not a manifest, not a DSL. The framework ships an object model; the
+business layer extends it by subclassing. There is no registration call, no
+manifest to keep in step with the code, and no decorator that can drift away
+from the class it decorates:
 
 ```python
 class GetPodLogs(Tool):            # a capability you own
@@ -52,6 +61,26 @@ class DiagnoseCrashLoop(Skill):    # a procedure you own
 class CrashLoopRunbook(Resource):  # content you own
 class IncidentResponder(Role):     # the boundary that holds them
 ```
+
+Four OOP mechanisms carry weight here, and each does a job the alternatives
+cannot.
+
+**Inheritance is the extension point.** `class GetPodLogs(Tool)` *is* the
+registration — there is no second act. `__init_subclass__` reads the class body
+at class-creation time, so a malformed declaration fails on import rather than
+on the first request that happens to touch it.
+
+**Encapsulation keeps the disclosure decision local.** Every node decides for
+itself what its routing card says and what its opened form says. Nothing central
+holds a table of node kinds, so adding a kind does not edit a renderer.
+
+**Polymorphism is what makes progressive disclosure uniform.** Role, Skill,
+Tool, and Resource have nothing else in common, yet discovery calls
+`node.compile(level)` on all four and never asks what it is holding.
+
+**Composition, not inheritance, models the team.** Subclassing states what one
+node *is*; it never states containment. A role that coordinates other roles
+holds them in `children`, whether it was declared or assembled at runtime.
 
 Each base class states one contract and derives the rest from what the subclass
 already says. The class name becomes the node name, the docstring becomes the
@@ -159,7 +188,7 @@ approving its own writes.
 ```python
 from contexture.server import ContextureApp
 
-app = ContextureApp(roots=EngineeringTeam())
+app = ContextureApp(roots=KubernetesIncidentResponder())
 
 if __name__ == "__main__":
     app.run(transport="stdio")
@@ -182,7 +211,7 @@ each one cannot express rather than dropping it silently:
 ```python
 from contexture.targets import all_adapters, render_all, write
 
-surfaces = render_all(EngineeringTeam(), all_adapters())
+surfaces = render_all(KubernetesIncidentResponder(), all_adapters())
 print(surfaces["codex"].notes[0])
 # Codex has no separate skill artifact; 2 skill(s) were inlined into the main
 # context file, so their instructions are always resident.
@@ -330,12 +359,83 @@ src/contexture/
   still parses; a mermaid syntax error otherwise stays invisible until someone
   opens the page.
 
-## What this is not
+## What Contexture does not do
 
-- Not an agent runtime. No planner, no agent loop, no tool selection.
-- Not a new protocol. It speaks MCP, using the official SDK rather than its own
+Three things sit next to Contexture and are easy to confuse with it. Each
+boundary is deliberate, and each one is what keeps this codebase small.
+
+### Not the MCP SDK — it sits on top of one
+
+The official `MCPServer` is a protocol implementation: it turns a Python
+function into a legal MCP tool, derives JSON Schema from type hints, frames
+stdio, and negotiates protocol versions. Contexture does none of that and never
+will.
+
+| | `mcp.server.mcpserver.MCPServer` | Contexture |
+| --- | --- | --- |
+| Audience | protocol implementers | business developers |
+| Question it answers | how does this function become a legal MCP tool? | how does this domain become a graph an agent can navigate? |
+| Unit | a flat list of tools, resources, prompts | a forest of roles with boundaries |
+| Scale it assumes | a dozen tools, all resident | hundreds of capabilities, most of them out of context |
+| Context budget | not its problem | a first-class constraint |
+| Wire format, schema, transport | owns it | never touches it |
+
+The entire dependency is five imports inside `contexture/server/` and four SDK
+calls: the constructor, `add_tool`, `add_resource`, `run`. `ContextureApp`
+composes an `MCPServer` rather than subclassing one, so an SDK upgrade cannot
+reach into the object model, and `tests/test_layering.py` fails if any other
+layer imports `mcp`.
+
+Two things the SDK offers and Contexture deliberately declines:
+
+- **`add_prompt`, never called.** MCP prompts are user-triggered templates. A
+  Skill is agent-selected procedural knowledge. Mapping one onto the other hands
+  the selection back to a human, which is the opposite of the point.
+- **The decorator style (`@server.tool()`).** Capabilities are runtime objects
+  walked out of a graph, not functions known at import time in one module.
+
+### Not the agent runtime — Claude Code and Codex stay in charge
+
+Contexture has no planner, no agent loop, no tool selection, and never calls a
+model. It does not decide which skill fits a task. It makes that decision
+cheaper by putting a one-line routing card in front of the model where a full
+procedure would otherwise sit.
+
+The division is sharpest around authorization. **Disclosure is not
+authorization**: Contexture governs what an agent *knows*, the host governs what
+an agent may *run*. A tool's `read_only` classification is projected onto
+`readOnlyHint` so the host can ask a human first — Contexture itself never asks,
+never blocks, and never lets that flag become an argument a model can fill in.
+
+Host configuration is not Contexture's either. It emits the launch command
+through `contexture.server.registration` and stops there; what the host does
+with sampling, permissions, or its own memory files is outside the boundary.
+
+### Not your business system — it describes one, it does not become one
+
+Contexture holds none of your state. No database, no cache, no queue, no
+scheduler, no retry policy, no transactions, and no domain logic of its own. A
+`Tool` is a typed Python method whose body is *your* code calling *your*
+system; Contexture decides when the description of that method becomes visible,
+and hands the call through.
+
+These stay yours:
+
+- **Business logic and persistence.** `invoke` and `read` are your call sites,
+  and the framework never inspects what happens inside them.
+- **Credentials for your own backends.** Contexture stores none.
+- **What a procedure actually says.** A Skill's `instructions` are domain
+  knowledge the framework never authors, validates, or rewrites.
+- **Calling somebody else's MCP server.** Contexture is the inbound half. Use
+  the SDK's client for outbound work; the hand-written client that once lived in
+  `contexture.protocol` was removed rather than maintained against a moving
+  specification, for the reasons in
+  [`docs/adr/003-remove-the-outbound-half.md`](docs/adr/003-remove-the-outbound-half.md).
+
+### Also true
+
+- Not a new protocol. It speaks MCP through the official SDK rather than its own
   JSON-RPC implementation.
-- Not a model client. It never calls an LLM.
 - Not zero-dependency any more. Serving MCP means depending on `mcp`, and that
   is a deliberate trade recorded in ADR 001.
 
