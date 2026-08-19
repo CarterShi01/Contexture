@@ -141,34 +141,38 @@ front and no `[tool.uv.sources]` substitution.
 
 ## 4. Decisions nobody has taken
 
-### 4.1 ADR 002 — the per-call context object and the options struct
+### 4.1 ADR 002 — the options struct (Decision A is parked)
 
-[`docs/adr/002-per-call-context-and-options.md`](docs/adr/002-per-call-context-and-options.md)
-is **proposed, not accepted**, and needs one revision before it is actionable:
-with the outbound half gone (ADR 003), the object it proposes is a pure
-communication side channel — progress, host-visible logging, elicitation,
-cancellation — and is *not* an authorization object. The brpc `Controller`
-parallel that motivates it carries authentication; this one must not.
+**Decision A — `ToolContext` — is parked, with the reason recorded in the ADR.**
+It was written before the gateway, and the gateway removed its premise: a
+business tool that annotates the SDK's `Context` already gets progress,
+host-visible logging, elicitation and `request_id`, over real stdio, with the
+parameter kept out of the derived schema. What the decision would still buy is
+one line of import — business code naming `contexture.server` instead of
+`mcp.server.mcpserver` — for code that does not exist yet: no tool in the
+examples, the scaffold or the tests takes a `ctx`.
 
-Fold in a two-phase shutdown — brpc's `Stop(closewait_ms)` then `Join()` — which
-`ContextureApp` has no equivalent of. Irrelevant under stdio, real under
-`streamable-http` with a tool call in flight.
+Waiting costs nothing mechanically. A tool annotating the SDK's `Context` keeps
+working if Contexture later passes a `ToolContext` subclass, because nothing
+type-checks the injected object. The ADR's timing argument was wrong about
+that, and the revision note says so, along with the route to take if the
+decision is ever taken — subclass in `server/`, built in `_invoke`, about forty
+lines. Take it when a tool actually wants progress or elicitation, and the
+shape will follow a requirement instead of a guess.
 
-The argument for doing it soon is about timing, not features: the position for a
-framework-filled argument has to exist before people write tools, or adding it
-later changes every signature in every project.
+One piece was done because it had a victim already: opening a tool used to
+disclose `parameters()`, read off the signature, so a tool taking a `ctx` named
+an argument its own schema rejected — and the two ways to reach a tool
+disagreed about how to call it. Opening one now answers with the same
+`input_schema` its card carries.
 
-The ADR also records a latent SDK bug found while writing it —
-`ToolManager.add_tool` warns and returns the existing tool on a duplicate name.
-**Re-checked 2026-08-19 against the real SDK: the behaviour is unchanged, and
-under the gateway it is unreachable.** Registering a second tool under a name
-already taken still logs `WARNING Tool already exists` through `logging` — not
-`warnings`, so it will not surface in a test that only captures those — keeps
-the first implementation, and discards the second without raising. But the only
-names ever registered are the five in `contract.GATEWAY`, they are distinct,
-they come from one tuple, and no business tool reaches `add_tool` at all. Drop
-this from the ADR's motivation; it argued for a defence the gateway already
-provides structurally.
+**Decision B — `ContextureOptions` — is untouched and still open.** The silent
+failure it exists for is confirmed against the installed SDK: the stdio branch
+is `anyio.run(self.run_stdio_async)` and takes no kwargs at all, so
+`app.run("stdio", port=9000)` discards `port` without a word. The other two
+claims — that `stateless_http` is not a knob this framework may offer, and that
+`host` should default to loopback — are opinions an options object can hold and
+a `**kwargs` passthrough cannot.
 
 ### 4.2 Two roles may still declare the same tool name
 

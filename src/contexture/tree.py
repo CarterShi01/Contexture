@@ -219,12 +219,18 @@ class ContextTree:
         Opening a role delivers that role's members and does not recurse into
         sub-roles: a sub-role is a card here and a separate call when it is
         actually chosen.
+
+        A tool opened directly answers with the same `input_schema` its card
+        carries. Reaching a capability two ways and being told two different
+        things about how to call it is worse than either answer alone.
         """
 
         node = self.find(ref)
         payload = {**node.compile(CompileLevel.ACTIVE), "ref": ref}
         if isinstance(node, Role):
             payload.update(self._members(node, ref))
+        elif isinstance(node, Tool):
+            payload["input_schema"] = self.schema_of(node)
         return payload
 
     def _members(self, role: Role, ref: str) -> CompiledContext:

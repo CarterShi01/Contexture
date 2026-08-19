@@ -90,10 +90,12 @@ class Tool(ContextNode):
     def parameters(self) -> tuple[str, ...]:
         """Return the parameter names `invoke` accepts, in declaration order.
 
-        This is the routing-level answer to "what does this tool need?". The
-        full JSON Schema lives on the MCP surface, which a connected agent
-        already has; repeating it inside a disclosure payload would spend
-        context on something the host has handed over anyway.
+        Every one of them, including any the framework fills rather than the
+        model — this reports the signature, not the call. What an agent may
+        pass is the tool's input schema, which is derived a layer up by
+        something that knows which parameters are the framework's; a disclosure
+        payload must use that and not this, or it will name an argument the
+        schema rejects.
         """
 
         signature = inspect.signature(type(self).invoke)
@@ -106,9 +108,12 @@ class Tool(ContextNode):
         )
 
     def _compile_active(self) -> CompiledContext:
+        # No parameter list. `core` reads the signature and cannot tell a
+        # model-filled argument from a framework-filled one; the input schema
+        # can, and `ContextTree.open` attaches the same one the tool's card
+        # carries, so the two ways of reaching a tool now agree.
         return {
             **self._compile_route(),
-            "parameters": list(self.parameters()),
             "read_only": self.read_only,
         }
 

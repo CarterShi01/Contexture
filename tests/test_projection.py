@@ -18,6 +18,7 @@ from contexture.core.resources import Resource
 from contexture.core.role import Role
 from contexture.core.skill import Skill
 from contexture.core.tools import Tool
+from mcp.server.mcpserver import Context
 from contexture.server import instructions
 from contexture.tree import SEPARATOR, ContextTree
 from contexture.server import (
@@ -518,6 +519,71 @@ def _listed(text: str) -> list[str]:
     """The refs a roster actually names, ignoring its truncation line."""
 
     return re.findall(r"^- ([^:.][^:]*):", text, re.MULTILINE)
+
+
+class ToolDisclosureTests(unittest.TestCase):
+    """What a tool tells an agent about how to call it.
+
+    A tool is reachable two ways — as a card in its role, and by opening its
+    ref — and both have to describe the same call. They did not: the card
+    carried the derived input schema, while opening the tool listed the raw
+    parameter names off `invoke`. That list included any parameter the
+    framework fills rather than the model, so the payload named an argument the
+    schema would reject.
+    """
+
+    def test_both_ways_to_a_tool_describe_the_same_call(self) -> None:
+        app = ContextureApp(roots=Responder(), name="test")
+
+        card = next(
+            tool
+            for tool in app.tree.open("responder")["tools"]
+            if tool["name"] == "get_pod_logs"
+        )
+        opened = app.tree.open("responder/get_pod_logs")
+
+        self.assertEqual(opened["input_schema"], card["input_schema"])
+        self.assertEqual(opened["read_only"], card["read_only"])
+
+    def test_a_framework_filled_parameter_is_never_disclosed(self) -> None:
+        """`ctx` is the framework's to fill, so an agent must not be told of it.
+
+        The SDK keeps it out of the schema on its own. What it cannot do is
+        keep it out of a list `core` builds by reading the signature, because
+        `core` has no way to tell the two kinds of parameter apart — which is
+        why a disclosure payload now carries the schema and nothing else.
+        """
+
+        class Progressing(Tool):
+            """Do something slow enough to report on."""
+
+            name = "progressing"
+            read_only = True
+
+            async def invoke(self, ctx: Context, target: str) -> str:
+                return target
+
+        class Slow(Role):
+            """Run something slow."""
+
+            instructions = "Report progress."
+
+            progressing = Progressing
+
+        app = ContextureApp(roots=Slow(), name="test")
+        opened = app.tree.open("slow/progressing")
+        card = app.tree.open("slow")["tools"][0]
+
+        for payload in (opened, card):
+            with self.subTest(payload=payload.get("ref")):
+                self.assertNotIn("ctx", json.dumps(payload))
+                self.assertEqual(
+                    sorted(payload["input_schema"]["properties"]), ["target"]
+                )
+
+        # The signature itself still reports every parameter: it describes the
+        # function, not the call, and the framework fills one of them.
+        self.assertEqual(Progressing().parameters(), ("ctx", "target"))
 
 
 class RosterTests(unittest.TestCase):

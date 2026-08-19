@@ -1,7 +1,9 @@
 # ADR 002 — A per-call context object, and options instead of `**kwargs`
 
-**Status:** proposed
+**Status:** proposed — Decision A's premise was removed by the gateway; see the
+revision note below before implementing any of it
 **Date:** 2026-08-19
+**Revised:** 2026-08-19, after [ADR 006](006-errors-carry-facts-and-the-contract-is-one-module.md)
 
 ## Context
 
@@ -43,6 +45,60 @@ to `Start(addr, &options)`, distinct from both the server's identity and its
 topology.
 
 ## Decision A — `ToolContext`
+
+> **Revision note, 2026-08-19.** Everything below was written while business
+> tools were registered natively — `projection` handed `tool.invoke` to
+> `server.add_tool`, and the SDK owned dispatch. Behind the five-tool gateway
+> neither is true, and three of this decision's load-bearing claims changed.
+> Measured against the installed SDK rather than reasoned from its API:
+>
+> **The side channel already exists.** A business tool that annotates the SDK's
+> `Context` gets it today, over real stdio, with `ctx.info()` reaching the host
+> and `ctx.request_id` populated — and the SDK keeps the parameter out of the
+> derived schema on its own. The hole this ADR opens with is closed.
+>
+> **A custom abstract type cannot be annotated.** Give `SDKTool.from_function` a
+> parameter annotated with a type the SDK does not recognise and it tries to put
+> it in the schema: `PydanticInvalidForJsonSchema`. So the `core`-abstract half
+> of the split below cannot work without the trampoline.
+>
+> **But the trampoline is no longer needed, and the reason it was rejected no
+> longer holds.** "Mechanism" rules out subclassing the SDK's `Context` because
+> `MCPServer._handle_call_tool` constructs its own and injects that, making the
+> annotation a lie. Under the gateway that method never sees a business tool.
+> `Dispatch.run(tool, arguments, context)` runs it, Contexture chooses what
+> `context` is, and the SDK passes it through unchecked
+> (`pass_directly[self.context_kwarg] = context`). A `ToolContext(Context)`
+> living in `server/` is therefore annotatable, is stripped from the schema for
+> free, and can carry `ref` and `declared_in`. Prototyped; it works.
+>
+> **What is left of this decision is one line of import.** Not a dependency:
+> a served project already has the SDK through `contexture-mcp`. What the split
+> buys is that business code names `contexture.server` rather than
+> `mcp.server.mcpserver`, so an SDK rename lands in one place. That is worth
+> something — the SDK has already moved this module once and kept no alias —
+> but it protects code that does not exist: no tool in the examples, the
+> scaffold, or the tests takes a `ctx`, and none is waiting to.
+>
+> **And waiting is free.** A tool annotating the SDK's `Context` keeps working
+> if Contexture later passes a `ToolContext` subclass, because a subclass is
+> still a `Context` and nothing type-checks the injected object. The timing
+> argument this ADR rests on — that the position must exist before people write
+> tools, or every signature changes — is mechanically false.
+>
+> So: **do not implement the two-type split or the trampoline.** When a tool
+> actually wants progress or elicitation, add `ToolContext(Context)` to
+> `server/`, build it in `_invoke` where the ref is already in hand, and export
+> it from `contexture.server` — which the examples are already allowed to
+> import. Roughly forty lines, and the shape will be answerable from a real
+> requirement instead of a guess.
+>
+> One consequence has been taken already, because it had a victim without any
+> of this: `Tool._compile_active` used to publish `parameters()`, read straight
+> off the signature, so a tool taking a `ctx` disclosed an argument its own
+> schema rejected. Opening a tool now answers with the same `input_schema` its
+> card carries. `ToolDisclosureTests` holds it.
+
 
 ### The abstract base lives in `core`, the implementation in `server`
 
@@ -141,6 +197,10 @@ reopens them:
   `MCPServer._handle_call_tool` constructs `Context(...)` itself and injects
   *that*. The user's annotation would be a lie and none of `ToolContext`'s methods
   would exist on the object they received.
+  **No longer true behind the gateway** — see the revision note. That method
+  never runs a business tool now, and the object it would have constructed is
+  one Contexture passes itself. This is the route to take if the decision is
+  ever taken.
 
 So `projection` — already the only module that knows what MCP looks like, and
 already declared to hold no business rules — builds the adapter:
