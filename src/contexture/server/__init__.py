@@ -5,46 +5,69 @@ declares its context once in `contexture.core`, and every agent runtime —
 Claude Code, Codex, anything else that speaks MCP — connects to the one server
 this package builds, rather than reading a file compiled for it in advance.
 
-It is the only layer that imports the official MCP SDK. `contexture.core` stays
-free of it by design, and a layering test enforces that.
+Three responsibilities share this package, and they change at three different
+rates, so they are three modules rather than one:
+
+    contract        what the agent reads: the vocabulary, the bootstrap
+                    contract, each entry point's description, and the sentence
+                    a failed lookup becomes. Moves when the way an agent is
+                    taught to walk the tree changes.
+    instructions    fitting that text into one host's budget. Moves when Claude
+                    Code or Codex ships.
+    projection      hanging it on the SDK. Moves when the SDK does.
+
+`app` composes the three; `registration` emits the launch command a host needs
+and belongs to none of them.
+
+Only `app` and `projection` import the official MCP SDK, and this facade
+resolves its exports lazily so that the two modules which do not — `contract`
+and `registration` — stay importable, and testable, without a wire in the room.
 """
 
-from .app import ContextureApp, Transport, configure_logging
-from .instructions import PREAMBLE
-from .projection import (
-    DISCOVER_TOOL,
-    GATEWAY_TOOLS,
-    INVOKE_READ_ONLY_TOOL,
-    INVOKE_TOOL,
-    OPEN_TOOL,
-    Projection,
-    READ_TOOL,
-    project,
-)
-from .registration import (
-    Launch,
-    claude_code_config,
-    cli_commands,
-    codex_config,
-    cursor_config,
-)
+from __future__ import annotations
 
-__all__ = [
-    "ContextureApp",
-    "DISCOVER_TOOL",
-    "GATEWAY_TOOLS",
-    "INVOKE_READ_ONLY_TOOL",
-    "INVOKE_TOOL",
-    "OPEN_TOOL",
-    "READ_TOOL",
-    "Launch",
-    "PREAMBLE",
-    "Projection",
-    "Transport",
-    "claude_code_config",
-    "cli_commands",
-    "codex_config",
-    "configure_logging",
-    "cursor_config",
-    "project",
-]
+import importlib
+from typing import Any
+
+#: Exported name -> the submodule that defines it.
+_EXPORTS = {
+    "ContextureApp": ".app",
+    "Transport": ".app",
+    "configure_logging": ".app",
+    "DISCOVER_TOOL": ".contract",
+    "GATEWAY": ".contract",
+    "GATEWAY_TOOLS": ".contract",
+    "GatewayTool": ".contract",
+    "INVOKE_READ_ONLY_TOOL": ".contract",
+    "INVOKE_TOOL": ".contract",
+    "OPEN_TOOL": ".contract",
+    "PREAMBLE": ".contract",
+    "READ_TOOL": ".contract",
+    "unresolved": ".contract",
+    "Dispatch": ".projection",
+    "Projection": ".projection",
+    "project": ".projection",
+    "Launch": ".registration",
+    "claude_code_config": ".registration",
+    "cli_commands": ".registration",
+    "codex_config": ".registration",
+    "cursor_config": ".registration",
+}
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve an export on first use, then cache it in the module globals."""
+
+    module_name = _EXPORTS.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(importlib.import_module(module_name, __name__), name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(__all__)
+
+
+__all__ = sorted(_EXPORTS)

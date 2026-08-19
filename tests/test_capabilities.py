@@ -12,7 +12,9 @@ import unittest
 from contexture.core.errors import (
     DeclarationError,
     DuplicateNameError,
+    LookupFailure,
     ModelValidationError,
+    NodeNotFoundError,
 )
 from contexture.core.resources import Resource
 from contexture.core.role import Role
@@ -212,7 +214,9 @@ class RoleCompositionTests(unittest.TestCase):
                 resources=duplicate,
             )
 
-    def test_lookup_by_name_and_by_uri(self) -> None:
+    def test_a_role_finds_its_own_members_by_name(self) -> None:
+        """One cross-kind lookup, because the uniqueness invariant is cross-kind."""
+
         tool = self._tool("get_logs")
         resource = Resource(name="rb", description="RB.", uri="contexture://rb")
         role = Role(
@@ -223,8 +227,26 @@ class RoleCompositionTests(unittest.TestCase):
             resources=[resource],
         )
 
-        self.assertIs(role.get_tool("get_logs"), tool)
-        self.assertIs(role.get_resource("contexture://rb"), resource)
+        self.assertIs(role.member("get_logs"), tool)
+        self.assertIs(role.member("rb"), resource)
+        self.assertEqual([node.name for node in role.members()], ["get_logs", "rb"])
+
+    def test_a_missing_member_reports_what_the_role_holds(self) -> None:
+        role = Role(
+            name="r",
+            description="A role.",
+            instructions="Anything.",
+            tools=[self._tool("get_logs")],
+        )
+
+        with self.assertRaises(NodeNotFoundError) as caught:
+            role.member("nope")
+
+        failure = caught.exception
+        self.assertIs(failure.reason, LookupFailure.NO_SUCH_MEMBER)
+        self.assertEqual(failure.scope, "r")
+        self.assertEqual(failure.known, ("get_logs",))
+        self.assertIsNone(failure.ref)  # only the tree knows the whole path
 
     def test_an_empty_uri_is_refused(self) -> None:
         with self.assertRaises(ModelValidationError):

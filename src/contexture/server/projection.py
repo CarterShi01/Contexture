@@ -37,24 +37,17 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.tools import Tool as SDKTool
 from mcp_types import ToolAnnotations
 
-from ..core.errors import ContextureError
+from ..core.errors import ContextureError, NodeNotFoundError
 from ..core.tools import Tool
 from ..core.types import CompiledContext, JsonObject
 from ..tree import ContextTree
-
-DISCOVER_TOOL = "contexture_discover"
-OPEN_TOOL = "contexture_open"
-READ_TOOL = "contexture_read"
-INVOKE_READ_ONLY_TOOL = "contexture_invoke_read_only"
-INVOKE_TOOL = "contexture_invoke"
-
-#: Every tool this server will ever expose, in the order they are registered.
-GATEWAY_TOOLS = (
+from . import contract
+from .contract import (
     DISCOVER_TOOL,
-    OPEN_TOOL,
-    READ_TOOL,
     INVOKE_READ_ONLY_TOOL,
     INVOKE_TOOL,
+    OPEN_TOOL,
+    READ_TOOL,
 )
 
 
@@ -66,12 +59,19 @@ class Dispatch:
     tool's schema be derived from `invoke`'s type hints and its arguments be
     validated, without the tool ever appearing in `tools/list`.
 
-    Instances are cached by identity because the tree owns its tools for the
-    whole life of the server, and rebuilding a pydantic model on every `open`
-    of a role would charge a real cost for nothing.
+    Derivations are cached by identity, because rebuilding a pydantic model on
+    every `open` of a role would charge a real cost for nothing. The cache
+    holds the tool alongside its derivation, and that reference is the point:
+    `id()` is only unique among live objects, so a cache keyed by it while
+    holding nothing would hand a later tool the schema of an earlier one that
+    had been collected. Today the tree keeps every tool alive for the life of
+    the server and the collision cannot happen — but that is the tree's
+    property, not this cache's, and nothing here would notice it changing.
     """
 
-    _derived: dict[int, SDKTool] = field(default_factory=dict, repr=False)
+    _derived: dict[int, tuple[Tool, SDKTool]] = field(
+        default_factory=dict, repr=False
+    )
 
     def schema(self, tool: Tool) -> JsonObject:
         return self._sdk(tool).parameters
@@ -85,15 +85,16 @@ class Dispatch:
         return await self._sdk(tool).run(arguments or {}, context)
 
     def _sdk(self, tool: Tool) -> SDKTool:
-        derived = self._derived.get(id(tool))
-        if derived is None:
+        cached = self._derived.get(id(tool))
+        if cached is None:
             derived = SDKTool.from_function(
                 tool.invoke,
                 name=tool.name,
                 description=tool.description,
             )
-            self._derived[id(tool)] = derived
-        return derived
+            self._derived[id(tool)] = (tool, derived)
+            return derived
+        return cached[1]
 
 
 @dataclass(slots=True, kw_only=True)
@@ -118,37 +119,15 @@ def project(
 
 
     async def contexture_discover() -> CompiledContext:
-        """List every role this server serves, as short routing cards.
-
-        Each card carries the `ref` that opens it. Cards never contain
-        instructions, tool schemas, or document content — opening a role is
-        what delivers those. The same list is in this server's instructions.
-        """
-
+        # What the agent is told about this entry point is in `contract`.
         with _translated(DISCOVER_TOOL):
             return tree.skeleton()
 
     async def contexture_open(ref: str) -> CompiledContext:
-        """Open one capability by ref and return its detail.
-
-        Opening a role returns its instructions and a card for every skill,
-        tool, resource and sub-role it holds, each with the ref that opens it,
-        and each tool with the schema needed to call it. Opening a skill
-        returns its complete procedure, which is available here and nowhere
-        else. Pass a `ref` taken from a card; never assemble one.
-        """
-
         with _translated(OPEN_TOOL):
             return tree.open(ref)
 
     async def contexture_read(ref: str) -> str | bytes:
-        """Return the content of one resource.
-
-        Accepts either the `ref` from its card or the resource's own URI, so a
-        procedure that names a document the way the document names itself can
-        be followed literally.
-        """
-
         with _translated(READ_TOOL):
             resource = tree.resource(ref)
         return await resource.read()
@@ -158,13 +137,6 @@ def project(
         ref: str,
         arguments: dict[str, Any] | None = None,
     ) -> Any:
-        """Run a tool that leaves the world unchanged.
-
-        `ref` and `arguments` come from the tool's card, which appears when its
-        role is opened. A tool that is not read-only is refused here; use
-        contexture_invoke for those.
-        """
-
         return await _invoke(tree, dispatch, ctx, ref, arguments, read_only=True)
 
     async def contexture_invoke(
@@ -172,62 +144,28 @@ def project(
         ref: str,
         arguments: dict[str, Any] | None = None,
     ) -> Any:
-        """Run a tool that changes something.
-
-        `ref` and `arguments` come from the tool's card, which appears when its
-        role is opened. A read-only tool is refused here; use
-        contexture_invoke_read_only for those, so a host can tell the two apart.
-        """
-
         return await _invoke(tree, dispatch, ctx, ref, arguments, read_only=False)
 
-    server.add_tool(
-        contexture_discover,
-        name=DISCOVER_TOOL,
-        description=(
-            "List every role this server serves as short routing cards. Start "
-            "here, then open the role that matches the task."
-        ),
-        annotations=ToolAnnotations(read_only_hint=True),
-    )
-    server.add_tool(
-        contexture_open,
-        name=OPEN_TOOL,
-        description=(
-            "Open one role, skill, tool, or resource by ref. Opening a role "
-            "reveals what it holds; opening a skill delivers its procedure."
-        ),
-        annotations=ToolAnnotations(read_only_hint=True),
-    )
-    server.add_tool(
-        contexture_read,
-        name=READ_TOOL,
-        description=(
-            "Return the content of one resource, addressed by its ref or its "
-            "URI."
-        ),
-        annotations=ToolAnnotations(read_only_hint=True),
-    )
-    server.add_tool(
-        contexture_invoke_read_only,
-        name=INVOKE_READ_ONLY_TOOL,
-        description=(
-            "Run a tool that only reads. Use this for every tool whose card "
-            "says read_only: true."
-        ),
-        annotations=ToolAnnotations(read_only_hint=True),
-    )
-    server.add_tool(
-        contexture_invoke,
-        name=INVOKE_TOOL,
-        description=(
-            "Run a tool that changes something. Use this for every tool whose "
-            "card says read_only: false."
-        ),
-        annotations=ToolAnnotations(read_only_hint=False),
-    )
+    implementations = {
+        DISCOVER_TOOL: contexture_discover,
+        OPEN_TOOL: contexture_open,
+        READ_TOOL: contexture_read,
+        INVOKE_READ_ONLY_TOOL: contexture_invoke_read_only,
+        INVOKE_TOOL: contexture_invoke,
+    }
 
-    return Projection(tools=GATEWAY_TOOLS)
+    # Registered from the contract rather than five call sites, so "the surface
+    # is exactly these five, described exactly this way" is a fact about one
+    # tuple instead of an agreement between ten places.
+    for entry in contract.GATEWAY:
+        server.add_tool(
+            implementations[entry.name],
+            name=entry.name,
+            description=entry.description,
+            annotations=ToolAnnotations(read_only_hint=entry.read_only),
+        )
+
+    return Projection(tools=contract.GATEWAY_TOOLS)
 
 
 async def _invoke(
@@ -249,11 +187,7 @@ async def _invoke(
         # The host decided whether to involve a human from the hint on the
         # entry point. Honouring a mismatch would run a write under a
         # read-only approval, so the mismatch is refused instead.
-        correct = INVOKE_READ_ONLY_TOOL if tool.read_only else INVOKE_TOOL
-        raise ToolError(
-            f"{ref} is {'read-only' if tool.read_only else 'not read-only'}, "
-            f"so it must be run through {correct}."
-        )
+        raise ToolError(contract.wrong_door(ref, is_read_only=tool.read_only))
 
     return await dispatch.run(tool, arguments, context)
 
@@ -264,6 +198,11 @@ class _translated:
     A wrong ref is a routine, recoverable mistake — the agent should read what
     was wrong and try a different one — so it must arrive as a legible sentence
     rather than a repr of an internal exception type.
+
+    This is the single point where a failure raised anywhere below becomes
+    something an agent reads, which is why the sentence is composed here from
+    the facts the failure carries rather than pre-written at the raise site.
+    The tree that hits the failure cannot name the tool that recovers from it.
     """
 
     __slots__ = ("_tool",)
@@ -277,18 +216,11 @@ class _translated:
     def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> bool:
         if exc is None or not isinstance(exc, ContextureError):
             return False
-        message = exc.args[0] if exc.args else str(exc)
-        raise ToolError(str(message)) from exc
+        if isinstance(exc, NodeNotFoundError):
+            raise ToolError(contract.unresolved(exc)) from exc
+        # Everything else here is a declaration-time failure with one audience
+        # — whoever wrote the declaration — so it already carries its sentence.
+        raise ToolError(str(exc)) from exc
 
 
-__all__ = [
-    "DISCOVER_TOOL",
-    "Dispatch",
-    "GATEWAY_TOOLS",
-    "INVOKE_READ_ONLY_TOOL",
-    "INVOKE_TOOL",
-    "OPEN_TOOL",
-    "Projection",
-    "READ_TOOL",
-    "project",
-]
+__all__ = ["Dispatch", "Projection", "project"]

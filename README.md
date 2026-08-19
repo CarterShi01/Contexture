@@ -372,7 +372,9 @@ src/contexture/
 ├── core/            object model: context, role, skill, tools, resources,
 │                    errors, declarative
 ├── tree.py          the multi-headed tree: skeleton, resolution, opening
-├── server/          the MCP server: app, projection, instructions, registration
+├── server/          the MCP server: contract (what the agent reads), instructions
+│                    (fitting it to a host), projection (hanging it on the SDK),
+│                    app, registration
 ├── cli.py           the `contexture` command: new / list / serve / demo
 ├── templates/       project templates, rendered by `contexture new`
 └── examples/        reference applications built on the public API only
@@ -397,6 +399,9 @@ src/contexture/
 - [`docs/adr/005-remove-the-target-adapters.md`](docs/adr/005-remove-the-target-adapters.md)
   — why the file-rendering side road ADR 001 demoted was deleted rather than
   kept, and what a user would have to be able to type for it to come back.
+- [`docs/adr/006-errors-carry-facts-and-the-contract-is-one-module.md`](docs/adr/006-errors-carry-facts-and-the-contract-is-one-module.md)
+  — why a failed lookup carries facts instead of a sentence, why everything an
+  agent reads moved into one module, and why `Role` took back its own lookup.
 - [`docs/atlas/index.html`](docs/atlas/index.html) — an offline visual atlas;
   open it directly in a browser. After editing it, run
   `npm install jsdom@22 && node docs/atlas/check.mjs` to confirm every diagram

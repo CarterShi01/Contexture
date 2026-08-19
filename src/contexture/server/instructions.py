@@ -1,4 +1,9 @@
-"""The bootstrap text a connecting host reads before anything else.
+"""Fitting the contract into one host's budget.
+
+What this text *says* is `contexture.server.contract`'s business. What fits is
+this module's, and the two are separated because they change for unrelated
+reasons: the contract moves when the navigation model does, these numbers move
+when a host ships a release.
 
 Two host limits shape this file, and both are real rather than defensive:
 
@@ -23,17 +28,7 @@ When a forest is too large for the budget, the roster is cut and says so;
 from __future__ import annotations
 
 from ..tree import ContextTree
-
-#: The self-contained opening. Keep this under 512 characters.
-PREAMBLE = """\
-Everything this server offers is behind contexture_open. The roles listed below
-are the whole map: open the one that fits the task to see its skills, tools and
-resources, then open the skill you chose to get its procedure.
-Run a tool with contexture_invoke_read_only or contexture_invoke, whichever its
-card says, passing the ref and arguments from that card.
-Collect evidence with the tools before stating a cause, and do not assert system
-state you have not read.\
-"""
+from .contract import DISCOVER_TOOL, PREAMBLE, REF_RULE
 
 #: Claude Code truncates server instructions at 2KB; leave room for the rest.
 ROSTER_BUDGET = 1200
@@ -57,7 +52,7 @@ def build(
         if spent + len(entry) > budget:
             remaining = len(entries) - index
             roster.append(
-                f"- ...and {remaining} more role(s); call contexture_discover "
+                f"- ...and {remaining} more role(s); call {DISCOVER_TOOL} "
                 "for the full list."
             )
             break
@@ -71,10 +66,9 @@ def build(
             "Roles:",
             *roster,
             "",
-            "Every card carries a `ref`. Pass it back to contexture_open to "
-            "open that node; never assemble a ref yourself.",
+            REF_RULE,
         ]
     )
 
 
-__all__ = ["PREAMBLE", "ROSTER_BUDGET", "build"]
+__all__ = ["ROSTER_BUDGET", "build"]

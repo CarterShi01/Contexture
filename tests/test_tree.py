@@ -10,7 +10,11 @@ from __future__ import annotations
 import json
 import unittest
 
-from contexture.core.errors import ModelValidationError, NodeNotFoundError
+from contexture.core.errors import (
+    LookupFailure,
+    ModelValidationError,
+    NodeNotFoundError,
+)
 from contexture.core.resources import Resource
 from contexture.core.role import Role
 from contexture.core.skill import Skill
@@ -171,26 +175,58 @@ class OpenTests(unittest.TestCase):
 
 
 class ResolutionTests(unittest.TestCase):
-    def test_an_unknown_member_names_what_the_role_does_hold(self) -> None:
+    """The tree reports *facts* about a failed lookup.
+
+    It does not write the sentence an agent reads: that needs the gateway tool
+    names, which live a layer up. These assert the facts are complete enough
+    for that sentence to be written — see `test_contract` for the rendering.
+    """
+
+    def test_an_unknown_member_reports_what_the_role_does_hold(self) -> None:
         with self.assertRaises(NodeNotFoundError) as caught:
             _tree().find("team/troubleshooter/banana")
 
-        message = str(caught.exception)
-        self.assertIn("banana", message)
-        self.assertIn("get_pod_logs", message)
-        self.assertIn("diagnose", message)
+        failure = caught.exception
+        self.assertIs(failure.reason, LookupFailure.NO_SUCH_MEMBER)
+        self.assertEqual(failure.segment, "banana")
+        self.assertEqual(failure.scope, "troubleshooter")
+        self.assertIn("get_pod_logs", failure.known)
+        self.assertIn("diagnose", failure.known)
 
-    def test_an_unknown_root_names_the_roots_that_exist(self) -> None:
+    def test_a_failed_lookup_collects_the_whole_reference_on_its_way_up(
+        self,
+    ) -> None:
+        """A role knows its own name; only the tree knows the path walked."""
+
+        with self.assertRaises(NodeNotFoundError) as caught:
+            _tree().find("team/troubleshooter/banana")
+
+        self.assertEqual(caught.exception.ref, "team/troubleshooter/banana")
+
+    def test_an_unknown_root_reports_the_roots_that_exist(self) -> None:
         with self.assertRaises(NodeNotFoundError) as caught:
             _tree().find("nobody")
 
-        self.assertIn("team", str(caught.exception))
+        failure = caught.exception
+        self.assertIs(failure.reason, LookupFailure.NO_SUCH_ROOT)
+        self.assertIn("team", failure.known)
 
     def test_a_reference_may_not_continue_past_a_leaf(self) -> None:
         with self.assertRaises(NodeNotFoundError) as caught:
             _tree().find("team/troubleshooter/diagnose/deeper")
 
-        self.assertIn("skill", str(caught.exception))
+        failure = caught.exception
+        self.assertIs(failure.reason, LookupFailure.NOT_A_CONTAINER)
+        self.assertEqual(failure.kind, "skill")
+
+    def test_a_lookup_failure_carries_no_prose(self) -> None:
+        """The two audiences get two renderings, so neither is baked in here."""
+
+        with self.assertRaises(NodeNotFoundError) as caught:
+            _tree().find("nobody")
+
+        for tool_name in ("contexture_discover", "contexture_open"):
+            self.assertNotIn(tool_name, str(caught.exception))
 
     def test_a_resource_resolves_by_reference_or_by_its_own_uri(self) -> None:
         """A procedure names a document the way the document names itself."""
@@ -207,11 +243,14 @@ class ResolutionTests(unittest.TestCase):
 
         with self.assertRaises(NodeNotFoundError) as caught:
             tree.tool("team/troubleshooter/diagnose")
-        self.assertIn("skill", str(caught.exception))
+        self.assertIs(caught.exception.reason, LookupFailure.WRONG_KIND)
+        self.assertEqual(caught.exception.kind, "skill")
+        self.assertEqual(caught.exception.wanted, "tool")
 
         with self.assertRaises(NodeNotFoundError) as caught:
             tree.resource("team/troubleshooter/get_pod_logs")
-        self.assertIn("tool", str(caught.exception))
+        self.assertEqual(caught.exception.kind, "tool")
+        self.assertEqual(caught.exception.wanted, "resource")
 
     def test_resolution_does_not_depend_on_earlier_calls(self) -> None:
         """The surface is stateless, so traversal has to be too."""

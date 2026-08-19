@@ -268,6 +268,10 @@ first one's clothes.
    scaffold a project. (In 0.0.3 this named `contexture.targets.writer` as
    well; that module is gone.)
 3. No layer below `contexture.server` performs network I/O.
+4. *(added in v0.2.0)* No layer below `contexture.server.contract` writes prose
+   an agent reads. A failure carries facts; the sentence is composed where the
+   gateway vocabulary is. See
+   [ADR 006](adr/006-errors-carry-facts-and-the-contract-is-one-module.md).
 
 ### Declaration
 

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Iterable
+from typing import Any, ClassVar, Iterable, Iterator
 
 from . import declarative
-from .context import CompileLevel, ContextNode
+from .context import ContextNode
 from .errors import (
     DeclarationError,
     DuplicateNameError,
+    LookupFailure,
     ModelValidationError,
     NodeNotFoundError,
 )
@@ -82,72 +83,68 @@ class Role(ContextNode):
             "resource URIs",
         )
 
+    def members(self) -> Iterator[ContextNode]:
+        """Yield everything this role holds, in a stable order.
+
+        One definition of "what this role contains", used by the uniqueness
+        check below, by `member()`, and by every caller that needs to walk a
+        role without caring which of the four lists a thing came from. The four
+        lists stay as fields because a declaration states them separately and a
+        payload groups them separately; traversal is where they are one thing.
+        """
+
+        yield from self.children
+        yield from self.skills
+        yield from self.tools
+        yield from self.resources
+
+    def member(self, name: str) -> ContextNode:
+        """Return the one member of this role called `name`.
+
+        The lookup is cross-kind because the invariant that makes it possible
+        is cross-kind: `_require_unique_members` refuses a role whose skill and
+        tool share a name, precisely so that a name is a complete address
+        within one role. This method is what that constraint was paid for.
+        """
+
+        for member in self.members():
+            if member.name == name:
+                return member
+        raise NodeNotFoundError(
+            reason=LookupFailure.NO_SUCH_MEMBER,
+            segment=name,
+            scope=self.name,
+            known=sorted(held.name for held in self.members()),
+        )
+
     def _require_unique_members(self) -> None:
         """Reject two members of this role that share a name.
 
         Uniqueness is checked across kinds rather than within them, because a
         member's name is the last segment of the reference that addresses it. A
-        skill and a tool that share a name would share an address, and the tree
+        skill and a tool that share a name would share an address, and `member()`
         would have to guess which one was meant. Refusing the declaration is
         better than guessing, and a role holding two things called `diagnose`
         was going to confuse a reader anyway.
         """
 
         seen: dict[str, str] = {}
-        for kind, members in (
-            ("sub-role", self.children),
-            ("skill", self.skills),
-            ("tool", self.tools),
-            ("resource", self.resources),
-        ):
-            for member in members:
-                previous = seen.get(member.name)
-                if previous is not None:
-                    raise DuplicateNameError(
-                        f"Role {self.name!r} declares a {previous} and a {kind} "
-                        f"both named {member.name!r}. A member's name is the "
-                        "last segment of its reference, so members of one role "
-                        "cannot share a name."
-                    )
-                seen[member.name] = kind
+        for member in self.members():
+            previous = seen.get(member.name)
+            if previous is not None:
+                raise DuplicateNameError(
+                    f"Role {self.name!r} declares a {previous} and a "
+                    f"{member.kind} both named {member.name!r}. A member's "
+                    "name is the last segment of its reference, so members of "
+                    "one role cannot share a name."
+                )
+            seen[member.name] = member.kind
 
     @staticmethod
     def _require_unique(values: Iterable[str], label: str) -> None:
         materialized = list(values)
         if len(materialized) != len(set(materialized)):
             raise DuplicateNameError(f"A role contains duplicate {label}.")
-
-    def get_child(self, name: str) -> Role:
-        for child in self.children:
-            if child.name == name:
-                return child
-        raise NodeNotFoundError(
-            f"Child role {name!r} was not found under role {self.name!r}."
-        )
-
-    def get_skill(self, name: str) -> Skill:
-        for skill in self.skills:
-            if skill.name == name:
-                return skill
-        raise NodeNotFoundError(
-            f"Skill {name!r} was not found on role {self.name!r}."
-        )
-
-    def get_tool(self, name: str) -> Tool:
-        for tool in self.tools:
-            if tool.name == name:
-                return tool
-        raise NodeNotFoundError(
-            f"Tool {name!r} was not found on role {self.name!r}."
-        )
-
-    def get_resource(self, uri: str) -> Resource:
-        for resource in self.resources:
-            if resource.uri == uri:
-                return resource
-        raise NodeNotFoundError(
-            f"Resource {uri!r} was not found on role {self.name!r}."
-        )
 
     def _compile_active(self) -> CompiledContext:
         """Describe this role, and nothing around it.

@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Iterable, Iterator
 
 from .core.context import CompileLevel, ContextNode
-from .core.errors import ModelValidationError, NodeNotFoundError
+from .core.errors import LookupFailure, ModelValidationError, NodeNotFoundError
 from .core.resources import Resource
 from .core.role import Role
 from .core.tools import Tool
@@ -127,18 +127,25 @@ class ContextTree:
 
         segments = [segment for segment in ref.split(SEPARATOR) if segment]
         if not segments:
-            raise NodeNotFoundError(
-                "A reference must name at least a root role."
-            )
+            raise NodeNotFoundError(reason=LookupFailure.EMPTY_REF, ref=ref)
 
-        node: ContextNode = self._root(segments[0])
-        for segment in segments[1:]:
-            if not isinstance(node, Role):
-                raise NodeNotFoundError(
-                    f"Reference {ref!r} continues past {node.name!r}, which is "
-                    f"a {node.kind} and holds nothing."
-                )
-            node = _member(node, segment)
+        # One try around the whole walk. A role knows its own name and what it
+        # holds; only this method knows the path being walked, so the failure
+        # collects that on its way back up rather than being handed down into
+        # every lookup that is about to succeed.
+        try:
+            node: ContextNode = self._root(segments[0])
+            for segment in segments[1:]:
+                if not isinstance(node, Role):
+                    raise NodeNotFoundError(
+                        reason=LookupFailure.NOT_A_CONTAINER,
+                        segment=segment,
+                        scope=node.name,
+                        kind=node.kind,
+                    )
+                node = node.member(segment)
+        except NodeNotFoundError as failure:
+            raise failure.within(ref) from None
         return node
 
     def tool(self, ref: str) -> Tool:
@@ -147,7 +154,10 @@ class ContextTree:
         node = self.find(ref)
         if not isinstance(node, Tool):
             raise NodeNotFoundError(
-                f"Reference {ref!r} names a {node.kind}, not a tool."
+                reason=LookupFailure.WRONG_KIND,
+                ref=ref,
+                kind=node.kind,
+                wanted=Tool.kind,
             )
         return node
 
@@ -164,7 +174,10 @@ class ContextTree:
         node = self._by_uri(ref) if "://" in ref else self.find(ref)
         if not isinstance(node, Resource):
             raise NodeNotFoundError(
-                f"Reference {ref!r} names a {node.kind}, not a resource."
+                reason=LookupFailure.WRONG_KIND,
+                ref=ref,
+                kind=node.kind,
+                wanted=Resource.kind,
             )
         return node
 
@@ -214,9 +227,10 @@ class ContextTree:
         for root in self.roots:
             if root.name == name:
                 return root
-        known = ", ".join(sorted(root.name for root in self.roots))
         raise NodeNotFoundError(
-            f"No root role named {name!r}. This server serves: {known}."
+            reason=LookupFailure.NO_SUCH_ROOT,
+            scope=name,
+            known=sorted(root.name for root in self.roots),
         )
 
     def _by_uri(self, uri: str) -> Resource:
@@ -224,7 +238,7 @@ class ContextTree:
             for resource in role.resources:
                 if resource.uri == uri:
                     return resource
-        raise NodeNotFoundError(f"No resource is published at {uri!r}.")
+        raise NodeNotFoundError(reason=LookupFailure.NO_SUCH_URI, ref=uri)
 
 
 def _card(node: ContextNode, ref: str) -> CompiledContext:
@@ -243,23 +257,6 @@ def _resource_card(resource: Resource, ref: str) -> CompiledContext:
     if resource.mime_type is not None:
         card["mime_type"] = resource.mime_type
     return card
-
-
-def _member(role: Role, name: str) -> ContextNode:
-    for group in (role.children, role.skills, role.tools, role.resources):
-        for member in group:
-            if member.name == name:
-                return member
-
-    held = sorted(
-        member.name
-        for group in (role.children, role.skills, role.tools, role.resources)
-        for member in group
-    )
-    raise NodeNotFoundError(
-        f"Role {role.name!r} holds no member named {name!r}. It holds: "
-        f"{', '.join(held) if held else 'nothing'}."
-    )
 
 
 def _reject_cycles(root: Role) -> None:
