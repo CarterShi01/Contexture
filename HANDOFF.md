@@ -200,26 +200,7 @@ they come from one tuple, and no business tool reaches `add_tool` at all. Drop
 this from the ADR's motivation; it argued for a defence the gateway already
 provides structurally.
 
-### 4.2 Where ownership is written down, once there are many declarations
-
-Today a Role enumerates its members in its own class body: explicit and readable
-at one Role, a line per member and a merge hotspot at fifty. Three shapes, and
-this defines what every business project's directory tree looks like, so it
-should not be settled by whoever implements it:
-
-1. **Parent enumerates children** (today). Ownership at the Role. `O(n)` wiring.
-2. **Child names its parent** (Django's foreign-key direction). `O(1)` per unit;
-   the Role's surface is no longer readable in one place.
-3. **Package position is ownership** (Django app, Scrapy `SPIDER_MODULES`).
-   `O(0)`; the directory tree becomes the role tree. The scaffold already lays
-   out one-package-per-role, so this is the direction it leans, but nothing
-   enforces or uses it.
-
-Scrapy, Django, Airflow and Nameko all converged on convention-based discovery
-rather than central enumeration — but none of their units has an owner, and a
-Tool does. That asymmetry is the whole difficulty.
-
-### 4.3 Two roles may still declare the same tool name
+### 4.2 Two roles may still declare the same tool name
 
 Uniqueness is enforced *within* one role (`Role._require_unique_members`, which
 is what `Role.member()` relies on) and across root names
@@ -231,7 +212,7 @@ old framing of this item is obsolete. **What remains is a usability question:**
 two identically-named tools in different roles are indistinguishable in a
 model's context once it has opened both. Whether to warn, and where, is open.
 
-### 4.4 Whether a per-unit generator is worth it
+### 4.3 Whether a per-unit generator is worth it
 
 Deliberately **not** built. Scrapy has `genspider` because a Spider carries
 boilerplate that is easy to get wrong; a Contexture `Tool` is six lines and
