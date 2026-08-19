@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from typing import ClassVar, Iterable
 
-from ..core.registry import RoleRegistry
 from ..core.role import Role
 from .base import Artifact, TargetAdapter, TargetCapabilities, iter_roles
 from .markdown import heading, render_capability_table, render_role_routes
@@ -32,7 +31,6 @@ class CodexAdapter(TargetAdapter):
     def _render_artifacts(
         self,
         role: Role,
-        registry: RoleRegistry,
     ) -> Iterable[Artifact]:
         yield Artifact(path=self.agents_path, content=self._agents(role))
 

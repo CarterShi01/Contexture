@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from typing import ClassVar, Iterable
 
-from ..core.registry import RoleRegistry
 from ..core.role import Role
 from .base import Artifact, TargetAdapter, TargetCapabilities, iter_roles
 from .markdown import (
@@ -37,7 +36,6 @@ class CursorAdapter(TargetAdapter):
     def _render_artifacts(
         self,
         role: Role,
-        registry: RoleRegistry,
     ) -> Iterable[Artifact]:
         yield Artifact(
             path=f"{self.rules_root}/{role.name}.mdc",
@@ -109,7 +107,6 @@ class CursorAdapter(TargetAdapter):
     def _render_notes(
         self,
         role: Role,
-        registry: RoleRegistry,
     ) -> Iterable[str]:
         yield (
             "Cursor rules are a flat namespace; the role tree is encoded in "

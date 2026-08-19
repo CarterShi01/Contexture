@@ -10,9 +10,12 @@ these tests pay for a subprocess.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 import unittest
+
+from contexture.server import GATEWAY_TOOLS
 from pathlib import Path
 
 try:
@@ -82,10 +85,14 @@ class StdioServerTests(unittest.TestCase):
 
         self.assertIsNotNone(instructions)
         assert instructions is not None
-        self.assertIn("contexture_discover", instructions)
+        self.assertIn("contexture_open", instructions)
+        # The roster is here rather than behind a first discover call: a
+        # gateway whose five tool names all begin `contexture_` otherwise gives
+        # a host no sign of what the server is for.
+        self.assertIn("kubernetes-incident-responder", instructions)
         # Codex asks that the opening be self-contained; Claude Code truncates
         # the whole field at 2KB. Both limits are checked, not just documented.
-        self.assertIn("contexture_discover", instructions[:512])
+        self.assertIn("contexture_open", instructions[:512])
         self.assertLess(len(instructions.encode("utf-8")), 2048)
         self.assertEqual(protocol_version, "2026-07-28")
 
@@ -99,10 +106,15 @@ class StdioServerTests(unittest.TestCase):
         protocol_version, names = _run(work, modern=False)
 
         self.assertIn(protocol_version, {"2025-11-25", "2025-06-18", "2025-03-26"})
-        self.assertIn("contexture_discover", names)
-        self.assertIn("get_pod_logs", names)
+        self.assertEqual(names, set(GATEWAY_TOOLS))
 
-    def test_the_surface_carries_framework_and_business_tools(self) -> None:
+    def test_the_surface_is_five_tools_and_holds_no_capability(self) -> None:
+        """A capability on the surface is one every session pays for, forever.
+
+        Checked on the wire rather than against the projection object, because
+        this is the claim the whole design rests on.
+        """
+
         async def work(session):
             tools = await session.list_tools()
             resources = await session.list_resources()
@@ -111,149 +123,179 @@ class StdioServerTests(unittest.TestCase):
         tools, resources = _run(work)
         names = {tool.name for tool in tools}
 
-        self.assertIn("contexture_discover", names)
-        self.assertIn("contexture_get_context", names)
-        self.assertEqual(
-            {"get_pod_status", "get_pod_logs", "get_pod_events"} & names,
-            {"get_pod_status", "get_pod_logs", "get_pod_events"},
-        )
-        self.assertIn(
-            "contexture://runbooks/crash-loop-backoff",
-            {str(resource.uri) for resource in resources},
-        )
+        self.assertEqual(names, set(GATEWAY_TOOLS))
+        self.assertEqual(names & {"get_pod_status", "get_pod_logs", "get_pod_events"}, set())
+        self.assertEqual(resources, [])
 
-    def test_read_only_is_an_annotation_and_never_an_argument(self) -> None:
+    def test_read_only_is_a_door_and_never_an_argument(self) -> None:
         """The approval hole this design is meant to close, checked on the wire.
 
         A model that could pass its own `approved=True` would be approving its
-        own writes. Host classification therefore travels as an annotation the
-        host acts on, and must not appear anywhere a model can fill it in.
+        own writes. With capabilities off the surface, the classification
+        travels as *which entry point was used*, and each door carries the
+        hint the host acts on.
         """
 
         async def work(session):
             return (await session.list_tools()).tools
 
-        for tool in _run(work):
+        tools = _run(work)
+        for tool in tools:
             with self.subTest(tool=tool.name):
                 properties = set((tool.input_schema or {}).get("properties", {}))
                 self.assertNotIn("read_only", properties)
                 self.assertNotIn("approved", properties)
                 self.assertNotIn("read_only_hint", properties)
 
-        annotations = {
-            tool.name: tool.annotations
-            for tool in _run(work)
-            if tool.annotations is not None
+        hints = {
+            tool.name: tool.annotations and tool.annotations.read_only_hint
+            for tool in tools
         }
-        self.assertTrue(annotations["get_pod_logs"].read_only_hint)
+        self.assertTrue(hints["contexture_invoke_read_only"])
+        self.assertFalse(hints["contexture_invoke"])
 
     def test_a_full_diagnosis_runs_over_the_wire(self) -> None:
-        """The whole chain: discover, open a skill, gather evidence, read a doc."""
+        """The whole chain: skeleton, open a role, open its skill, gather, read."""
 
         async def work(session):
-            roots = await session.call_tool("contexture_discover", {})
-            role_ref = roots.structured_content["roots"][0]["ref"]
+            roles = await session.call_tool("contexture_discover", {})
+            role_ref = roles.structured_content["roles"][0]["ref"]
 
-            inside = await session.call_tool(
-                "contexture_discover", {"ref": role_ref}
-            )
-            skill_ref = inside.structured_content["skills"][0]["ref"]
+            role = await session.call_tool("contexture_open", {"ref": role_ref})
+            skill_ref = role.structured_content["skills"][0]["ref"]
+            schemas = {
+                tool["name"]: tool["input_schema"]
+                for tool in role.structured_content["tools"]
+            }
 
-            skill = await session.call_tool(
-                "contexture_get_context", {"ref": skill_ref}
-            )
+            skill = await session.call_tool("contexture_open", {"ref": skill_ref})
+
+            pod = {"namespace": "prod", "pod": "payments-api-7d9c"}
             status = await session.call_tool(
-                "get_pod_status",
-                {"namespace": "prod", "pod": "payments-api-7d9c"},
+                "contexture_invoke_read_only",
+                {"ref": f"{role_ref}/get_pod_status", "arguments": pod},
             )
             logs = await session.call_tool(
-                "get_pod_logs",
-                {"namespace": "prod", "pod": "payments-api-7d9c"},
+                "contexture_invoke_read_only",
+                {"ref": f"{role_ref}/get_pod_logs", "arguments": pod},
             )
-            events = await session.call_tool(
-                "get_pod_events",
-                {"namespace": "prod", "pod": "payments-api-7d9c"},
-            )
-            runbook = await session.read_resource(
-                "contexture://runbooks/crash-loop-backoff"
+            # The procedure names the runbook by its URI, so the agent passes
+            # the URI. That has to work, or the framework's addressing scheme
+            # becomes the skill author's problem to remember.
+            runbook = await session.call_tool(
+                "contexture_read",
+                {"ref": "contexture://runbooks/crash-loop-backoff"},
             )
             return (
-                inside.structured_content,
+                role.structured_content,
+                schemas,
                 skill.structured_content,
-                status.structured_content,
+                json.loads(status.content[0].text),
                 logs.content[0].text,
-                events.structured_content,
-                runbook.contents[0].text,
+                runbook.content[0].text,
             )
 
-        inside, skill, status, logs, events, runbook = _run(work)
+        role, schemas, skill, status, logs, runbook = _run(work)
 
-        self.assertEqual(inside["skills"][0]["name"], "diagnose-crash-loop-backoff")
+        self.assertEqual(role["skills"][0]["name"], "diagnose-crash-loop-backoff")
+        self.assertEqual(schemas["get_pod_status"]["required"], ["namespace", "pod"])
         self.assertIn("get_pod_status", skill["instructions"])
         self.assertEqual(status["container_state"], "CrashLoopBackOff")
         self.assertEqual(status["restart_count"], 14)
         self.assertIn("DB_URL is missing", logs)
-        self.assertTrue(
-            any("exited with code 1" in event["message"] for event in events["result"])
-        )
         self.assertIn("CrashLoopBackOff", runbook)
 
-    def test_routing_cards_never_leak_the_instructions(self) -> None:
+    def test_a_gateway_call_returns_content_rather_than_a_typed_result(self) -> None:
+        """A cost of keeping capabilities off the surface, recorded not hidden.
+
+        `GetPodStatus.invoke` is annotated `-> PodStatus`, and on a native
+        surface the SDK would derive an output schema from it and return
+        structured content. A gateway's own return type is the union of every
+        tool's, which is to say `Any`, so the result arrives as text the agent
+        parses. The values survive; the protocol-level typing does not.
+        """
+
+        async def work(session):
+            return await session.call_tool(
+                "contexture_invoke_read_only",
+                {
+                    "ref": "kubernetes-incident-responder/get_pod_status",
+                    "arguments": {"namespace": "prod", "pod": "payments-api-7d9c"},
+                },
+            )
+
+        result = _run(work)
+
+        self.assertIsNone(result.structured_content)
+        self.assertEqual(
+            json.loads(result.content[0].text)["container_state"],
+            "CrashLoopBackOff",
+        )
+
+    def test_a_write_through_the_read_only_door_is_refused_on_the_wire(self) -> None:
+        """The demo is read-only throughout, so the check is that the door
+        itself disagrees with the ref rather than that a write happened."""
+
+        async def work(session):
+            return await session.call_tool(
+                "contexture_invoke",
+                {
+                    "ref": "kubernetes-incident-responder/get_pod_logs",
+                    "arguments": {"namespace": "prod", "pod": "payments-api-7d9c"},
+                },
+            )
+
+        result = _run(work)
+        self.assertTrue(result.is_error)
+        self.assertIn("contexture_invoke_read_only", result.content[0].text)
+
+    def test_the_skeleton_never_leaks_a_procedure_or_a_schema(self) -> None:
         """Progressive disclosure, asserted where it can actually be violated.
 
-        Nothing prevents an agent from calling a business tool without ever
-        navigating; the tools are flat and visible, and that is by design. What
-        disclosure controls is *knowledge* — the procedure has to stay out of
-        discovery and arrive only when asked for.
+        The skeleton is delivered whole, so it is the one payload every session
+        pays for unconditionally. Nothing expensive may ride along in it.
         """
 
         async def work(session):
             instructions = session.instructions or ""
-            roots = await session.call_tool("contexture_discover", {})
-            role_ref = roots.structured_content["roots"][0]["ref"]
-            inside = await session.call_tool(
-                "contexture_discover", {"ref": role_ref}
-            )
-            skill_ref = inside.structured_content["skills"][0]["ref"]
-            opened = await session.call_tool(
-                "contexture_get_context", {"ref": skill_ref}
-            )
+            roles = await session.call_tool("contexture_discover", {})
+            role_ref = roles.structured_content["roles"][0]["ref"]
+            role = await session.call_tool("contexture_open", {"ref": role_ref})
+            skill_ref = role.structured_content["skills"][0]["ref"]
+            opened = await session.call_tool("contexture_open", {"ref": skill_ref})
             return (
                 instructions,
-                str(roots.structured_content),
-                str(inside.structured_content),
+                str(roles.structured_content),
+                str(role.structured_content),
                 opened.structured_content,
             )
 
-        bootstrap, roots_payload, inside_payload, opened = _run(work)
+        bootstrap, skeleton, role, opened = _run(work)
         procedure = "Do not recommend restarting or deleting the Pod"
 
-        self.assertNotIn(procedure, bootstrap)
-        self.assertNotIn(procedure, roots_payload)
-        self.assertNotIn(procedure, inside_payload)
+        for payload in (bootstrap, skeleton):
+            self.assertNotIn(procedure, payload)
+            self.assertNotIn("input_schema", payload)
+        self.assertNotIn(procedure, role)
         self.assertIn(procedure, opened["instructions"])
 
     def test_resource_content_arrives_only_on_read(self) -> None:
         """Listing a resource must stay cheap, however large its content is."""
 
         async def work(session):
-            listed = await session.list_resources()
             opened = await session.call_tool(
-                "contexture_get_context",
-                {
-                    "ref": "resource:kubernetes-incident-responder"
-                    "#contexture://runbooks/crash-loop-backoff"
-                },
+                "contexture_open",
+                {"ref": "kubernetes-incident-responder/crash-loop-runbook"},
             )
-            read = await session.read_resource(
-                "contexture://runbooks/crash-loop-backoff"
+            read = await session.call_tool(
+                "contexture_read",
+                {"ref": "kubernetes-incident-responder/crash-loop-runbook"},
             )
-            return listed.resources, opened.structured_content, read.contents[0].text
+            return opened.structured_content, read.content[0].text
 
-        listed, opened, content = _run(work)
+        opened, content = _run(work)
         marker = "Restarting the Pod does not repair a configuration error"
 
-        self.assertNotIn(marker, str([resource.model_dump() for resource in listed]))
         self.assertNotIn(marker, str(opened))
         self.assertEqual(opened["uri"], "contexture://runbooks/crash-loop-backoff")
         self.assertIn(marker, content)

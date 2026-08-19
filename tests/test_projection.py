@@ -1,38 +1,47 @@
-"""Tests for the translation from a declared graph onto an MCP surface.
+"""Tests for the gateway surface.
 
-The end-to-end suite proves the server works when launched. These tests are the
-cheap, granular half: they pin the shape of the projection itself, so a
-regression names the rule it broke instead of failing a whole session.
+The surface is five tools whatever the declaration holds, business
+capabilities never appear on it, and the read-only classification survives as
+which entry point was used rather than as an argument a model could fill in.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import unittest
 
-from contexture.core.errors import DuplicateNameError
+from mcp.server.mcpserver.exceptions import ToolError
+
 from contexture.core.resources import Resource
 from contexture.core.role import Role
 from contexture.core.skill import Skill
 from contexture.core.tools import Tool
-from contexture.server import DISCOVER_TOOL, GET_CONTEXT_TOOL, ContextureApp
-from contexture.server import instructions as instructions_module
-from contexture.server.registration import (
+from contexture.server import (
+    DISCOVER_TOOL,
     Launch,
+    GATEWAY_TOOLS,
+    INVOKE_READ_ONLY_TOOL,
+    INVOKE_TOOL,
+    OPEN_TOOL,
+    READ_TOOL,
+    ContextureApp,
     claude_code_config,
     cli_commands,
     codex_config,
 )
 
+PROCEDURE = "Read the status, then the logs."
+
 
 class GetPodLogs(Tool):
-    """Return recent container logs for one Pod."""
+    """Return the recent container logs for a Pod."""
 
     name = "get_pod_logs"
     read_only = True
 
     async def invoke(self, namespace: str, pod: str, previous: bool = False) -> str:
-        return f"logs {namespace}/{pod} previous={previous}"
+        return f"{namespace}/{pod} previous={previous}"
 
 
 class DeletePod(Tool):
@@ -45,23 +54,24 @@ class DeletePod(Tool):
 
 
 class Runbook(Resource):
-    """How to diagnose a restart loop."""
+    """How to diagnose a container that keeps restarting."""
 
     uri = "contexture://runbooks/crash-loop"
     mime_type = "text/markdown"
 
     async def read(self) -> str:
-        return "# Runbook body"
+        return "RUNBOOK-BODY"
 
 
 class Diagnose(Skill):
-    """Diagnose a Pod that keeps restarting."""
+    """Find why a Pod restarts repeatedly."""
 
-    instructions = "1. status 2. logs 3. events"
+    name = "diagnose"
+    instructions = PROCEDURE
 
 
 class Responder(Role):
-    """Diagnose and remediate unhealthy Kubernetes workloads."""
+    """Diagnose and repair unhealthy Pods."""
 
     instructions = "Inspect before changing anything."
 
@@ -75,162 +85,201 @@ def _server():
     return ContextureApp(roots=Responder(), name="test").build_server()
 
 
-def _tools_by_name(server):
-    return {tool.name: tool for tool in asyncio.run(server.list_tools())}
+def _call(server, name, arguments=None):
+    return asyncio.run(server.call_tool(name, arguments or {}))
+
+
+def _text(result):
+    return result.content[0].text
 
 
 class SurfaceTests(unittest.TestCase):
-    def test_framework_and_business_tools_share_one_flat_surface(self) -> None:
+    def test_the_surface_is_the_five_gateway_tools_and_nothing_else(self) -> None:
         server, projection = _server()
 
-        self.assertEqual(
-            projection.framework_tools, (DISCOVER_TOOL, GET_CONTEXT_TOOL)
+        listed = tuple(tool.name for tool in asyncio.run(server.list_tools()))
+        self.assertEqual(listed, GATEWAY_TOOLS)
+        self.assertEqual(projection.tools, GATEWAY_TOOLS)
+
+    def test_no_business_capability_reaches_the_surface(self) -> None:
+        """A registered capability is one every session pays for, forever."""
+
+        server, _ = _server()
+
+        rendered = json.dumps(
+            [tool.model_dump(mode="json") for tool in asyncio.run(server.list_tools())]
         )
-        self.assertEqual(projection.business_tools, ("get_pod_logs", "delete_pod"))
-        self.assertEqual(
-            set(_tools_by_name(server)),
-            {DISCOVER_TOOL, GET_CONTEXT_TOOL, "get_pod_logs", "delete_pod"},
-        )
+        self.assertNotIn("get_pod_logs", rendered)
+        self.assertNotIn("delete_pod", rendered)
+        self.assertNotIn(PROCEDURE, rendered)
 
-    def test_the_schema_is_derived_from_the_invoke_signature(self) -> None:
-        """The framework claim: a business project writes no JSON Schema."""
+        resources = asyncio.run(server.list_resources())
+        self.assertEqual(resources, [])
 
-        schema = _tools_by_name(_server()[0])["get_pod_logs"].input_schema
+    def test_only_the_writing_door_is_free_of_the_read_only_hint(self) -> None:
+        server, _ = _server()
+        hints = {
+            tool.name: tool.annotations and tool.annotations.read_only_hint
+            for tool in asyncio.run(server.list_tools())
+        }
 
-        self.assertEqual(
-            set(schema["properties"]), {"namespace", "pod", "previous"}
-        )
-        self.assertEqual(sorted(schema["required"]), ["namespace", "pod"])
-        self.assertEqual(schema["properties"]["previous"]["type"], "boolean")
-
-    def test_read_only_is_projected_as_a_hint_never_as_a_parameter(self) -> None:
-        """Host classification must not be something the model can supply."""
-
-        tools = _tools_by_name(_server()[0])
-
-        self.assertTrue(tools["get_pod_logs"].annotations.read_only_hint)
-        self.assertFalse(tools["delete_pod"].annotations.read_only_hint)
-        for name, tool in tools.items():
+        self.assertEqual(hints[INVOKE_TOOL], False)
+        for name in (DISCOVER_TOOL, OPEN_TOOL, READ_TOOL, INVOKE_READ_ONLY_TOOL):
             with self.subTest(tool=name):
+                self.assertTrue(hints[name])
+
+    def test_read_only_is_never_an_argument(self) -> None:
+        """A model that could pass its own approval flag would be approving
+        its own writes."""
+
+        server, _ = _server()
+        for tool in asyncio.run(server.list_tools()):
+            with self.subTest(tool=tool.name):
                 self.assertNotIn(
                     "read_only", tool.input_schema.get("properties", {})
                 )
-                self.assertNotIn(
-                    "approved", tool.input_schema.get("properties", {})
-                )
 
-    def test_resources_are_registered_with_their_media_type(self) -> None:
-        server, projection = _server()
-        resources = asyncio.run(server.list_resources())
+    def test_the_instructions_carry_the_role_roster(self) -> None:
+        """A gateway whose five tool names all begin `contexture_` gives a host
+        nothing to go on until the roster tells it what this server is for."""
 
-        self.assertEqual(projection.resources, ("contexture://runbooks/crash-loop",))
+        server, _ = _server()
+
+        self.assertIn("responder", server.instructions)
+        self.assertIn("Diagnose and repair unhealthy Pods.", server.instructions)
+        self.assertNotIn(PROCEDURE, server.instructions)
+
+
+class NavigationTests(unittest.TestCase):
+    def test_discover_returns_the_skeleton(self) -> None:
+        server, _ = _server()
+
+        payload = json.loads(_text(_call(server, DISCOVER_TOOL)))
+        self.assertEqual([card["ref"] for card in payload["roles"]], ["responder"])
+
+    def test_opening_a_role_delivers_the_schemas_the_surface_no_longer_has(
+        self,
+    ) -> None:
+        server, _ = _server()
+
+        opened = json.loads(_text(_call(server, OPEN_TOOL, {"ref": "responder"})))
+        schemas = {tool["name"]: tool["input_schema"] for tool in opened["tools"]}
         self.assertEqual(
-            [(str(r.uri), r.mime_type) for r in resources],
-            [("contexture://runbooks/crash-loop", "text/markdown")],
+            sorted(schemas["get_pod_logs"]["properties"]),
+            ["namespace", "pod", "previous"],
         )
+        self.assertEqual(schemas["get_pod_logs"]["required"], ["namespace", "pod"])
 
-    def test_two_tools_that_claim_one_name_are_refused(self) -> None:
-        """MCP names are global, so a collision must fail loudly at build time."""
-
-        class Left(Tool):
-            """Left."""
-
-            name = "clash"
-
-            async def invoke(self) -> str:
-                return ""
-
-        class Right(Tool):
-            """Right."""
-
-            name = "clash"
-
-            async def invoke(self) -> str:
-                return ""
-
-        parent = Role(
-            name="parent",
-            description="Parent.",
-            instructions="Parent.",
-            children=[
-                Role(
-                    name="a",
-                    description="A.",
-                    instructions="A.",
-                    tools=[Left()],
-                ),
-                Role(
-                    name="b",
-                    description="B.",
-                    instructions="B.",
-                    tools=[Right()],
-                ),
-            ],
-        )
-
-        with self.assertRaises(DuplicateNameError) as caught:
-            ContextureApp(roots=parent).build_server()
-        self.assertIn("clash", str(caught.exception))
-
-
-class ExecutionTests(unittest.TestCase):
-    def test_a_business_tool_runs_through_the_surface(self) -> None:
+    def test_a_wrong_ref_is_a_sentence_and_not_a_traceback(self) -> None:
         server, _ = _server()
-        result = asyncio.run(
-            server.call_tool(
-                "get_pod_logs", {"namespace": "prod", "pod": "api"}
-            )
-        )
 
-        self.assertIn("logs prod/api", result.content[0].text)
-
-    def test_a_resource_is_read_only_when_asked_for(self) -> None:
-        server, _ = _server()
-        contents = asyncio.run(
-            server.read_resource("contexture://runbooks/crash-loop")
-        )
-
-        self.assertIn("Runbook body", list(contents)[0].content)
-
-    def test_a_bad_ref_returns_a_message_the_agent_can_act_on(self) -> None:
-        """A wrong ref is recoverable, so it must read as a sentence."""
-
-        from mcp.server.mcpserver.exceptions import ToolError
-
-        server, _ = _server()
         with self.assertRaises(ToolError) as caught:
-            asyncio.run(server.call_tool(GET_CONTEXT_TOOL, {"ref": "banana"}))
+            _call(server, OPEN_TOOL, {"ref": "responder/banana"})
 
         message = str(caught.exception)
-        self.assertIn("must start with a kind", message)
-        # KeyError reprs its argument; a leaked repr would wrap this in quotes.
-        self.assertNotIn("\"Reference", message)
+        self.assertIn("banana", message)
+        self.assertIn("get_pod_logs", message)
 
 
-class InstructionsTests(unittest.TestCase):
-    def test_the_bootstrap_fits_both_hosts_limits(self) -> None:
+class InvocationTests(unittest.TestCase):
+    def test_a_read_only_tool_runs_through_the_read_only_door(self) -> None:
         server, _ = _server()
-        text = server.instructions or ""
 
-        # Codex reads the first 512 characters while deciding how to use the
-        # server; Claude Code truncates the whole field at 2KB.
-        self.assertIn(DISCOVER_TOOL, text[:512])
-        self.assertLess(len(text.encode("utf-8")), 2048)
+        result = _call(
+            server,
+            INVOKE_READ_ONLY_TOOL,
+            {"ref": "responder/get_pod_logs",
+             "arguments": {"namespace": "prod", "pod": "api"}},
+        )
+        self.assertIn("prod/api", _text(result))
 
-    def test_the_bootstrap_names_every_root(self) -> None:
-        text = instructions_module.build(
-            (
-                Role(name="alpha", description="Alpha.", instructions="A."),
-                Role(name="beta", description="Beta.", instructions="B."),
+    def test_a_writing_tool_runs_through_the_writing_door(self) -> None:
+        server, _ = _server()
+
+        result = _call(
+            server,
+            INVOKE_TOOL,
+            {"ref": "responder/delete_pod",
+             "arguments": {"namespace": "prod", "pod": "api"}},
+        )
+        self.assertIn("deleted prod/api", _text(result))
+
+    def test_a_write_sent_through_the_read_only_door_is_refused(self) -> None:
+        """The host decided whether to involve a human from the door's hint.
+
+        Honouring a mismatch would run a write under a read-only approval.
+        """
+
+        server, _ = _server()
+
+        with self.assertRaises(ToolError) as caught:
+            _call(
+                server,
+                INVOKE_READ_ONLY_TOOL,
+                {"ref": "responder/delete_pod",
+                 "arguments": {"namespace": "prod", "pod": "api"}},
             )
+
+        message = str(caught.exception)
+        self.assertIn("not read-only", message)
+        self.assertIn(INVOKE_TOOL, message)
+
+    def test_a_read_sent_through_the_writing_door_is_refused(self) -> None:
+        server, _ = _server()
+
+        with self.assertRaises(ToolError) as caught:
+            _call(
+                server,
+                INVOKE_TOOL,
+                {"ref": "responder/get_pod_logs",
+                 "arguments": {"namespace": "prod", "pod": "api"}},
+            )
+
+        self.assertIn(INVOKE_READ_ONLY_TOOL, str(caught.exception))
+
+    def test_arguments_are_validated_against_the_derived_schema(self) -> None:
+        """Validation left the wire with the tool; it did not stop happening."""
+
+        server, _ = _server()
+
+        with self.assertRaises(ToolError) as caught:
+            _call(
+                server,
+                INVOKE_READ_ONLY_TOOL,
+                {"ref": "responder/get_pod_logs", "arguments": {"namespace": "prod"}},
+            )
+
+        self.assertIn("pod", str(caught.exception))
+
+    def test_a_ref_that_names_a_skill_is_refused_by_invoke(self) -> None:
+        server, _ = _server()
+
+        with self.assertRaises(ToolError) as caught:
+            _call(server, INVOKE_READ_ONLY_TOOL, {"ref": "responder/diagnose"})
+
+        self.assertIn("skill", str(caught.exception))
+
+
+class ResourceTests(unittest.TestCase):
+    def test_content_arrives_only_when_it_is_read(self) -> None:
+        server, _ = _server()
+
+        opened = json.loads(
+            _text(_call(server, OPEN_TOOL, {"ref": "responder/runbook"}))
+        )
+        self.assertNotIn("RUNBOOK-BODY", json.dumps(opened))
+        self.assertIn(
+            "RUNBOOK-BODY",
+            _text(_call(server, READ_TOOL, {"ref": "responder/runbook"})),
         )
 
-        self.assertIn("alpha: Alpha.", text)
-        self.assertIn("beta: Beta.", text)
-
-    def test_the_bootstrap_carries_no_skill_procedure(self) -> None:
+    def test_a_resource_reads_by_its_own_uri_as_well_as_by_ref(self) -> None:
         server, _ = _server()
-        self.assertNotIn("1. status 2. logs", server.instructions or "")
+
+        result = _call(
+            server, READ_TOOL, {"ref": "contexture://runbooks/crash-loop"}
+        )
+        self.assertIn("RUNBOOK-BODY", _text(result))
 
 
 class RegistrationTests(unittest.TestCase):

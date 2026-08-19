@@ -10,24 +10,19 @@ to the runtime that connects.
 The package is layered, and the layering is the architecture:
 
     contexture.core        the object model; no I/O, no wire, no SDK
-    contexture.compiler    route/active disclosure of one node
-    contexture.discovery   refs, the capability graph, discover / get_context
+    contexture.tree        the multi-headed tree, disclosed lazily
     contexture.server      the native MCP server; the only layer importing mcp
 
     contexture.targets     rendered context files, for runtimes that cannot
                            connect
 
-Each layer may import the ones below it and never the reverse. Importing this
-facade does not load the server layer or the SDK; `contexture.server` is an
-explicit import, so a project that only models context pays for only that.
+Each layer may import the ones below it and never the reverse. This facade
+exports what a business developer *declares* with, and nothing the framework
+*runs* with: importing it loads neither `contexture.tree` nor
+`contexture.server` nor the SDK, so a project that only models context pays
+for only that.
 """
 
-from .compiler import (
-    CapabilitySelection,
-    CompileRequest,
-    CompiledRoleContext,
-    RoleCompiler,
-)
 from .core.constants import PACKAGE_VERSION as __version__
 from .core import (
     CompileLevel,
@@ -39,17 +34,13 @@ from .core import (
     NodeNotFoundError,
     Resource,
     Role,
-    RoleRegistry,
     Skill,
     TargetRenderError,
     Tool,
 )
 
 __all__ = [
-    "CapabilitySelection",
     "CompileLevel",
-    "CompileRequest",
-    "CompiledRoleContext",
     "ContextNode",
     "ContextureError",
     "DeclarationError",
@@ -58,8 +49,6 @@ __all__ = [
     "NodeNotFoundError",
     "Resource",
     "Role",
-    "RoleCompiler",
-    "RoleRegistry",
     "Skill",
     "TargetRenderError",
     "Tool",

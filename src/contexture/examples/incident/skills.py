@@ -2,7 +2,7 @@
 
 These instructions are the payload progressive disclosure exists to defer. They
 are never in the bootstrap text and never on a routing card; an agent receives
-them only after calling contexture_get_context on this skill's ref.
+them only after calling contexture_open on this skill's ref.
 """
 
 from __future__ import annotations

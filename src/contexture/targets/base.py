@@ -1,6 +1,6 @@
 """The target layer: one declaration, many agent-facing surfaces.
 
-A target adapter is the back end of the compiler. It takes a role tree that
+A target adapter renders a declaration as files. It takes a role tree that
 knows nothing about any particular agent and renders the files one agent
 actually reads.
 
@@ -25,7 +25,6 @@ from dataclasses import dataclass, field
 from typing import ClassVar, Iterable, Iterator
 
 from ..core.errors import TargetRenderError
-from ..core.registry import RoleRegistry
 from ..core.role import Role
 
 
@@ -122,13 +121,12 @@ class TargetAdapter(ABC):
     display_name: ClassVar[str]
     capabilities: ClassVar[TargetCapabilities]
 
-    def render(self, role: Role, *, registry: RoleRegistry | None = None) -> ArtifactSet:
+    def render(self, role: Role) -> ArtifactSet:
         """Render `role` and report anything this target could not carry."""
 
-        resolved = registry or RoleRegistry(root=role)
-        artifacts = tuple(self._render_artifacts(role, resolved))
+        artifacts = tuple(self._render_artifacts(role))
         notes = tuple(self._capability_notes(role)) + tuple(
-            self._render_notes(role, resolved)
+            self._render_notes(role)
         )
         return ArtifactSet(target=self.name, artifacts=artifacts, notes=notes)
 
@@ -136,14 +134,12 @@ class TargetAdapter(ABC):
     def _render_artifacts(
         self,
         role: Role,
-        registry: RoleRegistry,
     ) -> Iterable[Artifact]:
         """Produce this target's files for the role tree rooted at `role`."""
 
     def _render_notes(
         self,
         role: Role,
-        registry: RoleRegistry,
     ) -> Iterable[str]:
         """Report target-specific losses beyond the shared capability gaps."""
 
@@ -183,16 +179,10 @@ class TargetAdapter(ABC):
 def render_all(
     role: Role,
     adapters: Iterable[TargetAdapter],
-    *,
-    registry: RoleRegistry | None = None,
 ) -> dict[str, ArtifactSet]:
     """Render one declaration for several targets, keyed by target name."""
 
-    resolved = registry or RoleRegistry(root=role)
-    return {
-        adapter.name: adapter.render(role, registry=resolved)
-        for adapter in adapters
-    }
+    return {adapter.name: adapter.render(role) for adapter in adapters}
 
 
 def render_json(payload: object) -> str:

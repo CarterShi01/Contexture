@@ -30,9 +30,9 @@ from mcp.server.mcpserver import MCPServer
 
 from ..core.constants import PACKAGE_VERSION
 from ..core.role import Role
-from ..discovery import CapabilityGraph, DisclosureEngine, build_graph
+from ..tree import ContextTree
 from . import instructions as instructions_module
-from .projection import Projection, project
+from .projection import Dispatch, Projection, project
 
 Transport = Literal["stdio", "streamable-http", "sse"]
 
@@ -46,12 +46,14 @@ class ContextureApp:
     version: str = PACKAGE_VERSION
     instructions: str | None = None
 
-    graph: CapabilityGraph = field(init=False)
-    engine: DisclosureEngine = field(init=False)
+    tree: ContextTree = field(init=False)
+    dispatch: Dispatch = field(init=False)
 
     def __post_init__(self) -> None:
-        self.graph = build_graph(self.roots)
-        self.engine = DisclosureEngine(graph=self.graph)
+        # One Dispatch derives every schema and validates every call, so a
+        # card's schema and the check a call is measured against cannot drift.
+        self.dispatch = Dispatch()
+        self.tree = ContextTree.of(self.roots, schema_of=self.dispatch.schema)
 
     def build_server(self) -> tuple[MCPServer, Projection]:
         """Build the MCP server and report what was projected onto it."""
@@ -60,9 +62,9 @@ class ContextureApp:
             name=self.name,
             version=self.version,
             instructions=self.instructions
-            or instructions_module.build(self.graph.roots),
+            or instructions_module.build(self.tree),
         )
-        projection = project(server, graph=self.graph, engine=self.engine)
+        projection = project(server, tree=self.tree, dispatch=self.dispatch)
         return server, projection
 
     def run(self, transport: Transport = "stdio", **kwargs: object) -> None:

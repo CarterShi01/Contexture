@@ -11,7 +11,16 @@ free of it by design, and a layering test enforces that.
 
 from .app import ContextureApp, Transport, configure_logging
 from .instructions import PREAMBLE
-from .projection import DISCOVER_TOOL, GET_CONTEXT_TOOL, Projection, project
+from .projection import (
+    DISCOVER_TOOL,
+    GATEWAY_TOOLS,
+    INVOKE_READ_ONLY_TOOL,
+    INVOKE_TOOL,
+    OPEN_TOOL,
+    Projection,
+    READ_TOOL,
+    project,
+)
 from .registration import (
     Launch,
     claude_code_config,
@@ -23,7 +32,11 @@ from .registration import (
 __all__ = [
     "ContextureApp",
     "DISCOVER_TOOL",
-    "GET_CONTEXT_TOOL",
+    "GATEWAY_TOOLS",
+    "INVOKE_READ_ONLY_TOOL",
+    "INVOKE_TOOL",
+    "OPEN_TOOL",
+    "READ_TOOL",
     "Launch",
     "PREAMBLE",
     "Projection",

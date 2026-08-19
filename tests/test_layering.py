@@ -20,17 +20,16 @@ PACKAGE = SOURCE_ROOT / "contexture"
 #: Layer name -> the layers it is allowed to import from.
 ALLOWED: dict[str, set[str]] = {
     "core": set(),
-    "compiler": {"core"},
-    "discovery": {"core", "compiler"},
-    "targets": {"core", "compiler"},
-    "server": {"core", "compiler", "discovery"},
+    "tree": {"core"},
+    "targets": {"core"},
+    "server": {"core", "tree"},
     # Reference applications sit above everything and are imported by nothing.
     # They reach the object model through the public facade, not by layer, so
     # `server` is the only sibling layer they may name. See
     # LayeringTests.test_examples_use_only_the_public_facade.
     "examples": {"server"},
     # The command line sits above everything: it scaffolds, then serves.
-    "cli": {"core", "compiler", "discovery", "server"},
+    "cli": {"core", "tree", "server"},
 }
 
 #: Layers permitted to import the official MCP SDK. The object model is not one
@@ -149,7 +148,7 @@ class LayeringTests(unittest.TestCase):
             "import sys; sys.path.insert(0, %r);"
             "import contexture.core;"
             "upper = [m for m in sys.modules if m.startswith('contexture.') "
-            "and m.split('.')[1] in ('targets', 'server', 'discovery', "
+            "and m.split('.')[1] in ('targets', 'server', 'tree', "
             "'examples')];"
             "print(','.join(sorted(upper)))" % str(SOURCE_ROOT)
         )

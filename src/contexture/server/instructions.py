@@ -8,37 +8,73 @@ Two host limits shape this file, and both are real rather than defensive:
   self-contained, because that is what it has in hand while deciding whether
   to use the server at all.
 
-So the opening sentences must be the whole contract. Everything after them is
-elaboration a host may never show.
+The role skeleton is included here rather than left for the first
+`contexture_discover` call. It is static, it is small — a role card is a name,
+a sentence and a path — and putting it here answers the question a host asks
+before it has called anything: *what is this server for?* Without it, a gateway
+server presents five tools whose names all begin with `contexture_` and no
+sign that any of them lead to Kubernetes. With it, the first call can be the
+one that opens the right role.
+
+When a forest is too large for the budget, the roster is cut and says so;
+`contexture_discover` is the way to read the rest.
 """
 
 from __future__ import annotations
 
-from typing import Iterable
-
-from ..core.role import Role
+from ..tree import ContextTree
 
 #: The self-contained opening. Keep this under 512 characters.
 PREAMBLE = """\
-Start with contexture_discover to find the role and skill for this task.
-Load detail only for the capability you selected, using contexture_get_context.
-Collect evidence with the tools before stating a diagnosis or a cause.
-Do not assert system state you have not read from a tool or a resource.\
+Everything this server offers is behind contexture_open. The roles listed below
+are the whole map: open the one that fits the task to see its skills, tools and
+resources, then open the skill you chose to get its procedure.
+Run a tool with contexture_invoke_read_only or contexture_invoke, whichever its
+card says, passing the ref and arguments from that card.
+Collect evidence with the tools before stating a cause, and do not assert system
+state you have not read.\
 """
 
+#: Claude Code truncates server instructions at 2KB; leave room for the rest.
+ROSTER_BUDGET = 1200
 
-def build(roots: Iterable[Role], *, preamble: str = PREAMBLE) -> str:
+
+def build(
+    tree: ContextTree,
+    *,
+    preamble: str = PREAMBLE,
+    budget: int = ROSTER_BUDGET,
+) -> str:
     """Return server instructions: the contract first, the roster second."""
 
-    lines = [preamble.strip(), "", "Available roles:"]
-    for root in roots:
-        lines.append(f"- {root.name}: {root.description}")
-    lines.append("")
-    lines.append(
-        "Every routing card carries a `ref`. Pass it back to "
-        "contexture_get_context to open that node."
+    entries = [
+        f"- {ref}: {role.description}" for ref, role in tree.roles_with_refs()
+    ]
+
+    roster: list[str] = []
+    spent = 0
+    for index, entry in enumerate(entries):
+        if spent + len(entry) > budget:
+            remaining = len(entries) - index
+            roster.append(
+                f"- ...and {remaining} more role(s); call contexture_discover "
+                "for the full list."
+            )
+            break
+        roster.append(entry)
+        spent += len(entry) + 1
+
+    return "\n".join(
+        [
+            preamble.strip(),
+            "",
+            "Roles:",
+            *roster,
+            "",
+            "Every card carries a `ref`. Pass it back to contexture_open to "
+            "open that node; never assemble a ref yourself.",
+        ]
     )
-    return "\n".join(lines)
 
 
-__all__ = ["PREAMBLE", "build"]
+__all__ = ["PREAMBLE", "ROSTER_BUDGET", "build"]
