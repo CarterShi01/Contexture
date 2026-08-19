@@ -21,7 +21,7 @@ from .types import CompiledContext
 
 @dataclass(slots=True, kw_only=True)
 class Role(ContextNode):
-    """A responsibility boundary composed from roles, skills, and MCP grants.
+    """A responsibility boundary composed from roles, skills, tools, and resources.
 
     Build one imperatively::
 
@@ -76,22 +76,40 @@ class Role(ContextNode):
             raise ModelValidationError(
                 f"Role {self.name!r} must have active instructions."
             )
-        self._require_unique(
-            (child.name for child in self.children),
-            "child role names",
-        )
-        self._require_unique(
-            (skill.name for skill in self.skills),
-            "skill names",
-        )
-        self._require_unique(
-            (tool.name for tool in self.tools),
-            "tool names",
-        )
+        self._require_unique_members()
         self._require_unique(
             (resource.uri for resource in self.resources),
             "resource URIs",
         )
+
+    def _require_unique_members(self) -> None:
+        """Reject two members of this role that share a name.
+
+        Uniqueness is checked across kinds rather than within them, because a
+        member's name is the last segment of the reference that addresses it. A
+        skill and a tool that share a name would share an address, and the tree
+        would have to guess which one was meant. Refusing the declaration is
+        better than guessing, and a role holding two things called `diagnose`
+        was going to confuse a reader anyway.
+        """
+
+        seen: dict[str, str] = {}
+        for kind, members in (
+            ("sub-role", self.children),
+            ("skill", self.skills),
+            ("tool", self.tools),
+            ("resource", self.resources),
+        ):
+            for member in members:
+                previous = seen.get(member.name)
+                if previous is not None:
+                    raise DuplicateNameError(
+                        f"Role {self.name!r} declares a {previous} and a {kind} "
+                        f"both named {member.name!r}. A member's name is the "
+                        "last segment of its reference, so members of one role "
+                        "cannot share a name."
+                    )
+                seen[member.name] = kind
 
     @staticmethod
     def _require_unique(values: Iterable[str], label: str) -> None:
@@ -132,23 +150,15 @@ class Role(ContextNode):
         )
 
     def _compile_active(self) -> CompiledContext:
-        return {
-            **self._compile_route(),
-            "instructions": self.instructions,
-            "available_sub_roles": [
-                child.compile(CompileLevel.ROUTE) for child in self.children
-            ],
-            "available_skills": [
-                skill.compile(CompileLevel.ROUTE) for skill in self.skills
-            ],
-            "available_tools": [
-                tool.compile(CompileLevel.ROUTE) for tool in self.tools
-            ],
-            "available_resources": [
-                resource.compile(CompileLevel.ROUTE)
-                for resource in self.resources
-            ],
-        }
+        """Describe this role, and nothing around it.
+
+        A role does not list its members here. It cannot list them completely:
+        a member is only reachable through a reference, references belong to
+        `contexture.tree`, and `core` must not know they exist. A half-listed
+        member is worse than an unlisted one — it can be seen and not opened.
+        """
+
+        return {**self._compile_route(), "instructions": self.instructions}
 
 
 def _validate_declaration(

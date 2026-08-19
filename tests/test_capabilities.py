@@ -16,6 +16,7 @@ from contexture.core.errors import (
 )
 from contexture.core.resources import Resource
 from contexture.core.role import Role
+from contexture.core.skill import Skill
 from contexture.core.tools import Tool
 
 
@@ -232,3 +233,92 @@ class RoleCompositionTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class MemberNameTests(unittest.TestCase):
+    """A member's name is the last segment of the reference that opens it.
+
+    So the names inside one role have to be unique across kinds, not merely
+    within them. These tests are what stop that constraint from decaying back
+    into four independent checks.
+    """
+
+    @staticmethod
+    def _skill() -> Skill:
+        return Skill(name="diagnose", description="A procedure.", instructions="Go.")
+
+    @staticmethod
+    def _tool() -> Tool:
+        return Tool(name="diagnose", description="A capability.")
+
+    def test_a_skill_and_a_tool_may_not_share_a_name(self) -> None:
+        with self.assertRaises(DuplicateNameError) as caught:
+            Role(
+                name="responder",
+                description="A role.",
+                instructions="Go.",
+                skills=[self._skill()],
+                tools=[self._tool()],
+            )
+
+        message = str(caught.exception)
+        self.assertIn("diagnose", message)
+        self.assertIn("skill", message)
+        self.assertIn("tool", message)
+
+    def test_a_sub_role_and_a_resource_may_not_share_a_name(self) -> None:
+        child = Role(name="runbook", description="A role.", instructions="Go.")
+        resource = Resource(
+            name="runbook",
+            description="A document.",
+            uri="contexture://runbooks/one",
+        )
+
+        with self.assertRaises(DuplicateNameError):
+            Role(
+                name="responder",
+                description="A role.",
+                instructions="Go.",
+                children=[child],
+                resources=[resource],
+            )
+
+    def test_distinct_names_across_kinds_are_accepted(self) -> None:
+        role = Role(
+            name="responder",
+            description="A role.",
+            instructions="Go.",
+            skills=[self._skill()],
+            tools=[Tool(name="get_pod_logs", description="A capability.")],
+        )
+
+        self.assertEqual([skill.name for skill in role.skills], ["diagnose"])
+        self.assertEqual([tool.name for tool in role.tools], ["get_pod_logs"])
+
+
+class RoleSelfDescriptionTests(unittest.TestCase):
+    def test_an_opened_role_describes_itself_and_not_its_members(self) -> None:
+        """Listing members here would list them without references.
+
+        `core` cannot know what a reference looks like, so a member listed at
+        this level could be seen and never opened. `contexture.tree` lists them
+        instead, where the reference exists.
+        """
+
+        role = Role(
+            name="responder",
+            description="A role.",
+            instructions="Work from evidence.",
+            skills=[
+                Skill(name="diagnose", description="A procedure.", instructions="Go.")
+            ],
+            tools=[Tool(name="get_pod_logs", description="A capability.")],
+        )
+
+        compiled = role.compile("active")
+
+        self.assertEqual(compiled["instructions"], "Work from evidence.")
+        self.assertEqual(
+            set(compiled),
+            {"kind", "name", "description", "instructions"},
+        )
