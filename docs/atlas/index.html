@@ -415,7 +415,8 @@
       <li><span class="num">04</span><a href="#plate-04">声明式前端</a><span class="desc">— 一个类体怎么变成 Role 对象</span></li>
       <li><span class="num">05</span><a href="#plate-05">披露成本</a><span class="desc">— 一次会话到底付了多少 context</span></li>
       <li><span class="num">06</span><a href="#plate-06">网关投影</a><span class="desc">— 为什么表面永远只有五个工具</span></li>
-      <li><span class="num">07</span><a href="#plate-07">披露路径</a><span class="desc">— Agent 怎么在树上走,而服务器不记状态</span></li>
+      <li><span class="num">07</span><a href="#plate-07">谁在跟 Agent 说话</a><span class="desc">— 一个失败怎么变成一句能照做的话</span></li>
+      <li><span class="num">08</span><a href="#plate-08">披露路径</a><span class="desc">— Agent 怎么在树上走,而服务器不记状态</span></li>
     </ol>
   </nav>
 
@@ -427,9 +428,9 @@
     <div class="figure-wrap">
       <ul class="tree">
         <li>
-          <div class="row"><span class="path dir">src/contexture/</span><span class="desc">3688 行 · 34 个 .py(含 6 个 <code>__init__.py</code>)</span></div>
+          <div class="row"><span class="path dir">src/contexture/</span><span class="desc">3090 行 · 28 个 .py(含 6 个 <code>__init__.py</code>)</span></div>
           <ul>
-            <li><div class="row"><span class="path">__init__.py</span><span class="desc">56 行 — 公开门面,只导出<strong>用来声明</strong>的东西;<code>ContextTree</code> 是用来<strong>运行</strong>的,故意不在这里</span></div></li>
+            <li><div class="row"><span class="path">__init__.py</span><span class="desc">51 行 — 公开门面,只导出<strong>用来声明</strong>的东西;<code>ContextTree</code> 是用来<strong>运行</strong>的,故意不在这里</span></div></li>
             <li><div class="row"><span class="path">cli.py</span><span class="desc">416 行 · 3 类 — <code>contexture new</code> 生成项目 · <code>contexture serve</code> 起服务 · <code>contexture list</code> 打印它会服务什么 · <code>contexture demo</code>。骑在所有层之上,被任何层 import 都算违规</span></div></li>
             <li><div class="row"><span class="path">tree.py</span><span class="desc">281 行 · <strong>1 类</strong> — <strong>ContextTree</strong>:<code>skeleton()</code> 骨架 · <code>find()</code> 解析 · <code>open()</code> 打开。接替了原来 compiler + discovery + registry 的八个类</span></div></li>
             <li>
@@ -453,7 +454,7 @@
                 <li><div class="row"><span class="path">app.py</span><span class="desc">102 行 — ContextureApp,业务唯一需要接触的对象;不继承 SDK 的 MCPServer,而是组合它</span></div></li>
                 <li><div class="row"><span class="path">projection.py</span><span class="desc">226 行 · 3 类 — 把 contract 挂到 SDK 上(循环注册,不是五处 add_tool)· Dispatch(推 schema 与校验参数,<strong>不上表面</strong>)· 两扇门的一致性检查</span></div></li>
                 <li><div class="row"><span class="path">instructions.py</span><span class="desc">74 行 — 只管把 contract <strong>塞进某个宿主的版面</strong>:前 512 字自包含(Codex),总长 &lt;2KB(Claude Code)</span></div></li>
-                <li><div class="row"><span class="path">registration.py</span><span class="desc">97 行 — 生成指向<strong>本 server</strong> 的宿主配置;不 import 包内任何东西</span></div></li>
+                <li><div class="row"><span class="path">registration.py</span><span class="desc">96 行 — 生成指向<strong>本 server</strong> 的宿主配置;不 import 包内任何东西</span></div></li>
               </ul>
             </li>
             <li>
@@ -634,6 +635,8 @@ classDiagram
         +skills : Skill[]
         +tools : Tool[]
         +resources : Resource[]
+        +members() 有序遍历
+        +member(name) 跨种类查找
     }
     class Skill {
         +instructions : str
@@ -657,6 +660,12 @@ classDiagram
         +tool(ref) Tool
         +resource(ref) Resource
     }
+    class NodeNotFoundError {
+        &lt;&lt;carries facts, not prose&gt;&gt;
+        +reason : LookupFailure
+        +ref · segment · scope
+        +kind · wanted · known
+    }
     class Dispatch {
         &lt;&lt;server&gt;&gt;
         +schema(tool) 从 invoke 推导
@@ -675,8 +684,10 @@ classDiagram
     ContextTree o-- Role : roots
     ContextTree ..&gt; ContextNode : compile(level)
     ContextTree ..&gt; Dispatch : schema_of
+    Role ..&gt; NodeNotFoundError : member() 未命中
+    ContextTree ..&gt; NodeNotFoundError : 回程补上 ref
         </pre>
-        <figcaption>实线菱形 = 组合,虚线箭头 = 使用。上半部是业务继承的四个类型,下半部只剩<strong>两个</strong>框架机制,两者之间只通过 <code>compile(level)</code> 这一个方法接触。<code>Role</code> 不再列自己的成员——它列不完整(ref 属于上一层,<code>core</code> 不许知道),而一张能看见却打不开的卡片比不列更糟;列成员是 <code>ContextTree</code> 的活,因为 ref 在那里才存在。图里该有却没有的东西:没有 server 对象,没有授权关系对象,没有出站客户端。</figcaption>
+        <figcaption>实线菱形 = 组合,虚线箭头 = 使用。上半部是业务继承的四个类型,下半部只剩<strong>两个</strong>框架机制,两者之间只通过 <code>compile(level)</code> 这一个方法接触。<code>Role</code> <strong>查找自己的成员,但不列自己的成员</strong>——这两件事看着像一件,其实分属两层。查找只需要它自己那条跨种类唯一的不变量,所以 <code>member()</code> 在它身上;列卡片需要 ref,而 ref 属于上一层,一张能看见却打不开的卡片比不列更糟,所以列成员是 <code>ContextTree</code> 的活。查不到时也照这条线分:<code>Role</code> 抛出它手上有的事实(scope · known),<code>ContextTree</code> 在回程补上只有它知道的 ref。图里该有却没有的东西:没有 server 对象,没有授权关系对象,没有出站客户端。</figcaption>
       </figure>
     </div>
 
@@ -876,6 +887,50 @@ flowchart LR
 
   <section class="plate" id="plate-07">
     <p class="plate-eyebrow">Plate 07</p>
+    <h2 class="plate-title">谁在跟 Agent 说话 — 一个失败怎么变成一句能照做的话</h2>
+    <p class="plate-claim">异常<strong>只携带事实</strong>,两个读者各自渲染。这不是整洁问题:抛出失败的那一层<strong>写不出</strong>那句最有用的话——"下一步调 <code>contexture_open</code>"需要网关工具的名字,而 <code>tree</code> 不知道也不许知道。</p>
+
+    <div class="figure-wrap">
+      <figure>
+        <pre class="mermaid">
+flowchart TB
+    ask["Agent 调用<br/>contexture_open(ref='team/banana')"]
+    role["<b>Role.member('banana')</b><br/><i>core:知道自己叫什么、holds 什么</i>"]
+    facts["<b>NodeNotFoundError</b><br/>reason=no_such_member<br/>segment='banana' · scope='team'<br/>known=(diagnose, get_logs, …)<br/><i>零散文</i>"]
+    tree["<b>ContextTree.find()</b><br/>failure.within(ref)<br/><i>补上只有它知道的整条路径</i>"]
+    trans["<b>_translated</b><br/><i>server:全包唯一收口</i>"]
+    contract["<b>contract.unresolved()</b><br/><i>唯一知道五个动词叫什么的地方</i>"]
+    agent["<b>给 Agent 的一句话</b><br/>Role 'team' holds no member named 'banana'.<br/>It holds: diagnose, get_logs, …<br/><b>Call contexture_open on 'team'</b> to see each<br/>member with the ref that opens it."]
+    dev["<b>给开发者的 traceback</b><br/>no_such_member: ref='team/banana'<br/>segment='banana' scope='team'<br/><i>字段转储,不是句子</i>"]
+
+    ask --> role --> facts --> tree --> trans --> contract --> agent
+    facts -.__str__.-> dev
+
+    style facts stroke-width:3px
+    style contract stroke-width:3px
+    style agent stroke-width:3px
+        </pre>
+        <figcaption><strong>异常本身就是向上运输结构化数据的通道</strong>——所以这条解耦一根线都不用接:不需要往 <code>ContextTree</code> 注入文案回调,也不需要 <code>core</code> 反过来依赖任何东西。收口 <code>_translated</code> 本来就在那儿,以前被塞的是烤好的字符串,现在拿到的是事实。粗框那三个是新增的分工:<strong>事实在哪产生 · 句子在哪写 · 谁读</strong>。虚线那条是第二个读者,它要的内容和上面那条完全不同,这正是当初一个字符串写不好两份的原因。</figcaption>
+      </figure>
+    </div>
+
+    <div class="plate-notes">
+      <p><strong>判据:一个读者的错误,携带句子;两个读者的错误,携带事实。</strong>
+      <code>ModelValidationError</code> / <code>DeclarationError</code> /
+      <code>DuplicateNameError</code> 全部<strong>保留散文</strong>——它们在声明期和构造期抛出,
+      agent 永远看不到,只有开发者一个读者。需要改的只有 <code>NodeNotFoundError</code>。</p>
+      <p><code>LookupFailure</code> 六个成员是穷举的,渲染函数对它逐一分支,
+      <strong>每一支都以"该调哪个工具"收尾</strong>——有测试同时守着这两条:
+      每个 reason 都有渲染,且每条渲染里都出现至少一个网关工具名。
+      这两个断言在改造前<em>写不出来</em>:分支根本不在一处。</p>
+      <p><code>NodeNotFoundError</code> 不再继承 <code>KeyError</code>。那个基类当初是为了
+      "<code>except KeyError</code> 的老代码还能跑",配套的 <code>__str__</code> 覆盖则是为了
+      抵消 KeyError 给参数加引号的行为——散文一上移,这个 hack 的理由就蒸发了。</p>
+    </div>
+  </section>
+
+  <section class="plate" id="plate-08">
+    <p class="plate-eyebrow">Plate 08</p>
     <h2 class="plate-title">披露路径 — Agent 怎么在树上走,而服务器不记状态</h2>
     <p class="plate-claim">MCP 2026-07-28 规范原文:tools 列表 <code>MUST NOT</code> 因连接、或因同一连接上的其他请求而变化。所以树不能是协议表面——它得活在 payload 里,而 agent 的位置是它自己带着的那个 ref。</p>
 
