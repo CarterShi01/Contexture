@@ -58,9 +58,8 @@ Business Layer            declares roles, skills, tools, resources
         │  inherits / composes
 contexture.core           object model, registry, validation, disclosure rules
         │  compile
-contexture.compiler       route / active selection over the model
         │  navigate
-contexture.discovery      refs, the capability graph, discover / get_context
+contexture.tree           the multi-headed tree, disclosed lazily
         │  project
 contexture.server         the native MCP server — the only layer importing mcp
         │  MCP
@@ -106,7 +105,7 @@ class K8sOperator(Role):
     runbook = RolloutRunbook
 ```
 
-A declared Role *is* a `Role`, so every consumer — compiler, registry, adapter,
+A declared Role *is* a `Role`, so every consumer — the tree, an adapter,
 server — accepts either without knowing which door was used. Declaration adds
 a second way to state the same thing; it never becomes a parallel type.
 
@@ -177,7 +176,7 @@ written down here and commented at both call sites.
 
 ### 5.1 The adapter contract
 
-A `TargetAdapter` is the compiler's back end:
+A `TargetAdapter` renders a declaration as files:
 
 ```python
 class TargetAdapter(ABC):

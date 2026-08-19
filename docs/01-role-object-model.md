@@ -73,9 +73,7 @@ form has exactly one author.
 | `Skill` | How should this class of work be performed? | Supply reusable workflow knowledge. |
 | `Tool` | Which operation can this Role run? | Execute one typed Python method. |
 | `Resource` | Which content can this Role read? | Address content without loading it. |
-| `RoleCompiler` | What should enter the current LLM context? | Produce a progressive context representation. |
-| `RoleRegistry` | Where does this role path lead? | Resolve paths and reject cycles. |
-| `DisclosureEngine` | Where is the agent, and what is next? | Answer discover and get_context over refs. |
+| `ContextTree` | Where is the agent, what is next, and what has it paid for? | Deliver the role skeleton whole, resolve a reference, and open one node. |
 
 A useful shorthand is:
 
@@ -301,7 +299,7 @@ class GetPodLogs(Tool):
         ...
 ```
 
-Nothing here writes a JSON Schema. The schema published in `tools/list` is
+Nothing here writes a JSON Schema. The schema published in a tool's card is
 derived from `invoke`'s type hints when the graph is projected onto a server,
 which is why this layer never has to know what JSON Schema looks like.
 
@@ -334,7 +332,7 @@ class CrashLoopRunbook(Resource):
 The disclosure boundary that matters for a Resource is not route versus active
 but **descriptor versus content**. Its route card carries the routing name and
 description; its active surface adds the URI and media type. Neither level ever
-carries bytes: `read()` runs only when something performs `resources/read`.
+carries bytes: `read()` runs only when something calls `contexture_read`.
 
 ```text
 Compiling a Resource yields metadata.
@@ -383,7 +381,7 @@ The leaf is separated by `#` rather than `/` because resource URIs contain
 slashes of their own, and an address a reader cannot split by eye is an address
 that will eventually be split wrong.
 
-Because the ref is the position, the server keeps none. `get_context` is a pure
+Because the ref is the position, the server keeps none. Opening a ref is a pure
 function of its ref, never of what was asked before it — which is what makes
 traversal legal on a stateless surface, and what lets one server carry a whole
 forest of roots instead of one process per leaf role.
@@ -395,7 +393,7 @@ exists can be called by anyone who can see the list; nothing stops an agent from
 skipping discovery and calling a tool directly, and nothing here pretends to.
 
 What disclosure controls is **knowledge**. A Skill's procedure, its ordering,
-and its constraints live behind `contexture_get_context`. An agent that skips
+and its constraints live behind `contexture_open`. An agent that skips
 ahead can run a tool; it cannot know what the runbook says about exit code 137,
 or that restarting first repairs nothing.
 
@@ -492,83 +490,65 @@ A Role that should read a runbook declares it; a Role that should not simply
 omits it and never sees the route card. There is no allowlist, because there is
 nothing to subset — see §12.
 
-The compiler is not involved in loading content at any point. It produces the
-descriptor; `resources/read` produces the bytes.
+The tree is not involved in loading content at any point. It produces the
+descriptor; `contexture_read` produces the bytes.
 
-### 17.2 RoleCompiler
+### 17.2 ContextTree
 
-The compiler receives a `CompileRequest` and optional `CapabilitySelection`.
+One class holds the navigation model, with three methods:
 
 ```python
-CompileRequest(
-    selection=CapabilitySelection(skill_names=("inspect-pod-failure",))
-)
+tree.skeleton()          # every role in the forest, as cards
+tree.find(ref)           # a reference to the node it addresses
+tree.open(ref)           # that node's detail, plus a card for each member
 ```
 
-The result contains the active Role surface and only the selected active Skill
-details.
+**Withdrawing the previous §17.2.** Earlier revisions kept a separate
+`RoleCompiler`, on the argument that a `ContextNode` knows how to compile
+*itself* while something else must decide **which** node and **at which level**,
+and that a `CompileRequest` is where that decision is written down.
 
-The compiler never executes a Tool and never reads a Resource. It produces
-context.
+The argument was sound and the object was not what carried it. Of the places
+that decided which node and at which level, one went through the compiler and
+the rest called `node.compile()` directly; the one that did passed an empty
+selection and discarded the wrapper it got back. Nothing in the package ever
+constructed a non-empty `CapabilitySelection`, so the request that needed
+somewhere to live did not exist.
 
-It is deliberately a separate object rather than a method. A `ContextNode` knows
-how to compile *itself*; the compiler decides **which** node and **at which
-level**, and a `CompileRequest` is where that decision is written down. Folding
-it into `ContextNode.compile` would scatter that policy across every node type
-and leave a request with nowhere to live. `DisclosureEngine` (§17.4) is built on
-top of this seam — `contexture.discovery` imports `contexture.compiler`, never
-the reverse.
+The decision is real, and it is written down — as the reference. A ref's shape
+says which node, and which of `discover`, `open` and `read` was called says at
+which level. `ContextTree` is where that reading happens, and `RoleRegistry`
+folded into it: a cycle is only visible once the whole forest is in hand, which
+is here rather than in `core`.
 
-### 17.3 RoleRegistry
-
-The registry resolves explicit paths such as:
-
-```text
-engineering-team/k8s-troubleshooter
-```
-
-It also detects recursive object-composition cycles. Shared Role objects may be
-reachable through multiple paths, but a Role cannot eventually contain itself.
-
-### 17.4 DisclosureEngine
-
-The engine answers the two questions a connected agent actually asks, and it is
-what the server projects onto MCP:
-
-```text
-discover(ref)      what is here, as routing cards — cheap, no instructions
-get_context(ref)   the detail for the one node the agent has now chosen
-```
-
-`discover` with no ref is the entry point to the forest: every root, one card
-each. With a role ref it is one step of traversal — the sub-roles, skills,
-tools, and resources directly under it, each card carrying the ref needed to go
-deeper. Cards never carry instructions.
-
-`get_context` opens exactly one node. A Skill's complete instructions enter an
-agent's context here and nowhere else. A Resource yields its descriptor; its
-content is read over `resources/read`.
-
-Both are pure functions of their argument. The engine holds no per-connection
-state, for the reason given in §13.
-
-### 17.5 The server projection
+### 17.3 The server projection
 
 `contexture.server` is the only layer that imports the official SDK. It
 translates, and holds no business rules of its own:
 
 ```text
-Role graph                       MCP
+Role tree                        MCP
 ------------------------------   -------------------------------------
-local Tool                       a native tool; schema from `invoke`
-local Resource                   a native resource; lazy `read`
-DisclosureEngine.discover        the tool `contexture_discover`
-DisclosureEngine.get_context     the tool `contexture_get_context`
-root roles                       server instructions
+ContextTree.skeleton             the tool `contexture_discover`
+ContextTree.open                 the tool `contexture_open`
+Resource.read                    the tool `contexture_read`
+Tool.invoke, read-only           the tool `contexture_invoke_read_only`
+Tool.invoke, writing             the tool `contexture_invoke`
+the skeleton                     server instructions
 ```
 
-Two invariants are load-bearing enough to restate here: `read_only` never
-becomes an argument (§15), and the graph never becomes the surface (§13).
+Nothing else reaches the surface. A registered capability is one every session
+pays for whatever the user asked, and the protocol forbids varying that list per
+connection (§13), so a capability becomes deferrable only by not being there.
+Its name, description and schema travel inside `contexture_open`'s payload
+instead, derived from `invoke` by `Tool.from_function`, which needs no server.
+
+Two invariants are load-bearing enough to restate. **The tree never becomes the
+surface** (§13). And **`read_only` never becomes an argument** (§15) — with
+capabilities off the wire it becomes *which door*, and each door carries the
+matching `readOnlyHint`. A call whose door disagrees with its ref is refused
+rather than executed, because the host made its approval decision from that
+door.
 
 ## 18. Complete progressive flow
 
@@ -576,27 +556,30 @@ A typical interaction follows this sequence. Every step is one MCP call, and the
 agent's position between steps is the ref it carries, not state the server keeps.
 
 ```text
+0. The session opens.
+   - Five tools, and the role skeleton in the server's instructions.
+   - No procedure, no schema, no content.
+
 1. contexture_discover()
-   - Every root, one routing card each.
-   - No instructions anywhere.
+   - Every role in the forest, one card each. The same roster, for a host that
+     truncated the instructions or a forest too large to fit them.
 
-2. contexture_discover("role:engineering-team")
-   - Child role cards, skill cards, tool cards, resource cards.
-   - Each card carries the ref that opens it.
-   - Still no instructions, no schemas, no content.
+2. contexture_open("kubernetes-platform/incident-response")
+   - That role's instructions, and a card for each skill, tool and resource it
+     holds — tools with the schema needed to call them.
+   - Sibling specialisms are not opened, and cost nothing.
 
-3. contexture_get_context("skill:engineering-team#inspect-pod-failure")
+3. contexture_open(".../diagnose-crash-loop-backoff")
    - The skill's complete procedure enters context, here and nowhere else.
-   - Its ordering and constraints arrive with it.
 
-4. get_pod_logs(namespace="prod", pod="payments-api-7d9c")
-   - An ordinary MCP tool call. The schema came from tools/list, derived from
-     `invoke`; the host decided whether to ask a human, informed by readOnlyHint.
-   - `Tool.invoke` runs. The model never saw a framework argument.
+4. contexture_invoke_read_only(ref=".../get_pod_status", arguments={...})
+   - Arguments are validated against the schema step 2 delivered.
+   - The host decided whether to ask a human from the door's readOnlyHint.
 
-5. resources/read("contexture://runbooks/crash-loop-backoff")
-   - `Resource.read` runs now, and only now. Discovering the runbook cost one
-     line of description; reading it costs the document.
+5. contexture_read("contexture://runbooks/crash-loop-backoff")
+   - `Resource.read` runs now, and only now. The card cost a line; the document
+     costs the document. The URI spelling is accepted because that is how the
+     procedure in step 3 names it.
 
 6. The result returns to the agent runtime, which decides what to do next.
    That decision is out of scope here.
@@ -630,7 +613,7 @@ The implementation protects these invariants.
 2. Resource URIs are unique across the whole served graph, for the same reason.
 3. A tool's input schema is derived from `invoke`, never hand-written.
 4. `read_only` is projected onto `readOnlyHint` and never onto the input schema.
-5. `get_context` is a pure function of its ref.
+5. Opening a ref is a pure function of that ref.
 6. The served tool and resource lists do not vary per connection.
 
 ### Security invariants
@@ -704,9 +687,7 @@ into a secure progressive Agent Host without invalidating the early concepts.
 | Class-syntax declaration | `src/contexture/core/declarative.py` |
 | Tool | `src/contexture/core/tools.py` |
 | Resource | `src/contexture/core/resources.py` |
-| Role path registry | `src/contexture/core/registry.py` |
-| Unified compiler | `src/contexture/compiler.py` |
-| Refs, graph, disclosure | `src/contexture/discovery.py` |
+| The tree: skeleton, resolution, opening | `src/contexture/tree.py` |
 | The MCP server | `src/contexture/server/` |
 | Target adapters | `src/contexture/targets/` |
 | Complete example | `src/contexture/examples/incident/` |

@@ -211,7 +211,7 @@ existing service, or built inside a test — `ContextureApp` is the escape hatch
 ```python
 from contexture.server import ContextureApp
 
-ContextureApp(roots=KubernetesIncidentResponder()).run(transport="stdio")
+ContextureApp(roots=KubernetesPlatform()).run(transport="stdio")
 ```
 
 Nothing above imports `mcp`, writes JSON-RPC, or names an agent runtime.
@@ -224,7 +224,7 @@ each one cannot express rather than dropping it silently:
 ```python
 from contexture.targets import all_adapters, render_all, write
 
-surfaces = render_all(KubernetesIncidentResponder(), all_adapters())
+surfaces = render_all(KubernetesPlatform(), all_adapters())
 print(surfaces["codex"].notes[0])
 # Codex has no separate skill artifact; 2 skill(s) were inlined into the main
 # context file, so their instructions are always resident.
@@ -241,11 +241,9 @@ your application          declares roles, skills, tools, resources
         │  inherits / composes
 contexture.core           the object model — no I/O, no wire, no SDK
         │  compile
-contexture.compiler       route / active disclosure of one node
-        │  navigate
-contexture.discovery      refs, the capability graph, discover / get_context
+contexture.tree           the multi-headed tree, disclosed lazily
         │  project
-contexture.server         the native MCP server — the only layer importing mcp
+contexture.server         the five-tool gateway — the only layer importing mcp
         │  run
 contexture.cli            `contexture new` scaffolds, `contexture serve` runs
         │  MCP
@@ -271,46 +269,66 @@ node.compile("route")   # what is this, and when should it be picked?
 node.compile("active")  # the detail, now that it has been picked
 ```
 
-Over MCP those become two tools, and an agent navigates with them:
+**Disclosure splits by kind, not by depth.** The role skeleton goes out whole,
+and everything a role holds waits until that role is opened:
 
 ```text
-contexture_discover()               → every root, one card each
-contexture_discover(role:…)         → what is under it, still only cards
-contexture_get_context(skill:…#…)   → the full procedure, here and nowhere else
+contexture_discover()        → every role in the forest, one card each
+contexture_open(role)        → its instructions, and a card for each skill,
+                               tool and resource it holds — tools with the
+                               schema needed to call them
+contexture_open(skill)       → the full procedure, here and nowhere else
 ```
 
-Each card carries the `ref` that opens it. **That ref is the agent's position,
-and the server does not remember it** — which is what makes traversal legal:
-since the 2026-07-28 revision, MCP has no protocol session, and a server may not
-vary its tool list per connection or as a side effect of earlier calls.
-`get_context` is a pure function of its ref.
+A role card is a name, a sentence and a path, so the whole organizational chart
+costs almost nothing — and choosing between siblings requires seeing all of
+them. What cannot be seen together is guessed between rather than chosen
+between. What a role holds is the expensive part, and a session pays for only
+the branches it enters.
 
-So the role tree is not the protocol surface. The surface is flat; the tree
-travels inside these payloads. One server therefore serves a whole forest of
-roots, instead of forcing one process per leaf role.
+The skeleton also ships inside the server's instructions, because a gateway
+whose five tool names all begin `contexture_` otherwise tells a host nothing
+about what the server is for.
+
+Each card carries the `ref` that opens it — a path, like
+`kubernetes-platform/incident-response/get_pod_logs`. **That ref is the agent's
+position, and the server does not remember it**, which is what makes traversal
+legal: since the 2026-07-28 revision MCP has no protocol session, and a server
+may not vary its tool list per connection or as a side effect of earlier calls.
+Opening a ref is a pure function of that ref. An agent never assembles one:
+cards are built by a function that takes the reference as an argument, so a card
+that can be seen can always be opened.
 
 Resources are the exception that proves the rule: their boundary is not route
-versus active but **descriptor versus content**. Discovering one, or opening it
-with `get_context`, yields metadata. Only reading it returns bytes.
+versus active but **descriptor versus content**. Opening one yields metadata.
+Only `contexture_read` returns bytes.
 
 ## Disclosure is not authorization
 
 These are separate, and conflating them is the trap this design is built to
 avoid.
 
-On a flat surface, per-role authorization is not achievable: a tool name that
-exists can be called by anyone who can see the list. Nothing stops an agent from
-skipping discovery and calling a tool directly, and nothing should pretend to.
-
-**What disclosure controls is knowledge.** The procedure, its ordering, and its
-constraints live behind `contexture_get_context`. An agent that skips ahead can
-run a tool; it cannot know what the runbook says about exit code 137, or that
-restarting first repairs nothing.
+**What disclosure controls is knowledge.** A procedure, its ordering, and its
+constraints arrive only from `contexture_open`. Nothing stops an agent from
+guessing a path and calling a tool without ever navigating — references are
+readable, deliberately — and nothing should pretend to. An agent that skips
+ahead can run a tool; it cannot know what the runbook says about exit code 137,
+or that restarting first repairs nothing.
 
 **Authorization stays with the host**, which the specification already makes
-responsible for keeping a human in the loop. Contexture informs that decision by
-projecting each tool's `read_only` onto `readOnlyHint`, and by never letting
-that classification become an argument a model can fill in.
+responsible for keeping a human in the loop. With capabilities off the surface a
+host can no longer be told per tool whether to ask, so `read_only` becomes
+*which door was used*:
+
+```text
+contexture_invoke_read_only    readOnlyHint: true    a host may allow it
+contexture_invoke              readOnlyHint: false   a host may ask a human
+```
+
+A model can pick the wrong door. Picking it gets the call **refused rather than
+executed**, because the host made its decision from the hint on the entry point.
+That is the same protection as never letting the classification be an argument,
+relocated to where the host can still act on it.
 
 ## Quick start
 
@@ -374,8 +392,7 @@ for a recorded run against both hosts.
 src/contexture/
 ├── core/            object model: context, role, skill, tools, resources,
 │                    registry, declarative
-├── compiler.py      route/active compilation and capability selection
-├── discovery.py     refs, the capability graph, discover / get_context
+├── tree.py          the multi-headed tree: skeleton, resolution, opening
 ├── server/          the MCP server: app, projection, instructions, registration
 ├── cli.py           the `contexture` command: new / list / serve / demo
 ├── templates/       project templates, rendered by `contexture new`
@@ -396,9 +413,9 @@ src/contexture/
   — why the client half ADR 001 left alone was removed instead, and what that
   gave up.
 - [`docs/adr/004-progressive-disclosure-as-a-lazy-role-tree.md`](docs/adr/004-progressive-disclosure-as-a-lazy-role-tree.md)
-  — **proposed.** Tools and resources are resident today, so only prose is
-  deferred; this argues for a fixed gateway surface, an eager role skeleton with
-  lazy capability detail, and the class design that holds it.
+  — why capabilities left the MCP surface for a five-tool gateway, why
+  disclosure splits by kind rather than depth, and why the class design that
+  holds it is one class rather than the seven the first draft proposed.
 - [`docs/atlas/index.html`](docs/atlas/index.html) — an offline visual atlas;
   open it directly in a browser. After editing it, run
   `npm install jsdom@22 && node docs/atlas/check.mjs` to confirm every diagram
@@ -427,7 +444,8 @@ will.
 | Wire format, schema, transport | owns it | never touches it |
 
 The entire dependency is five imports inside `contexture/server/` and four SDK
-calls: the constructor, `add_tool`, `add_resource`, `run`. `ContextureApp`
+calls: the constructor, `add_tool`, `run`, and `Tool.from_function` for schema
+derivation off the wire. `ContextureApp`
 composes an `MCPServer` rather than subclassing one, so an SDK upgrade cannot
 reach into the object model, and `tests/test_layering.py` fails if any other
 layer imports `mcp`.
@@ -449,9 +467,11 @@ procedure would otherwise sit.
 
 The division is sharpest around authorization. **Disclosure is not
 authorization**: Contexture governs what an agent *knows*, the host governs what
-an agent may *run*. A tool's `read_only` classification is projected onto
-`readOnlyHint` so the host can ask a human first — Contexture itself never asks,
-never blocks, and never lets that flag become an argument a model can fill in.
+an agent may *run*. A tool's `read_only` classification decides which of the two
+invoke doors it must be run through, and each door carries the matching
+`readOnlyHint`, so the host can still ask a human first. Contexture itself never
+asks and never blocks — it only refuses a call whose door disagrees with its
+ref, because the host made its decision from that door.
 
 Host configuration is not Contexture's either. It emits the launch command
 through `contexture.server.registration` and stops there; what the host does

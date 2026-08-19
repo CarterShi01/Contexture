@@ -5,4 +5,4 @@ layer can report it without importing the facade above itself.
 """
 
 PACKAGE_NAME = "contexture"
-PACKAGE_VERSION = "0.0.5"
+PACKAGE_VERSION = "0.1.0"
