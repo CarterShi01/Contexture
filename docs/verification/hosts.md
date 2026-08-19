@@ -1,3 +1,114 @@
+# Host verification
+
+Two records. The v0.2.0 run below is the current one; the v0.0.4 run is kept
+underneath it as recorded, because it verified a surface that no longer exists.
+
+---
+
+# v0.2.0 — the five-tool gateway
+
+Recorded 2026-08-19 against `57eb59b`, on a machine that has the SDK, `uv`,
+`node`, both host CLIs, and a network — none of which the machine that wrote
+`HANDOFF.md` had.
+
+The claim under test: **a model will choose to navigate a gateway.** Everything
+else about the gateway was already mechanically proven by
+`tests/test_stdio_server.py`; what no test can prove is that a model does not
+simply give up when every capability is hidden behind a generic dispatch tool.
+
+| Host | Version | Connected | Full diagnosis |
+| --- | --- | --- | --- |
+| Claude Code | 2.1.235 | ✅ | ✅ recorded below |
+| Codex | 0.147.0 | ✅ registered | ⚠️ blocked — usage limit until 2026-08-21 |
+| Official SDK client | mcp 2.x | ✅ | ✅ automated, `tests/test_stdio_server.py` |
+
+## Claude Code
+
+Run headlessly, with only the five gateway tools allowed, so nothing could be
+answered by reading this repository:
+
+```bash
+claude -p "<pod payments-api-7d9c in prod is unhealthy; find the root cause \
+using the contexture-demo MCP server; do not guess>" \
+  --mcp-config mcp.json \
+  --allowed-tools "mcp__contexture-demo__contexture_discover,\
+mcp__contexture-demo__contexture_open,mcp__contexture-demo__contexture_read,\
+mcp__contexture-demo__contexture_invoke_read_only,\
+mcp__contexture-demo__contexture_invoke" \
+  --output-format stream-json --verbose
+```
+
+### The traversal, as it happened
+
+```text
+1. contexture_discover
+2. contexture_open           kubernetes-platform/incident-response
+3. contexture_open           kubernetes-platform/incident-response/diagnose-crash-loop-backoff
+4. contexture_invoke_read_only  .../get_pod_status  {namespace, pod}
+5. contexture_invoke_read_only  .../get_pod_logs    {namespace, pod, previous: true}
+6. contexture_invoke_read_only  .../get_pod_events  {namespace, pod}
+7. contexture_read           contexture://runbooks/crash-loop-backoff
+```
+
+**Nine turns, eight tool calls, zero errors.** `is_error: false` on every one.
+
+### The four questions HANDOFF item 3 asked
+
+1. **Does the host open a role before reaching for a tool?** Yes, and it opened
+   the skill too. Calls 1–3 are pure navigation; the first invoke is call 4.
+2. **When it passes a ref that does not resolve, does the sentence get it back
+   in one turn?** **Not observed — it never passed a bad ref.** A good outcome
+   that leaves the question open. `contract.unresolved()` still has no field
+   evidence, and forcing one synthetically would not be that evidence.
+   (Legibility on the wire *is* confirmed separately: a wrong ref returns the
+   members the role does hold plus the call that recovers, and both wrong-door
+   refusals name the other door.)
+3. **Does either host truncate the instructions?** No. The demo's full
+   instructions are **884 characters** against Claude Code's 2KB, and the
+   preamble is **465** against Codex's 512-character self-contained window —
+   both re-measured against this commit rather than read off documentation. The
+   roster budget does bind: forty roots render to 1806 characters, still inside
+   2KB.
+
+### What it did beyond connecting
+
+- **Followed the disclosed procedure in order** — status → logs → events —
+  which exists only inside the skill it opened at step 3.
+- **Read an optional parameter off the card schema.** It passed
+  `previous: true` to `get_pod_logs`; nothing in the prompt suggested it.
+- **Addressed the resource by its own URI**, not by its ref — the spelling
+  `ContextTree.resource()` accepts so a procedure can name a document the way
+  the document names itself.
+- **Obeyed the skill's constraint**: it refused to recommend restarting the Pod,
+  and said why (restart 15).
+- **Respected the disclosure boundary.** It closed by noting it had not opened
+  `kubernetes-platform/deployment-ops` and would therefore not assert anything
+  about the release history. It declined to guess about a role it had seen a
+  card for and not opened, which is the behaviour the whole design is betting
+  on.
+
+## Codex
+
+Registration against v0.2.0 succeeds and needs no Codex-specific artifact:
+
+```bash
+codex mcp add contexture-demo -- /path/to/.venv/bin/python -m contexture.examples.incident.server
+codex mcp list
+# contexture-demo  …  enabled  Unsupported
+```
+
+The diagnosis run is blocked by the same account limit that blocked it at
+v0.0.4:
+
+```text
+ERROR: You've hit your usage limit. … try again at Aug 21st, 2026 12:02 PM.
+```
+
+The server stays registered, so the run is one command away once the limit
+resets. See `scripts/verify_codex.md`.
+
+---
+
 # Host verification — v0.0.4
 
 Recorded 2026-08-19 against the branch `feature/native-mcp-server`.

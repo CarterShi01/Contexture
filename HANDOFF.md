@@ -1,14 +1,34 @@
 # Handoff
 
-**Written:** 2026-08-19, at v0.2.0 — after the three commits described below.
-
-**Why this file exists:** the machine this work was done on has **no way to
-install anything**. There is no `pip`, no `ensurepip`, no `uv`, no `pipx`; the
-`mcp` SDK is not importable and cannot be made importable here. There are also
-no PyPI credentials and no agent host to connect. Everything below is either
-unverifiable on this machine or is a decision nobody has taken.
+**Written:** 2026-08-19, at v0.2.0. **Updated** the same day from a machine that
+has the SDK, `uv`, `node`, both host CLIs, and a network — the previous version
+of this file was written where none of that existed, and four of its items were
+unverifiable there rather than undone.
 
 Delete an item when it is done. Delete the file when it is empty.
+
+---
+
+## What has now been verified, and what that closes
+
+| Was | Now |
+| --- | --- |
+| "the v0.2.0 gateway has never been executed against the real SDK" | **142 tests pass** against the real SDK, `tests/test_stdio_server.py` included — it runs here instead of skipping |
+| "`description=` wins over `__doc__`" — reasoned from the API, never observed | **Observed.** `description=` wins; with neither, the description is `""` and there is no docstring fallback, so removing the closures' docstrings is safe *only* while every registration passes `description=` |
+| registration-by-loop over `contract.GATEWAY` untested | all five register in contract order, each hint and each description identical to the contract |
+| `_translated` renderings "audited by hand, not run" | run, and legible on the wire: a wrong ref returns what the role does hold plus the call that recovers; both wrong-door refusals name the other door; pydantic's argument errors name the field |
+| `build_server()` returning one value, unpacking sites rewritten mechanically | executed |
+| "whether a model *chooses* to navigate a gateway" — the top risk | **Claude Code did**, first try, zero errors. Recorded in [`docs/verification/hosts.md`](docs/verification/hosts.md) |
+| scaffold verified only through `python -m contexture.cli` | verified through real `uv`; both claims below held |
+| atlas mermaid unchecked | `node docs/atlas/check.mjs` — 8 blocks, all parse |
+
+One defect was found and fixed on the way:
+`test_contract.IndependenceTests.test_deciding_what_the_agent_reads_needs_no_wire`
+asserted against the *process's* `sys.modules`, so it passed alone and failed in
+the suite — the only red test on `master`. The claim it guards is true; it now
+asks in a subprocess, the way `test_layering.py` already did.
+
+---
 
 ---
 
@@ -31,57 +51,7 @@ that the ADRs, the atlas and the code agree.
 
 ---
 
-## 1. Run the two tests that have never seen this code — do this first
-
-`tests/test_projection.py` fails at import here, and
-`tests/test_stdio_server.py` skips itself, both because `mcp` is absent. **The
-v0.2.0 rewrite of `contexture/server/projection.py` has therefore never been
-executed against the real SDK.**
-
-```bash
-uv sync
-uv run python run_tests.py
-```
-
-**Expect: 142 tests, all passing.** 117 real tests run here, of which 10 skip
-without the SDK; the "Ran 118" the runner prints counts the uncollectable
-`test_projection` module as one phantom test. That module holds 25 real ones —
-19 predating v0.2.0 and 6 in the statelessness suite from `57eb59b` — and not
-one of them has been collected on this machine.
-
-What was verified here instead, and what that does and does not prove: a
-throwaway stub of the SDK was written and the whole gateway driven through it —
-registration order, all five `read_only_hint` values, that each description is
-the one in `contract.GATEWAY`, four kinds of failed lookup, both wrong-door
-refusals, and a resource read by URI. That proves the *wiring*. It proves
-nothing about SDK compatibility, because the stub is not the SDK.
-
-The specific things to watch, since they are the changed ones:
-
-- **Registration is now a loop** over `contract.GATEWAY` rather than five
-  `server.add_tool(...)` calls. If `add_tool`'s signature or its handling of
-  `annotations` differs from what the old call sites relied on, all five break
-  at once instead of one at a time.
-- **The gateway closures no longer carry docstrings.** They previously had rich
-  ones which the explicit `description=` overrode anyway. If the SDK does
-  anything else with `__doc__` — validation, or a fallback path — that is now
-  visible. *Confirming the old behaviour would be useful in itself:* the reason
-  the docstrings were removed is the belief that `description=` wins, and that
-  belief was reasoned from the API, never observed here.
-- **`_translated` composes the message** from the exception's facts. Every
-  assertion in `test_projection.py` that reads a `ToolError` message was audited
-  by hand against the new renderings and should hold, but audited is not run.
-- **`build_server()` returns one value, not a tuple.** All sixteen unpacking
-  sites in `test_projection.py` were rewritten mechanically and checked by
-  walking the file's AST for any remaining tuple target — but nothing there has
-  been executed. This is the change most likely to fail loudly and least likely
-  to fail subtly.
-
-**Done when:** `run_tests.py` reports 142 passing with the SDK installed.
-
----
-
-## 2. Reserve the distribution name on PyPI
+## 1. Reserve the distribution name on PyPI
 
 `contexture` is taken on PyPI by an unrelated 2014 project ("Magic Automatic
 Logging Context", last release 2014-04-26, ~40 downloads a month). The name
@@ -110,85 +80,65 @@ burn `0.2.0` on a rehearsal.
 
 ---
 
-## 3. Whether a model actually navigates a gateway
+## 2. Finish the Codex row
 
-**This is the one open risk with no mitigation, and it outranks everything else
-in this file.**
+**The risk this item existed for is retired.** Claude Code navigated the
+gateway on the first attempt: `discover`, open the role, open the skill, three
+read-only invokes through the right door with arguments taken off the cards,
+then the runbook read by its own URI. Nine turns, zero errors. It also passed an
+optional parameter nothing in the prompt suggested, obeyed a constraint that
+exists only inside the skill, and refused to assert anything about a role whose
+card it had seen and not opened. The full trace and the numbers are in
+[`docs/verification/hosts.md`](docs/verification/hosts.md).
 
-The mechanism is proven: `tests/test_stdio_server.py` launches the demo as a
-real subprocess and walks the skeleton, opens a role, opens a skill, runs a
-validated read-only invoke, gets a wrong-door write refused, runs an allowed
-write, and reads a resource by URI. What that cannot prove is that a model will
-*choose* to use it. Models are trained on native tool calls, not on a generic
-dispatch tool behind which everything is hidden.
+Two things that item asked are still open, and neither blocks anything:
 
-v0.2.0 makes this more testable than v0.1.0 did, and that is most of its point:
-every failed lookup now ends by naming the call that recovers from it, so a
-model that takes a wrong turn is told exactly how to correct. Whether it *does*
-correct is the observation to make.
+- **Codex has never completed a run.** It registers against v0.2.0 with no
+  Codex-specific artifact and is left registered on this machine, but the
+  account limit that blocked it at v0.0.4 still blocks it — it resets
+  **2026-08-21 12:02**. One command after that; see `scripts/verify_codex.md`.
+- **`contract.unresolved()` has no field evidence.** The recovery sentence was
+  written so a model that takes a wrong turn is told how to correct. The model
+  never took one, so the sentence was never read by a model in anger. It is
+  confirmed legible on the wire, which is not the same claim. Watch for it in
+  the Codex run rather than manufacturing a wrong ref to watch it.
 
-```bash
-uv run contexture demo
-claude mcp add --scope project contexture-demo -- uv run contexture demo
-codex  mcp add                 contexture-demo -- uv run contexture demo
-```
-
-Walk the trace in
-[`src/contexture/examples/incident/README.md`](src/contexture/examples/incident/README.md)
-and `scripts/verify_claude_code.md`.
-
-**Watch for, specifically:**
-
-1. Does the host open a role before reaching for a tool, or does it try to
-   invoke something it has not opened?
-2. When it passes a ref that does not resolve, does the new sentence get it back
-   on track in one turn? Record the actual exchange — this is the evidence
-   `contract.unresolved()` was written for.
-3. Does either host truncate the instructions? The preamble is 465 characters
-   against Codex's 512-character self-contained window, and the roster is
-   budgeted to 1200 more against Claude Code's 2KB — both numbers are read from
-   documentation, not measured against a running host.
-
-**Done when:** [`docs/verification/hosts.md`](docs/verification/hosts.md) has a
-recorded run against v0.2.0. What is there now predates the gateway entirely.
+**Done when:** `docs/verification/hosts.md` has a Codex row that is not
+⚠️ blocked.
 
 ---
 
-## 4. Verify the scaffold against real `uv`
+## 3. Re-run the scaffold once the name is on PyPI
 
-`contexture new` was verified here end to end — generation, rendering, the
-generated role importing, its tool executing, `contexture list` finding the
-project by its `[tool.contexture]` table — but all of it through
-`python -m contexture.cli`, never through `uv`.
+Verified through real `uv` on this machine, with one substitution: the
+generated project depends on `contexture-mcp`, which item 1 has not published,
+so a `[tool.uv.sources]` entry pointed that dependency at the local checkout.
+Everything downstream of resolution is therefore proven; resolution from PyPI
+is not.
 
-```bash
-uvx contexture-mcp new my-context
-cd my-context
-uv sync
-uv run contexture list
-uv run contexture serve
-```
+Both claims the previous version of this item flagged **held**:
 
-**Claim A — `[tool.uv] package = false`.** uv documents the `--no-package`
-*flag* but not that pyproject key. If uv does not honour it, `uv sync` may try
-to build the generated project as a package and fail, since it has no
-`[build-system]`. Fix is either the key uv actually wants, or a minimal
-`[build-system]` plus accepting that the project is installable.
+- **Claim A — `[tool.uv] package = false`.** uv honours the pyproject key, not
+  just the `--no-package` flag. `uv sync` never attempted to build the project
+  despite its having no `[build-system]`, and nothing named `my_context`
+  appears in the resulting `site-packages`.
+- **Claim B — the console script resolves in a non-package project.** `uv run
+  contexture list` found the entry point from the dependency, and
+  `find_project()` put the project directory on `sys.path` in time for the role
+  module to import. `uv run contexture serve` was then driven by the official
+  SDK client over real stdio: handshake at 2026-07-28, five tools listed, the
+  generated role's skeleton, its skill, and its `ping` tool executing with a
+  schema-derived argument. Server stderr was empty, so stdout carried protocol
+  and nothing else.
 
-**Claim B — the console script resolves in a non-package project.** `uv run
-contexture serve` must find the `contexture` entry point from the dependency,
-and `find_project()` must put the project directory on `sys.path` before the
-role module is imported. The `sys.path` insertion is tested here; the
-interaction with `uv run` is not.
-
-**Done when:** all five commands run clean and `contexture serve` in a generated
-project answers a host.
+**Done when:** the same five commands run with `uvx contexture-mcp new` at the
+front and no `[tool.uv.sources]` substitution.
 
 ---
 
-## 5. Decisions nobody has taken
+## 4. Decisions nobody has taken
 
-### 5.1 ADR 002 — the per-call context object and the options struct
+### 4.1 ADR 002 — the per-call context object and the options struct
 
 [`docs/adr/002-per-call-context-and-options.md`](docs/adr/002-per-call-context-and-options.md)
 is **proposed, not accepted**, and needs one revision before it is actionable:
@@ -207,12 +157,17 @@ later changes every signature in every project.
 
 The ADR also records a latent SDK bug found while writing it —
 `ToolManager.add_tool` warns and returns the existing tool on a duplicate name.
-**Re-check whether this still matters.** It was written when business tools were
-registered natively; under the gateway only five names are ever registered, and
-they are registered from one tuple. The failure it describes may no longer be
-reachable.
+**Re-checked 2026-08-19 against the real SDK: the behaviour is unchanged, and
+under the gateway it is unreachable.** Registering a second tool under a name
+already taken still logs `WARNING Tool already exists` through `logging` — not
+`warnings`, so it will not surface in a test that only captures those — keeps
+the first implementation, and discards the second without raising. But the only
+names ever registered are the five in `contract.GATEWAY`, they are distinct,
+they come from one tuple, and no business tool reaches `add_tool` at all. Drop
+this from the ADR's motivation; it argued for a defence the gateway already
+provides structurally.
 
-### 5.2 Where ownership is written down, once there are many declarations
+### 4.2 Where ownership is written down, once there are many declarations
 
 Today a Role enumerates its members in its own class body: explicit and readable
 at one Role, a line per member and a merge hotspot at fifty. Three shapes, and
@@ -231,7 +186,7 @@ Scrapy, Django, Airflow and Nameko all converged on convention-based discovery
 rather than central enumeration — but none of their units has an owner, and a
 Tool does. That asymmetry is the whole difficulty.
 
-### 5.3 Two roles may still declare the same tool name
+### 4.3 Two roles may still declare the same tool name
 
 Uniqueness is enforced *within* one role (`Role._require_unique_members`, which
 is what `Role.member()` relies on) and across root names
@@ -243,7 +198,7 @@ old framing of this item is obsolete. **What remains is a usability question:**
 two identically-named tools in different roles are indistinguishable in a
 model's context once it has opened both. Whether to warn, and where, is open.
 
-### 5.4 Whether a per-unit generator is worth it
+### 4.4 Whether a per-unit generator is worth it
 
 Deliberately **not** built. Scrapy has `genspider` because a Spider carries
 boilerplate that is easy to get wrong; a Contexture `Tool` is six lines and
@@ -253,14 +208,17 @@ style across a large team. If that matters, the mechanism is identical to
 
 ---
 
-## 6. Documentation state
+## 5. Documentation state
 
 - **[`docs/atlas/index.html`](docs/atlas/index.html)** is current as of v0.2.0:
   nine plates, and **every number on it was re-measured against this commit**.
   It is hand-maintained and does not regenerate. After editing, run
   `node docs/atlas/check.mjs` (needs `npm install jsdom@22`) — a mermaid syntax
   error is otherwise invisible until someone opens the page, and one was caught
-  that way while writing plate 07.
+  that way while writing plate 07. **Run 2026-08-19 against this commit: eight
+  blocks, all parse.** ESM ignores `NODE_PATH`, so either install `jsdom` beside
+  the script or run a copy of it from wherever `node_modules` is, passing the
+  atlas and vendor paths as `argv[2]` and `argv[3]`.
 - **[`docs/02-framework-layers.md`](docs/02-framework-layers.md)** carries a
   supersession banner and keeps its section 5 as a record of the deleted target
   adapters. Its capability matrix is still the clearest statement of what each
@@ -274,7 +232,7 @@ style across a large team. If that matters, the mechanism is identical to
 
 ---
 
-## 7. Two git warts, deliberately left alone
+## 6. Two git warts, deliberately left alone
 
 `fadb6d0` is titled "docs: state the programming model" and does say that — but
 it also deletes fifteen files and 2816 lines, because a `git rm` had been staged

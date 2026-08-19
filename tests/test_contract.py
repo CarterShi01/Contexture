@@ -7,10 +7,15 @@ and it should be readable, assertable, and reviewable on its own.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 import unittest
+from pathlib import Path
 
 from contexture.core.errors import LookupFailure, NodeNotFoundError
 from contexture.server import contract
+
+SOURCE_ROOT = Path(__file__).resolve().parent.parent / "src"
 
 
 class SurfaceVocabularyTests(unittest.TestCase):
@@ -133,14 +138,28 @@ class IndependenceTests(unittest.TestCase):
 
         The three modules of this layer change at three different rates. This
         one is the slowest, and it stays testable on its own.
+
+        Asked in a subprocess, because `sys.modules` belongs to the process and
+        not to this test: run after any module that imports the SDK — which is
+        most of this suite — an in-process check reports the whole suite's
+        imports and fails on work this module did not do. It passed alone and
+        failed in the run, which is the reading that matters.
         """
 
-        import sys
-
-        self.assertEqual(
-            [name for name in sys.modules if name == "mcp" or name.startswith("mcp.")],
-            [],
+        script = (
+            "import sys; sys.path.insert(0, %r);"
+            "import contexture.server.contract;"
+            "print(','.join(sorted(m for m in sys.modules "
+            "if m == 'mcp' or m.startswith('mcp.'))))" % str(SOURCE_ROOT)
         )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        self.assertEqual(result.stdout.strip(), "")
 
 
 if __name__ == "__main__":  # pragma: no cover
