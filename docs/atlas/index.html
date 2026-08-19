@@ -330,10 +330,10 @@
     <h1 class="title">Contexture Atlas</h1>
     <p class="dek">一份把框架拆开看的地图集——业务怎么声明一次、分层谁依赖谁、类怎么组合、同一份声明怎么变成一个 Claude Code 和 Codex 都能连的原生 MCP Server。</p>
     <p class="statline">
-      <span><b>22</b> 框架源文件</span><span class="sep">·</span>
-      <span><b>36</b> 个类</span><span class="sep">·</span>
-      <span><b>5</b> 层单向依赖 + 1 副路</span><span class="sep">·</span>
-      <span><b>104</b> 个测试用例</span><span class="sep">·</span>
+      <span><b>15</b> 框架源文件</span><span class="sep">·</span>
+      <span><b>22</b> 个类</span><span class="sep">·</span>
+      <span><b>4</b> 层单向依赖</span><span class="sep">·</span>
+      <span><b>89</b> 个测试用例</span><span class="sep">·</span>
       <span>MCP <b>2026-07-28</b></span>
     </p>
   </header>
@@ -373,25 +373,38 @@
     而且模型对泛化 dispatch 的熟练度不如原生 tool call。
   </div>
 
+  <div class="callout" style="margin-bottom: 40px;">
+    <strong>v0.2.0 变更:副路整条删除(ADR 005)。</strong>
+    ADR 001 把主箭头翻转之后,<code>contexture.targets</code> 没有被删,只是降级成"给连不上
+    MCP 的 runtime"的副路。量一下:框架里<strong>没有任何模块 import 它</strong>,CLI 里
+    <strong>没有任何命令通向它</strong>(只有 <code>new / list / serve / demo</code>),
+    脚手架不提它,用户唯一的入口是照着 README 的一段散文手写 <code>import render_all</code>。<br><br>
+    七个文件、740 行、十个类——占当时框架类数的三成——外加 244 行测试,谁都到不了。
+    一个没人能调用的能力不叫"留着",叫"在付钱"。<br><br>
+    删掉之后:<code>TargetRenderError</code> 从公开门面消失(<strong>破坏性变更</strong>),
+    <code>core/errors.py</code> 剩下的五个异常都有活着的代码会抛;
+    <code>cli.py</code> 成为<strong>全包唯一碰文件系统的模块</strong>,而且只用来生成项目——
+    "从声明到线上这条路上没有任何模块开过文件",这条断言比原来那条强。
+  </div>
+
   <nav class="index" aria-label="图鉴目录">
     <p class="eyebrow">图鉴目录 — 建议按顺序看</p>
     <ol>
-      <li><span class="num">00</span><a href="#plate-00">目录结构</a><span class="desc">— 先认路,21 个框架源文件各装什么</span></li>
+      <li><span class="num">00</span><a href="#plate-00">目录结构</a><span class="desc">— 先认路,15 个框架源文件各装什么</span></li>
       <li><span class="num">01</span><a href="#plate-01">分层地图</a><span class="desc">— 三层各管什么,谁能依赖谁</span></li>
       <li><span class="num">02</span><a href="#plate-02">文件依赖</a><span class="desc">— 文件之间的真实 import 图</span></li>
       <li><span class="num">03</span><a href="#plate-03">对象模型</a><span class="desc">— 类怎么继承、组合成一棵树</span></li>
       <li><span class="num">04</span><a href="#plate-04">声明式前端</a><span class="desc">— 一个类体怎么变成 Role 对象</span></li>
-      <li><span class="num">05</span><a href="#plate-05">多目标渲染</a><span class="desc">— 副路:一份声明怎么变成三种 Agent 的文件</span></li>
-      <li><span class="num">06</span><a href="#plate-06">披露成本</a><span class="desc">— 一次会话到底付了多少 context</span></li>
-      <li><span class="num">07</span><a href="#plate-07">网关投影</a><span class="desc">— 为什么表面永远只有五个工具</span></li>
-      <li><span class="num">08</span><a href="#plate-08">披露路径</a><span class="desc">— Agent 怎么在树上走,而服务器不记状态</span></li>
+      <li><span class="num">05</span><a href="#plate-05">披露成本</a><span class="desc">— 一次会话到底付了多少 context</span></li>
+      <li><span class="num">06</span><a href="#plate-06">网关投影</a><span class="desc">— 为什么表面永远只有五个工具</span></li>
+      <li><span class="num">07</span><a href="#plate-07">披露路径</a><span class="desc">— Agent 怎么在树上走,而服务器不记状态</span></li>
     </ol>
   </nav>
 
   <section class="plate" id="plate-00">
     <p class="plate-eyebrow">Plate 00</p>
     <h2 class="plate-title">目录结构</h2>
-    <p class="plate-claim">21 个框架源文件(不含 <code>__init__.py</code> 与 examples),目录本身就是架构。主路是 <code>core → tree → server</code> 三层,<code>cli/</code> 骑在最上面,<code>targets/</code> 是唯一的副路。每个文件只装一小撮互相配合的类。</p>
+    <p class="plate-claim">15 个框架源文件(不含 <code>__init__.py</code> 与 examples),目录本身就是架构。主路是 <code>core → tree → server</code> 三层,<code>cli.py</code> 骑在最上面,<strong>没有副路</strong>——ADR 005 之后一条路走到黑。每个文件只装一小撮互相配合的类。</p>
 
     <div class="figure-wrap">
       <ul class="tree">
@@ -425,17 +438,6 @@
               </ul>
             </li>
             <li>
-              <div class="row"><span class="path dir">targets/</span><span class="desc">按 Agent 渲染 · <strong>唯一副路</strong>:给连不上 MCP 的 runtime</span></div>
-              <ul>
-                <li><div class="row"><span class="path">base.py</span><span class="desc">214 行 · 4 类 — Artifact · ArtifactSet · TargetCapabilities · TargetAdapter</span></div></li>
-                <li><div class="row"><span class="path">markdown.py</span><span class="desc">100 行 — 三个适配器共用的 front matter / 能力表格渲染</span></div></li>
-                <li><div class="row"><span class="path">claude_code.py</span><span class="desc">114 行 — CLAUDE.md · .claude/skills/*/SKILL.md</span></div></li>
-                <li><div class="row"><span class="path">codex.py</span><span class="desc">87 行 — AGENTS.md</span></div></li>
-                <li><div class="row"><span class="path">cursor.py</span><span class="desc">115 行 — .cursor/rules/*.mdc</span></div></li>
-                <li><div class="row"><span class="path">writer.py</span><span class="desc">137 行 · 3 类 — <strong>全包唯一写磁盘的地方</strong>,支持 plan / dry-run</span></div></li>
-              </ul>
-            </li>
-            <li>
               <div class="row"><span class="path dir">templates/project/</span><span class="desc">9 个文件 — <code>contexture new</code> 抄出去的骨架:一个 <code>[tool.contexture]</code> 段、一个 role、各一个 skill / tool / resource</span></div>
             </li>
             <li>
@@ -464,7 +466,8 @@
       <code>core/registry.py</code> 的一个,现在是 <code>tree.py</code> 里的
       <code>ContextTree</code>。按 README 自己那条准入测试问——"它帮业务开发者<strong>定义</strong>能力,
       还是帮框架<strong>运行</strong>能力"——被删掉的那些两边都不沾。</p>
-      <p>两个"唯一"是硬约束,不是习惯:<code>targets/writer.py</code> 是唯一写文件系统的模块,
+      <p>两个"唯一"是硬约束,不是习惯:<code>cli.py</code> 是唯一写文件系统的模块——
+      而且只在 <code>contexture new</code> 生成项目时写,从声明到线上这条路上没有任何模块开过文件;
       <code>server/</code> 是唯一 import 官方 SDK 的层。
       <code>tests/test_layering.py</code> 用 AST 遍历全包来强制第一条,还顺带确认<strong>没有任何模块碰网络</strong>;
       第二条额外在子进程里真跑一次:<code>import contexture.core</code> 之后
@@ -475,7 +478,7 @@
   <section class="plate" id="plate-01">
     <p class="plate-eyebrow">Plate 01</p>
     <h2 class="plate-title">分层地图</h2>
-    <p class="plate-claim">三层单向依赖,上面骑一个命令行,外加一条副路。主路走到 <code>server</code>,Agent 从那里连进来。<code>core</code> 不许 import <code>mcp</code>——一个伸手去够线路协议的对象模型,已经不是对象模型了。</p>
+    <p class="plate-claim">三层单向依赖,上面骑一个命令行,<strong>没有旁路</strong>。主路走到 <code>server</code>,Agent 从那里连进来。<code>core</code> 不许 import <code>mcp</code>——一个伸手去够线路协议的对象模型,已经不是对象模型了。</p>
 
     <div class="figure-wrap">
       <figure>
@@ -488,22 +491,17 @@ flowchart TB
     cli["<b>contexture.cli</b><br/>new 生成 · serve 运行 · list 打印<br/><i>骑在最上面,谁都不许 import 它</i>"]
     agent["<b>Claude Code · Codex · Cursor</b><br/>LLM 循环 · 规划 · 工具选择"]
 
-    targ["<b>contexture.targets</b><br/>渲染成上下文文件<br/><i>副路:给连不上的 runtime</i>"]
-
     biz -->|继承 / 组合| core
     core -->|compile| tree
     tree -->|project| srv
     srv -->|run| cli
     cli -->|MCP| agent
 
-    core -.副路.-> targ
-    targ -.被读取.-> agent
-
     style core stroke-width:3px
     style srv stroke-width:3px
     style agent stroke-dasharray: 5 5
         </pre>
-        <figcaption>三层,每层一个问题:<code>core</code> 是"节点怎么描述自己",<code>tree</code> 是"编译谁、编译到哪一档",<code>server</code> 是"怎么变成线上的五个工具"。<code>cli</code> 骑在最上面,业务项目因此连一个入口文件都不用写:根角色写在 <code>pyproject.toml</code> 的 <code>[tool.contexture]</code> 里,<code>contexture serve</code> 去读。唯一的虚线副路是 <code>targets</code>——仍然能生成文件,给连不上 MCP 的 runtime 用。出站那条腿(<code>protocol</code> / <code>execution</code>)在 ADR 003 里整条拿掉了:它描述的是宿主的活,不是提供方的。最右边那个虚线框<strong>不属于 Contexture</strong>。依赖规则由 <code>tests/test_layering.py</code> 强制:既查 AST,也在子进程里真跑一次——<code>import contexture.core</code> 之后 <code>sys.modules</code> 里不许出现 <code>mcp</code>。</figcaption>
+        <figcaption>三层,每层一个问题:<code>core</code> 是"节点怎么描述自己",<code>tree</code> 是"编译谁、编译到哪一档",<code>server</code> 是"怎么变成线上的五个工具"。<code>cli</code> 骑在最上面,业务项目因此连一个入口文件都不用写:根角色写在 <code>pyproject.toml</code> 的 <code>[tool.contexture]</code> 里,<code>contexture serve</code> 去读。图上<strong>只有一条路</strong>:渲染文件那条副路(<code>targets</code>)在 ADR 005 里整条删了——它没有任何调用者,也没有任何 CLI 入口,是 ADR 001 翻转主箭头时留下没删干净的一半。出站那条腿(<code>protocol</code> / <code>execution</code>)在 ADR 003 里整条拿掉了:它描述的是宿主的活,不是提供方的。最右边那个虚线框<strong>不属于 Contexture</strong>。依赖规则由 <code>tests/test_layering.py</code> 强制:既查 AST,也在子进程里真跑一次——<code>import contexture.core</code> 之后 <code>sys.modules</code> 里不许出现 <code>mcp</code>。</figcaption>
       </figure>
     </div>
 
@@ -547,13 +545,6 @@ flowchart TB
         app["app.py<br/>ContextureApp"]
         reg["registration.py<br/>宿主启动配置<br/><i>零包内依赖</i>"]
     end
-    subgraph TARGETS["contexture.targets — 副路"]
-        direction TB
-        tbase["base.py<br/>Artifact · TargetAdapter"]
-        md["markdown.py"]
-        adapters["claude_code · codex · cursor"]
-        writer["writer.py<br/><i>唯一写磁盘的地方</i>"]
-    end
     cli["<b>cli.py</b><br/>new · serve · list · demo<br/><i>出度为零:没有任何模块 import 它</i>"]
     sdk[["官方 MCP SDK<br/>mcp · mcp_types"]]
 
@@ -583,14 +574,10 @@ flowchart TB
     tree --> cli
     app --> cli
     role --> cli
-    role --> tbase
-    tbase --> md
-    md --> adapters
-    tbase --> writer
 
     style tree stroke-width:3px
         </pre>
-        <figcaption>箭头方向 = 被 import 者 → import 者。<code>role.py</code> 出度最高:它是四个概念汇合的地方,也是 tree 与 targets 共同的入口。<code>tree.py</code> 现在是 core 与 server 之间唯一的一站——原来这里是 <code>compiler.py</code> 与 <code>discovery.py</code> 两跳。<code>declarative.py</code> 同时喂给 Skill、Tool、Resource、Role 四个类型——类体声明这条路对四者一视同仁。<code>registration.py</code> 是全包唯一一个不 import 包内任何东西的模块,它只拼一段启动命令。<code>types</code> / <code>errors</code> 的扇出没有画全,否则线会盖住图。</figcaption>
+        <figcaption>箭头方向 = 被 import 者 → import 者。<code>role.py</code> 出度最高:它是四个概念汇合的地方,也是 <code>tree</code> 与 <code>cli</code> 共同的入口。<code>tree.py</code> 现在是 core 与 server 之间唯一的一站——原来这里是 <code>compiler.py</code> 与 <code>discovery.py</code> 两跳。<code>declarative.py</code> 同时喂给 Skill、Tool、Resource、Role 四个类型——类体声明这条路对四者一视同仁。<code>registration.py</code> 是全包唯一一个不 import 包内任何东西的模块,它只拼一段启动命令。<code>types</code> / <code>errors</code> 的扇出没有画全,否则线会盖住图。</figcaption>
       </figure>
     </div>
 
@@ -748,60 +735,6 @@ flowchart LR
 
   <section class="plate" id="plate-05">
     <p class="plate-eyebrow">Plate 05</p>
-    <h2 class="plate-title">多目标渲染 — 声明一次,三种表达</h2>
-    <p class="plate-claim">副路,但没退化:同一棵 Role 树进去,三种 Agent 各自能读的文件出来,<strong>并如实报告每个目标丢了什么</strong>。ADR 003 之后能力矩阵从五项收到三项——"能不能生成 server 配置"和"能不能表达工具白名单"两项随出站方向一起消失了。</p>
-
-    <div class="figure-wrap">
-      <figure>
-        <pre class="mermaid">
-flowchart LR
-    role["<b>Role 树</b><br/>engineering-team<br/>+ 2 个专家角色<br/>+ 1 个 Skill<br/>+ 自己的 Tool / Resource"]
-
-    subgraph AD["TargetAdapter · 各声明自己的能力矩阵(3 项)"]
-        direction TB
-        cc["<b>ClaudeCodeAdapter</b><br/>skill 文件 ✓ · 渐进披露 ✓<br/>嵌套角色 ✓"]
-        cx["<b>CodexAdapter</b><br/>skill 文件 ✗ · 渐进披露 ✗<br/>嵌套角色 ✗"]
-        cu["<b>CursorAdapter</b><br/>skill 文件 ✓ · 渐进披露 ✓<br/>嵌套角色 ✗"]
-    end
-
-    a1["CLAUDE.md<br/>.claude/skills/*/SKILL.md"]
-    a2["AGENTS.md"]
-    a3[".cursor/rules/*.mdc"]
-    n0["notes = 0<br/><i>无损,所以沉默</i>"]
-    n3["notes = 3"]
-    n2["notes = 2"]
-    writer["<b>writer</b><br/>plan() 只比对<br/>write() 才落盘"]
-
-    role --> cc --> a1
-    role --> cx --> a2
-    role --> cu --> a3
-    cc -.-> n0
-    cx -.-> n3
-    cu -.-> n2
-    a1 --> writer
-    a2 --> writer
-    a3 --> writer
-
-    style n0 stroke-width:3px
-        </pre>
-        <figcaption>能力矩阵是<strong>数据</strong>,不是每个适配器手写的警告:基类拿声明与矩阵求差,自动生成 notes。上面三个数字是跑出来的,不是估的——Codex 三项全丢所以三条,Cursor 丢嵌套角色所以两条(第二条是它自己补的:规则名是扁平命名空间)。<strong>Claude Code 现在一条都不报</strong>,因为三项能力全满,它真的没丢东西;测试因此改成"有损必报、无损必沉默"两条断言。</figcaption>
-      </figure>
-    </div>
-
-    <div class="plate-notes">
-      <p><code>render()</code> <strong>从不写盘</strong>,只返回 <code>ArtifactSet</code>(路径 + 内容 + 摘要)。
-      全包只有 <code>targets/writer.py</code> 碰文件系统,而 ADR 003 之后<strong>没有任何模块碰网络</strong>——
-      线路整个交给了官方 SDK。这两条同样有测试守着(基于 AST,不是字符串匹配)。</p>
-      <p>摘要是内容哈希,所以"已安装的产物是否已经漂移"可以直接比对得出;
-      writer 也据此跳过内容未变的文件,不去无谓地改动时间戳。</p>
-      <p><strong>一个被顺带修掉的坑。</strong> 能力表格从前只渲染 binding 里的<em>外部</em> tool,
-      也就是说角色<em>自己</em>的 <code>Tool</code> / <code>Resource</code> 从来没进过任何产物。
-      现在表格指向本地能力,<code>Access</code> 列取 <code>Tool.read_only</code>。</p>
-    </div>
-  </section>
-
-  <section class="plate" id="plate-06">
-    <p class="plate-eyebrow">Plate 06</p>
     <h2 class="plate-title">披露成本 — 一次会话到底付了多少</h2>
     <p class="plate-claim">按种类切,不按深度切。角色骨架一次给全<strong>因为它便宜</strong>,而且看不全兄弟就只能猜;角色里的东西<strong>因为贵</strong>所以等被打开。这两句是算出来的,不是审美。</p>
 
@@ -848,8 +781,8 @@ flowchart LR
     </div>
   </section>
 
-  <section class="plate" id="plate-07">
-    <p class="plate-eyebrow">Plate 07</p>
+  <section class="plate" id="plate-06">
+    <p class="plate-eyebrow">Plate 06</p>
     <h2 class="plate-title">网关投影 — 为什么表面永远只有五个工具</h2>
     <p class="plate-claim">这是主路的核心转换,也是 v0.1.0 翻转的地方。<strong>注册即常驻</strong>:协议禁止 tool 列表随连接变化,所以一个被注册的能力是每次会话无论用户问什么都要付的钱。能力要能被推迟,唯一的办法是<strong>根本不上表面</strong>。</p>
 
@@ -918,8 +851,8 @@ flowchart LR
     </div>
   </section>
 
-  <section class="plate" id="plate-08">
-    <p class="plate-eyebrow">Plate 08</p>
+  <section class="plate" id="plate-07">
+    <p class="plate-eyebrow">Plate 07</p>
     <h2 class="plate-title">披露路径 — Agent 怎么在树上走,而服务器不记状态</h2>
     <p class="plate-claim">MCP 2026-07-28 规范原文:tools 列表 <code>MUST NOT</code> 因连接、或因同一连接上的其他请求而变化。所以树不能是协议表面——它得活在 payload 里,而 agent 的位置是它自己带着的那个 ref。</p>
 

@@ -8,8 +8,13 @@
 > the primary route to an agent; in v0.0.4 that became a side road, and the
 > primary route is a native MCP server the runtimes connect to.
 >
+> **The side road was removed entirely in v0.2.0 ([ADR 005](adr/005-remove-the-target-adapters.md)).**
+> `contexture.targets` no longer exists. Section 5 below is kept as a record of
+> what it was, not as a description of the package.
+>
 > Read this for the layer boundaries and the reasoning behind them; read ADR 001
-> for what replaced the target adapters at the centre, and why.
+> for what replaced the target adapters at the centre, and ADR 005 for why the
+> replaced half was deleted rather than kept.
 
 ## 1. Purpose
 
@@ -64,9 +69,6 @@ contexture.tree           the multi-headed tree, disclosed lazily
 contexture.server         the native MCP server — the only layer importing mcp
         │  MCP
 External Agent Runtime    LLM loop, planning, tool selection  (out of scope)
-
-        ┊  side road
-contexture.targets        Claude Code · Codex · Cursor artifacts
 ```
 
 The dependency rule is one-directional and enforced by the package layout: a
@@ -172,7 +174,13 @@ rather than decorating it in place.
 Neither is visible from the code that trips over it, which is why they are
 written down here and commented at both call sites.
 
-## 5. Targets
+## 5. Targets *(removed in v0.2.0)*
+
+> This section describes `contexture.targets`, which was deleted in v0.2.0. It
+> is kept because the capability matrix in 5.2 is still the clearest statement
+> of *what each runtime cannot express* — the fact that motivated serving the
+> declaration instead of rendering it. See
+> [ADR 005](adr/005-remove-the-target-adapters.md).
 
 ### 5.1 The adapter contract
 
@@ -256,7 +264,9 @@ first one's clothes.
 ### Layering
 
 1. `contexture.core` imports no layer above it.
-2. Only `contexture.targets.writer` performs filesystem I/O.
+2. Only `contexture.cli` performs filesystem I/O — and it does so only to
+   scaffold a project. (In 0.0.3 this named `contexture.targets.writer` as
+   well; that module is gone.)
 3. No layer below `contexture.server` performs network I/O.
 
 ### Declaration

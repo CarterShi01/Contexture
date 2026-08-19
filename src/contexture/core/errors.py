@@ -33,7 +33,3 @@ class NodeNotFoundError(ContextureError, KeyError):
         if len(self.args) == 1 and isinstance(self.args[0], str):
             return self.args[0]
         return super(KeyError, self).__str__()
-
-
-class TargetRenderError(ContextureError):
-    """Raised when a target adapter cannot render a role into its surface."""

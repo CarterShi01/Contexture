@@ -14,7 +14,6 @@ from .errors import (
     DuplicateNameError,
     ModelValidationError,
     NodeNotFoundError,
-    TargetRenderError,
 )
 from .resources import Resource
 from .role import Role
@@ -32,6 +31,5 @@ __all__ = [
     "Resource",
     "Role",
     "Skill",
-    "TargetRenderError",
     "Tool",
 ]

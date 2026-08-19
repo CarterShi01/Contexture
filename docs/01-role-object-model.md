@@ -689,7 +689,6 @@ into a secure progressive Agent Host without invalidating the early concepts.
 | Resource | `src/contexture/core/resources.py` |
 | The tree: skeleton, resolution, opening | `src/contexture/tree.py` |
 | The MCP server | `src/contexture/server/` |
-| Target adapters | `src/contexture/targets/` |
 | Complete example | `src/contexture/examples/incident/` |
 
 ## 24. Official references

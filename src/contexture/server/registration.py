@@ -1,11 +1,10 @@
 """Host configuration that points at this server, rather than replacing it.
 
-`contexture.targets` renders a role into the files an agent runtime reads —
-CLAUDE.md, AGENTS.md, SKILL.md — and that is now a side road. When the runtime
-can connect to the server instead, the only file it still needs is the one that
-says how to launch it, which is what this module emits.
+The one file a host still needs is the one that says how to launch the server,
+which is what this module emits — not CLAUDE.md, not AGENTS.md, not a rendered
+copy of the declaration in whatever dialect the runtime reads.
 
-The distinction is the whole point of the pivot. A generated context file is a
+That distinction is the whole point of the pivot. A generated context file is a
 copy that drifts the moment the declaration changes; a launch command is a
 pointer that cannot.
 """

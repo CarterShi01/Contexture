@@ -216,24 +216,6 @@ ContextureApp(roots=KubernetesPlatform()).run(transport="stdio")
 
 Nothing above imports `mcp`, writes JSON-RPC, or names an agent runtime.
 
-## Still rendering files, when you need to
-
-`contexture.targets` remains for runtimes that cannot connect, and reports what
-each one cannot express rather than dropping it silently:
-
-```python
-from contexture.targets import all_adapters, render_all, write
-
-surfaces = render_all(KubernetesPlatform(), all_adapters())
-print(surfaces["codex"].notes[0])
-# Codex has no separate skill artifact; 2 skill(s) were inlined into the main
-# context file, so their instructions are always resident.
-```
-
-This is a side road now. On the main path the only file a host still needs is
-the one naming the launch command, which `contexture.server.registration`
-emits.
-
 ## Layers
 
 ```text
@@ -248,9 +230,6 @@ contexture.server         the five-tool gateway — the only layer importing mcp
 contexture.cli            `contexture new` scaffolds, `contexture serve` runs
         │  MCP
 Claude Code · Codex · Cursor · any MCP host
-
-        ┊ side road
-contexture.targets        rendered context files, for runtimes that cannot connect
 ```
 
 Each layer may import the ones below it and never the reverse. `core` in
@@ -391,13 +370,12 @@ for a recorded run against both hosts.
 ```text
 src/contexture/
 ├── core/            object model: context, role, skill, tools, resources,
-│                    registry, declarative
+│                    errors, declarative
 ├── tree.py          the multi-headed tree: skeleton, resolution, opening
 ├── server/          the MCP server: app, projection, instructions, registration
 ├── cli.py           the `contexture` command: new / list / serve / demo
 ├── templates/       project templates, rendered by `contexture new`
-├── examples/        reference applications built on the public API only
-└── targets/         base, markdown, claude_code, codex, cursor, writer
+└── examples/        reference applications built on the public API only
 ```
 
 ## Design documents
@@ -405,7 +383,7 @@ src/contexture/
 - [`docs/01-role-object-model.md`](docs/01-role-object-model.md) — the object
   model, its invariants, and why each boundary sits where it does.
 - [`docs/02-framework-layers.md`](docs/02-framework-layers.md) — the framework
-  shape: declaration, compilation, the server, and the one side road.
+  shape: declaration, compilation, and the server.
 - [`docs/adr/001-native-mcp-server.md`](docs/adr/001-native-mcp-server.md) — why
   the main path became a server, what it cost, and what was deliberately left
   alone.
@@ -416,6 +394,9 @@ src/contexture/
   — why capabilities left the MCP surface for a five-tool gateway, why
   disclosure splits by kind rather than depth, and why the class design that
   holds it is one class rather than the seven the first draft proposed.
+- [`docs/adr/005-remove-the-target-adapters.md`](docs/adr/005-remove-the-target-adapters.md)
+  — why the file-rendering side road ADR 001 demoted was deleted rather than
+  kept, and what a user would have to be able to type for it to come back.
 - [`docs/atlas/index.html`](docs/atlas/index.html) — an offline visual atlas;
   open it directly in a browser. After editing it, run
   `npm install jsdom@22 && node docs/atlas/check.mjs` to confirm every diagram

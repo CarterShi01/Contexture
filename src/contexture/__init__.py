@@ -13,9 +13,6 @@ The package is layered, and the layering is the architecture:
     contexture.tree        the multi-headed tree, disclosed lazily
     contexture.server      the native MCP server; the only layer importing mcp
 
-    contexture.targets     rendered context files, for runtimes that cannot
-                           connect
-
 Each layer may import the ones below it and never the reverse. This facade
 exports what a business developer *declares* with, and nothing the framework
 *runs* with: importing it loads neither `contexture.tree` nor
@@ -35,7 +32,6 @@ from .core import (
     Resource,
     Role,
     Skill,
-    TargetRenderError,
     Tool,
 )
 
@@ -50,7 +46,6 @@ __all__ = [
     "Resource",
     "Role",
     "Skill",
-    "TargetRenderError",
     "Tool",
     "__version__",
 ]

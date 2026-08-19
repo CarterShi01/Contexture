@@ -21,7 +21,6 @@ PACKAGE = SOURCE_ROOT / "contexture"
 ALLOWED: dict[str, set[str]] = {
     "core": set(),
     "tree": {"core"},
-    "targets": {"core"},
     "server": {"core", "tree"},
     # Reference applications sit above everything and are imported by nothing.
     # They reach the object model through the public facade, not by layer, so
@@ -148,8 +147,7 @@ class LayeringTests(unittest.TestCase):
             "import sys; sys.path.insert(0, %r);"
             "import contexture.core;"
             "upper = [m for m in sys.modules if m.startswith('contexture.') "
-            "and m.split('.')[1] in ('targets', 'server', 'tree', "
-            "'examples')];"
+            "and m.split('.')[1] in ('server', 'tree', 'examples')];"
             "print(','.join(sorted(upper)))" % str(SOURCE_ROOT)
         )
         result = subprocess.run(
@@ -213,24 +211,24 @@ class LayeringTests(unittest.TestCase):
 
 
 class IOBoundaryTests(unittest.TestCase):
-    """Only the two file-producing modules may write, and none may reach the
-    network.
+    """Only the scaffold may write, and nothing may reach the network.
 
-    Both writers produce files *for the user* — rendered context surfaces, and a
-    scaffolded project. Neither is part of the object model, which is why the
-    boundary is worth naming rather than assuming.
+    One module in the whole package touches the filesystem, and it is the one
+    that writes a project *for the user*. Nothing on the path from a
+    declaration to the wire opens a file, which is why the boundary is worth
+    checking rather than assuming.
 
     Checks run over the parsed tree rather than the source text, because a
     substring search cannot tell `open(` from `urlopen(`.
     """
 
-    FILESYSTEM_WRITERS = {"targets/writer.py", "cli.py"}
+    FILESYSTEM_WRITERS = {"cli.py"}
     NETWORK_MODULES: set[str] = set()
 
     WRITE_CALLS = {"write_text", "write_bytes", "mkdir", "touch", "unlink"}
     NETWORK_PACKAGES = {"urllib", "socket", "http", "httpx", "requests", "aiohttp"}
 
-    def test_only_the_writer_touches_the_filesystem(self) -> None:
+    def test_only_the_scaffold_touches_the_filesystem(self) -> None:
         for path, relative, tree in _modules():
             if relative in self.FILESYSTEM_WRITERS:
                 continue
