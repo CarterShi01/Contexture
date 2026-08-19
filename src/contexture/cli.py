@@ -42,7 +42,7 @@ PLACEHOLDER_PACKAGE = "module"
 CONFIG_TABLE = "contexture"
 
 #: The reference application this package ships, for `contexture demo`.
-DEMO_TARGET = "contexture.examples.incident:KubernetesIncidentResponder"
+DEMO_TARGET = "contexture.examples.incident:KubernetesPlatform"
 
 
 class UsageError(ContextureError):
@@ -295,21 +295,23 @@ def command_new(args: argparse.Namespace) -> int:
 
 
 def command_list(args: argparse.Namespace) -> int:
-    from .discovery import build_graph
+    from .tree import ContextTree
 
     targets, project, _ = _targets_and_project(args.target)
-    graph = build_graph(load_roots(targets, project=project))
+    tree = ContextTree.of(load_roots(targets, project=project))
 
-    for path, role in graph.iter_roles():
-        indent = "  " * (path.count("/"))
+    # Printed with the reference an agent would actually be handed, so what a
+    # developer reads here is what the model reads there.
+    for ref, role in tree.roles_with_refs():
+        indent = "  " * ref.count("/")
         print(f"{indent}{role.name}  — {role.description}")
         for skill in role.skills:
-            print(f"{indent}  skill     {skill.name}")
+            print(f"{indent}  skill     {ref}/{skill.name}")
         for tool in role.tools:
             access = "read-only" if tool.read_only else "needs approval"
-            print(f"{indent}  tool      {tool.name}  ({access})")
+            print(f"{indent}  tool      {ref}/{tool.name}  ({access})")
         for resource in role.resources:
-            print(f"{indent}  resource  {resource.uri}")
+            print(f"{indent}  resource  {ref}/{resource.name}  ({resource.uri})")
     return 0
 
 

@@ -3,7 +3,7 @@
 A project states its context as roles, skills, tools, and resources, and then
 says::
 
-    app = ContextureApp(roots=[KubernetesIncidentResponder()])
+    app = ContextureApp(roots=[KubernetesPlatform()])
 
     if __name__ == "__main__":
         app.run(transport="stdio")

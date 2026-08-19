@@ -88,12 +88,12 @@ Then ask either one:
 ## The trace to expect
 
 ```text
-contexture_discover           → the responder's routing card
-contexture_discover(role:…)   → skill, tools, and resource, as cards only
-contexture_get_context(skill) → the full procedure arrives here, and only here
-get_pod_status                → CrashLoopBackOff, restart_count 14
-get_pod_logs                  → ConfigurationError: DB_URL is missing
-get_pod_events                → container exited with code 1
+contexture_discover                → three role cards; the skeleton, no detail
+contexture_open(incident-response) → its skills, tools with schemas, resource
+contexture_open(skill)             → the full procedure, here and only here
+contexture_invoke_read_only(...)   → CrashLoopBackOff, restart_count 14
+contexture_invoke_read_only(...)   → ConfigurationError: DB_URL is missing
+contexture_invoke_read_only(...)   → container exited with code 1
 read contexture://runbooks/crash-loop-backoff
                               → matches row 1 of the cause table
 ```
@@ -107,4 +107,4 @@ rule out.
 An agent is free to skip the traversal and call a tool directly; the surface is
 flat and every tool is visible. What disclosure controls is knowledge, not
 access. The procedure, the ordering, and the "do not restart first" constraint
-exist only behind `contexture_get_context`.
+exist only behind `contexture_open`.

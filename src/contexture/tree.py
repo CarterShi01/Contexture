@@ -61,7 +61,7 @@ class ContextTree:
 
     Built once from the declared roots::
 
-        tree = ContextTree.of(KubernetesIncidentResponder(), schema_of=...)
+        tree = ContextTree.of(KubernetesPlatform(), schema_of=...)
 
     `schema_of` is how a tool's input schema arrives without this module
     knowing what JSON Schema is. The server layer passes one backed by the MCP

@@ -2,6 +2,13 @@
 
 Recorded 2026-08-19 against the branch `feature/native-mcp-server`.
 
+> **This record predates v0.1.0 and is kept as recorded, not updated.** It shows
+> the surface as it was: business tools registered natively, and
+> `contexture_get_context` where `contexture_open` now stands. What it verifies
+> is still the claim under test — one server, one launch command, two hosts, no
+> generated context files. A re-run against the five-tool gateway has not been
+> recorded yet, and `scripts/verify_claude_code.md` drives the current surface.
+
 The claim under test: **one server, one launch command, two hosts, no generated
 context files.**
 

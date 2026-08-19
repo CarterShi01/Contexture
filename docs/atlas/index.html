@@ -376,7 +376,7 @@
   <nav class="index" aria-label="图鉴目录">
     <p class="eyebrow">图鉴目录 — 建议按顺序看</p>
     <ol>
-      <li><span class="num">00</span><a href="#plate-00">目录结构</a><span class="desc">— 先认路,20 个框架源文件各装什么</span></li>
+      <li><span class="num">00</span><a href="#plate-00">目录结构</a><span class="desc">— 先认路,21 个框架源文件各装什么</span></li>
       <li><span class="num">01</span><a href="#plate-01">分层地图</a><span class="desc">— 三层各管什么,谁能依赖谁</span></li>
       <li><span class="num">02</span><a href="#plate-02">文件依赖</a><span class="desc">— 文件之间的真实 import 图</span></li>
       <li><span class="num">03</span><a href="#plate-03">对象模型</a><span class="desc">— 类怎么继承、组合成一棵树</span></li>
@@ -391,14 +391,15 @@
   <section class="plate" id="plate-00">
     <p class="plate-eyebrow">Plate 00</p>
     <h2 class="plate-title">目录结构</h2>
-    <p class="plate-claim">20 个框架源文件(不含 <code>__init__.py</code> 与 examples),目录本身就是架构。主路是 <code>core → tree → server</code> 三层,<code>targets/</code> 是唯一的副路。每个文件只装一小撮互相配合的类。</p>
+    <p class="plate-claim">21 个框架源文件(不含 <code>__init__.py</code> 与 examples),目录本身就是架构。主路是 <code>core → tree → server</code> 三层,<code>cli/</code> 骑在最上面,<code>targets/</code> 是唯一的副路。每个文件只装一小撮互相配合的类。</p>
 
     <div class="figure-wrap">
       <ul class="tree">
         <li>
-          <div class="row"><span class="path dir">src/contexture/</span><span class="desc">3271 行 · 32 个 .py(含 6 个 <code>__init__.py</code>)</span></div>
+          <div class="row"><span class="path dir">src/contexture/</span><span class="desc">3688 行 · 34 个 .py(含 6 个 <code>__init__.py</code>)</span></div>
           <ul>
             <li><div class="row"><span class="path">__init__.py</span><span class="desc">56 行 — 公开门面,只导出<strong>用来声明</strong>的东西;<code>ContextTree</code> 是用来<strong>运行</strong>的,故意不在这里</span></div></li>
+            <li><div class="row"><span class="path">cli.py</span><span class="desc">416 行 · 3 类 — <code>contexture new</code> 生成项目 · <code>contexture serve</code> 起服务 · <code>contexture list</code> 打印它会服务什么 · <code>contexture demo</code>。骑在所有层之上,被任何层 import 都算违规</span></div></li>
             <li><div class="row"><span class="path">tree.py</span><span class="desc">284 行 · <strong>1 类</strong> — <strong>ContextTree</strong>:<code>skeleton()</code> 骨架 · <code>find()</code> 解析 · <code>open()</code> 打开。接替了原来 compiler + discovery + registry 的八个类</span></div></li>
             <li>
               <div class="row"><span class="path dir">core/</span><span class="desc">对象模型 · 零 I/O · 零线路 · 不知道 MCP 存在 · 唯一必须的层</span></div>
@@ -435,6 +436,9 @@
               </ul>
             </li>
             <li>
+              <div class="row"><span class="path dir">templates/project/</span><span class="desc">9 个文件 — <code>contexture new</code> 抄出去的骨架:一个 <code>[tool.contexture]</code> 段、一个 role、各一个 skill / tool / resource</span></div>
+            </li>
+            <li>
               <div class="row"><span class="path dir">examples/incident/</span><span class="desc">确定性的 K8s 平台 demo,<strong>三个角色</strong>,只依赖公开 API</span></div>
               <ul>
                 <li><div class="row"><span class="path">fixtures.py</span><span class="desc">124 行 — 那一个固定事故:CrashLoopBackOff,14 次重启,缺 DB_URL;外加一次失败的发布</span></div></li>
@@ -447,7 +451,7 @@
             </li>
           </ul>
         </li>
-        <li><div class="row"><span class="path dir">tests/</span><span class="desc">7 个测试文件 · 108 个用例,含分层约束、I/O 边界,以及<strong>真起子进程走 stdio</strong> 的端到端验证</span></div></li>
+        <li><div class="row"><span class="path dir">tests/</span><span class="desc">8 个测试文件 · 133 个用例,含分层约束、I/O 边界,以及<strong>真起子进程走 stdio</strong> 的端到端验证</span></div></li>
         <li><div class="row"><span class="path dir">docs/</span><span class="desc">01 对象模型 · 02 框架分层 · adr/001 主路翻转 · adr/002 per-call context(提案) · adr/003 移除出站 · adr/004 网关与懒加载 · verification/ 宿主实测 · atlas 本页</span></div></li>
       </ul>
     </div>
@@ -471,7 +475,7 @@
   <section class="plate" id="plate-01">
     <p class="plate-eyebrow">Plate 01</p>
     <h2 class="plate-title">分层地图</h2>
-    <p class="plate-claim">三层单向依赖,外加一条副路。主路走到 <code>server</code>,Agent 从那里连进来。<code>core</code> 不许 import <code>mcp</code>——一个伸手去够线路协议的对象模型,已经不是对象模型了。</p>
+    <p class="plate-claim">三层单向依赖,上面骑一个命令行,外加一条副路。主路走到 <code>server</code>,Agent 从那里连进来。<code>core</code> 不许 import <code>mcp</code>——一个伸手去够线路协议的对象模型,已经不是对象模型了。</p>
 
     <div class="figure-wrap">
       <figure>
@@ -481,6 +485,7 @@ flowchart TB
     core["<b>contexture.core</b><br/>对象模型 · 注册表 · 校验 · 声明式前端<br/><i>零 I/O · 零线路 · 不许 import mcp</i>"]
     tree["<b>contexture.tree</b><br/>ContextTree:骨架 · 解析 · 打开<br/><i>多头树的懒加载,一个类</i>"]
     srv["<b>contexture.server</b><br/>五工具网关 · Dispatch · bootstrap<br/><i>唯一 import 官方 SDK 的层</i>"]
+    cli["<b>contexture.cli</b><br/>new 生成 · serve 运行 · list 打印<br/><i>骑在最上面,谁都不许 import 它</i>"]
     agent["<b>Claude Code · Codex · Cursor</b><br/>LLM 循环 · 规划 · 工具选择"]
 
     targ["<b>contexture.targets</b><br/>渲染成上下文文件<br/><i>副路:给连不上的 runtime</i>"]
@@ -488,7 +493,8 @@ flowchart TB
     biz -->|继承 / 组合| core
     core -->|compile| tree
     tree -->|project| srv
-    srv -->|MCP| agent
+    srv -->|run| cli
+    cli -->|MCP| agent
 
     core -.副路.-> targ
     targ -.被读取.-> agent
@@ -497,7 +503,7 @@ flowchart TB
     style srv stroke-width:3px
     style agent stroke-dasharray: 5 5
         </pre>
-        <figcaption>三层,每层一个问题:<code>core</code> 是"节点怎么描述自己",<code>tree</code> 是"编译谁、编译到哪一档",<code>server</code> 是"怎么变成线上的五个工具"。唯一的虚线副路是 <code>targets</code>——仍然能生成文件,给连不上 MCP 的 runtime 用。出站那条腿(<code>protocol</code> / <code>execution</code>)在 ADR 003 里整条拿掉了:它描述的是宿主的活,不是提供方的。最右边那个虚线框<strong>不属于 Contexture</strong>。依赖规则由 <code>tests/test_layering.py</code> 强制:既查 AST,也在子进程里真跑一次——<code>import contexture.core</code> 之后 <code>sys.modules</code> 里不许出现 <code>mcp</code>。</figcaption>
+        <figcaption>三层,每层一个问题:<code>core</code> 是"节点怎么描述自己",<code>tree</code> 是"编译谁、编译到哪一档",<code>server</code> 是"怎么变成线上的五个工具"。<code>cli</code> 骑在最上面,业务项目因此连一个入口文件都不用写:根角色写在 <code>pyproject.toml</code> 的 <code>[tool.contexture]</code> 里,<code>contexture serve</code> 去读。唯一的虚线副路是 <code>targets</code>——仍然能生成文件,给连不上 MCP 的 runtime 用。出站那条腿(<code>protocol</code> / <code>execution</code>)在 ADR 003 里整条拿掉了:它描述的是宿主的活,不是提供方的。最右边那个虚线框<strong>不属于 Contexture</strong>。依赖规则由 <code>tests/test_layering.py</code> 强制:既查 AST,也在子进程里真跑一次——<code>import contexture.core</code> 之后 <code>sys.modules</code> 里不许出现 <code>mcp</code>。</figcaption>
       </figure>
     </div>
 
@@ -548,6 +554,7 @@ flowchart TB
         adapters["claude_code · codex · cursor"]
         writer["writer.py<br/><i>唯一写磁盘的地方</i>"]
     end
+    cli["<b>cli.py</b><br/>new · serve · list · demo<br/><i>出度为零:没有任何模块 import 它</i>"]
     sdk[["官方 MCP SDK<br/>mcp · mcp_types"]]
 
     base --> context
@@ -573,6 +580,9 @@ flowchart TB
     instr --> app
     sdk --> proj
     sdk --> app
+    tree --> cli
+    app --> cli
+    role --> cli
     role --> tbase
     tbase --> md
     md --> adapters

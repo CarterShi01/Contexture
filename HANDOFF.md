@@ -60,23 +60,35 @@ uv sync
 uv run python run_tests.py
 ```
 
-**Expect:** 113 tests + whatever `test_projection` contributes, all passing.
-Everything else in the suite passes here already.
+**Expect:** 133 tests, all passing.
 
-**Watch for:** `tests/test_projection.py` was edited without being run. The
-registration assertions were changed from the old console script to the new
-runner — `("run", "contexture", "serve")` instead of
-`("run", "contexture-incident-demo")`. If those assertions were coupled to the
-old shape in a way a blind edit missed, this is where it shows.
+**Status: done.** Run on this machine at v0.1.0 — `Ran 133 tests ... OK`. The
+`test_projection.py` registration assertions this item warned about were
+exercised and hold. `cli.py` and `test_scaffold.py` had to be migrated off the
+removed `contexture.discovery` in the same pass (see ADR 004), and
+`DEMO_TARGET` now points at `KubernetesPlatform`.
 
 ---
 
 ## 3. Verify the whole server layer actually serves
 
-Nothing in `contexture.server` has been executed on this machine — not once, in
-any session. It has been checked statically and by import graph only. The
-outbound removal (ADR 003) touched `projection.py`'s neighbourhood, and the new
-CLI is now the launch path.
+**Status: done for the SDK client; the two real hosts are still open.**
+
+`contexture.server` has now been executed on this machine, repeatedly. The whole
+gateway was rebuilt in v0.1.0 (ADR 004) and driven end to end:
+`tests/test_stdio_server.py` launches the demo as a real subprocess and runs the
+skeleton, opening a role, opening a skill, a validated read-only invoke, a
+refused wrong-door write, an allowed write, and a resource read by URI.
+`contexture list` and `contexture demo` were run by hand against the new tree.
+
+What is still unverified is the part that matters most and cannot be checked
+here: **whether Claude Code and Codex actually navigate a gateway.** ADR 004
+lists this as the one risk with no mitigation — models are trained on native
+tool calls, not on a generic dispatch tool, and the suite can prove the
+mechanism works but not that a model will choose to use it.
+`scripts/verify_claude_code.md` has been updated to the five-tool surface and is
+what to run. `docs/verification/hosts.md` records the pre-gateway run and is
+labelled as such.
 
 ```bash
 uv run contexture demo                     # the bundled reference application

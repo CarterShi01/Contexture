@@ -26,7 +26,7 @@ from contexture.cli import (
     new_project,
     resolve_target,
 )
-from contexture.discovery import DisclosureEngine, build_graph
+from contexture.tree import ContextTree
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -123,13 +123,17 @@ class GeneratedProjectTests(unittest.TestCase):
 
     def test_the_generated_graph_discloses_progressively(self) -> None:
         module = importlib.import_module("my_context.assistant")
-        engine = DisclosureEngine(graph=build_graph(module.MyContextAssistant()))
+        tree = ContextTree.of(module.MyContextAssistant())
 
-        card = engine.discover()["roots"][0]
+        card = tree.skeleton()["roles"][0]
         self.assertNotIn("instructions", card)
 
-        ref = f"skill:{card['name']}#check-target"
-        self.assertIn("instructions", engine.get_context(ref))
+        opened = tree.open(card["ref"])
+        self.assertNotIn("check-target", str(opened["skills"][0].get("instructions")))
+        self.assertIn(
+            "instructions",
+            tree.open(f"{card['ref']}/check-target"),
+        )
 
     def test_the_configured_root_resolves(self) -> None:
         role = resolve_target("my_context.assistant:MyContextAssistant")
@@ -198,7 +202,12 @@ class CommandLineTests(unittest.TestCase):
 class DemoTargetTests(unittest.TestCase):
     def test_the_bundled_demo_target_resolves(self) -> None:
         role = resolve_target(DEMO_TARGET)
-        self.assertEqual(role.name, "kubernetes-incident-responder")
+
+        self.assertEqual(role.name, "kubernetes-platform")
+        self.assertEqual(
+            [child.name for child in role.children],
+            ["incident-response", "deployment-ops"],
+        )
 
 
 if __name__ == "__main__":

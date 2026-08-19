@@ -39,10 +39,9 @@ disclosed role and skill context. Use MCP evidence instead of inspecting this \
 repository's source code. Explain the root cause and the next remediation step." \
   --allowedTools \
     "mcp__contexture-demo__contexture_discover" \
-    "mcp__contexture-demo__contexture_get_context" \
-    "mcp__contexture-demo__get_pod_status" \
-    "mcp__contexture-demo__get_pod_logs" \
-    "mcp__contexture-demo__get_pod_events" \
+    "mcp__contexture-demo__contexture_open" \
+    "mcp__contexture-demo__contexture_read" \
+    "mcp__contexture-demo__contexture_invoke_read_only" \
     "ReadMcpResource"
 ```
 
