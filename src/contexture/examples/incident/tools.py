@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ...core.errors import NodeNotFoundError
-from ...core.tools import Tool
+from contexture import NodeNotFoundError
+from contexture import Tool
 from . import fixtures
 
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ...core.role import Role
+from contexture import Role
 from .resources import CrashLoopRunbook
 from .skills import DiagnoseCrashLoopBackOff
 from .tools import GetPodEvents, GetPodLogs, GetPodStatus

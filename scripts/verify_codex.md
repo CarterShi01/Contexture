@@ -5,7 +5,7 @@ the CLI syntax. Same server, same launch command, no Codex-specific artifacts.
 
 ```bash
 uv sync
-codex mcp add contexture-demo -- uv run contexture-incident-demo
+codex mcp add contexture-demo -- uv run contexture demo
 codex mcp list          # expect: contexture-demo … enabled
 ```
 

@@ -29,18 +29,18 @@ traversal this demo exists to show, instead of rewarding a guess.
 
 ```bash
 uv sync
-uv run contexture-incident-demo      # serves MCP over stdio; blocks
+uv run contexture demo               # serves MCP over stdio; blocks
 ```
 
 ## Connect a host
 
 ```bash
 # Claude Code — note that `mcp add` writes to local scope unless told otherwise
-claude mcp add --scope project contexture-demo -- uv run contexture-incident-demo
+claude mcp add --scope project contexture-demo -- uv run contexture demo
 claude mcp list
 
 # Codex
-codex mcp add contexture-demo -- uv run contexture-incident-demo
+codex mcp add contexture-demo -- uv run contexture demo
 codex mcp list
 ```
 

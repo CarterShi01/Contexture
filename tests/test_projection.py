@@ -239,7 +239,7 @@ class RegistrationTests(unittest.TestCase):
     LAUNCH = Launch(
         name="contexture-demo",
         command="uv",
-        args=("run", "contexture-incident-demo"),
+        args=("run", "contexture", "serve"),
     )
 
     def test_claude_code_config_is_a_launch_command_not_a_context_file(self) -> None:
@@ -250,20 +250,20 @@ class RegistrationTests(unittest.TestCase):
 
         self.assertEqual(entry["type"], "stdio")
         self.assertEqual(entry["command"], "uv")
-        self.assertEqual(entry["args"], ["run", "contexture-incident-demo"])
+        self.assertEqual(entry["args"], ["run", "contexture", "serve"])
 
     def test_codex_config_stanza_quotes_its_command(self) -> None:
         stanza = codex_config(self.LAUNCH)
 
         self.assertIn("[mcp_servers.contexture-demo]", stanza)
         self.assertIn('command = "uv"', stanza)
-        self.assertIn('args = ["run", "contexture-incident-demo"]', stanza)
+        self.assertIn('args = ["run", "contexture", "serve"]', stanza)
 
     def test_both_hosts_are_given_the_same_launch_command(self) -> None:
         """The claim under test: one server, two hosts, one command."""
 
         commands = cli_commands(self.LAUNCH)
-        suffix = "-- uv run contexture-incident-demo"
+        suffix = "-- uv run contexture serve"
 
         self.assertTrue(commands["claude-code"].endswith(suffix))
         self.assertTrue(commands["codex"].endswith(suffix))

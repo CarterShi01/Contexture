@@ -7,7 +7,7 @@ resource and not a paragraph pasted into a skill.
 
 from __future__ import annotations
 
-from ...core.resources import Resource
+from contexture import Resource
 from . import fixtures
 
 

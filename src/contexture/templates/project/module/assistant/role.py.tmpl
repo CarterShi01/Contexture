@@ -1,0 +1,23 @@
+"""The role a connecting agent discovers first."""
+
+from __future__ import annotations
+
+from contexture import Role
+
+from .resources import HealthRunbook
+from .skills import CheckTarget
+from .tools import Ping
+
+
+class $role_class(Role):
+    """$role_description"""
+
+    instructions = """\
+Select the skill that matches the request, follow its procedure, and collect
+tool output before stating a conclusion. Report the smallest safe next action.
+"""
+
+    # The attribute name is yours; the node name comes from the class.
+    check_target = CheckTarget
+    ping = Ping
+    health_runbook = HealthRunbook

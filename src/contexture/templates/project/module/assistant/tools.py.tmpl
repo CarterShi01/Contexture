@@ -1,0 +1,30 @@
+"""The capabilities this role can run.
+
+A tool is a typed Python method. Nothing here writes a JSON Schema — the one a
+host receives in `tools/list` is derived from `invoke`'s type hints.
+"""
+
+from __future__ import annotations
+
+from contexture import Tool
+
+
+class Ping(Tool):
+    """Report whether one target is reachable right now."""
+
+    name = "ping"
+
+    #: A trusted classification, projected onto the protocol's readOnlyHint so a
+    #: host can decide whether to ask a human first. It is never an argument: a
+    #: model that could pass its own approval flag would be approving its own
+    #: writes.
+    read_only = True
+
+    async def invoke(self, target: str) -> str:
+        """Replace this body with a real check.
+
+        The parameter names and annotations above are the tool's input schema.
+        Add a parameter and the schema grows; there is nothing else to update.
+        """
+
+        return f"{target}: reachable (placeholder)"

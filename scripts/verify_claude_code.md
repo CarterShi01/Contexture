@@ -12,10 +12,10 @@ approval on first use inside `claude`.
 
 ```bash
 # private to this machine
-claude mcp add contexture-demo -- uv run contexture-incident-demo
+claude mcp add contexture-demo -- uv run contexture demo
 
 # or shared with the team
-claude mcp add --scope project contexture-demo -- uv run contexture-incident-demo
+claude mcp add --scope project contexture-demo -- uv run contexture demo
 ```
 
 Check it:

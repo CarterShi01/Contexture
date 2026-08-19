@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "contexture"
+name = "contexture-mcp"
 version = "0.0.5"
 description = "A context framework for agents: declare roles, skills, tools, and resources once, then serve them to any agent runtime over MCP"
 readme = "README.md"
@@ -15,16 +15,20 @@ authors = [
 keywords = ["agent", "context", "mcp", "llm", "claude-code", "codex", "cursor"]
 dependencies = [
   "mcp>=2.0.0",
+  "tomli>=2.0; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
 dev = ["mcp[cli]>=2.0.0"]
 
 [project.scripts]
-contexture-incident-demo = "contexture.examples.incident.server:main"
+contexture = "contexture.cli:main"
 
 [project.urls]
 Repository = "https://github.com/CarterShi01/Contexture"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+contexture = ["templates/**/*"]

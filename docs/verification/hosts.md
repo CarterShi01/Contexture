@@ -14,7 +14,7 @@ context files.**
 ## Claude Code
 
 ```bash
-claude mcp add contexture-demo -- /path/to/.venv/bin/contexture-incident-demo
+claude mcp add contexture-demo -- /path/to/.venv/bin/contexture demo
 claude mcp list
 # contexture-demo: … - ✔ Connected
 ```
@@ -86,9 +86,9 @@ One scope note: the MCP tools here expose status, logs, and events only — ther
 Registration succeeded and the server is listed:
 
 ```bash
-codex mcp add contexture-demo -- /path/to/.venv/bin/contexture-incident-demo
+codex mcp add contexture-demo -- /path/to/.venv/bin/contexture demo
 codex mcp list
-# contexture-demo  …/contexture-incident-demo  -  -  -  enabled  Unsupported
+# contexture-demo  …/contexture demo  -  -  -  enabled  Unsupported
 ```
 
 The diagnosis run could **not** be completed:

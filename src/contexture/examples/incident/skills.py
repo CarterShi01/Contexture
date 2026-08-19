@@ -7,7 +7,7 @@ them only after calling contexture_get_context on this skill's ref.
 
 from __future__ import annotations
 
-from ...core.skill import Skill
+from contexture import Skill
 
 
 class DiagnoseCrashLoopBackOff(Skill):

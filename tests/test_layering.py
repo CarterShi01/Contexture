@@ -25,12 +25,31 @@ ALLOWED: dict[str, set[str]] = {
     "targets": {"core", "compiler"},
     "server": {"core", "compiler", "discovery"},
     # Reference applications sit above everything and are imported by nothing.
-    "examples": {"core", "compiler", "discovery", "server"},
+    # They reach the object model through the public facade, not by layer, so
+    # `server` is the only sibling layer they may name. See
+    # LayeringTests.test_examples_use_only_the_public_facade.
+    "examples": {"server"},
+    # The command line sits above everything: it scaffolds, then serves.
+    "cli": {"core", "compiler", "discovery", "server"},
 }
 
 #: Layers permitted to import the official MCP SDK. The object model is not one
 #: of them: `core` must stay describable without a wire protocol in the room.
 SDK_LAYERS = frozenset({"server", "examples"})
+
+
+#: Package data that ships in the wheel but is never imported. A project
+#: template contains `.py` files on purpose: they are what a generated project
+#: starts from, and they belong to no layer of this one.
+DATA_DIRECTORIES = frozenset({"templates"})
+
+
+def _source_modules(root: Path) -> list[Path]:
+    return [
+        path
+        for path in sorted(root.rglob("*.py"))
+        if not (set(path.relative_to(PACKAGE).parts) & DATA_DIRECTORIES)
+    ]
 
 
 def _layer_of(path: Path) -> str:
@@ -66,16 +85,36 @@ def _imported_layers(path: Path) -> set[str]:
     return found
 
 
+def _contexture_imports(path: Path) -> set[str]:
+    """Return every `contexture`-rooted module a file imports, absolute or not."""
+
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.level:
+                found.add("." * node.level + (node.module or ""))
+            elif node.module == "contexture" or (
+                node.module or ""
+            ).startswith("contexture."):
+                found.add(node.module or "")
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "contexture" or alias.name.startswith("contexture."):
+                    found.add(alias.name)
+    return found
+
+
 class LayeringTests(unittest.TestCase):
     def test_every_module_belongs_to_a_known_layer(self) -> None:
-        for path in sorted(PACKAGE.rglob("*.py")):
+        for path in _source_modules(PACKAGE):
             if path.name == "__init__.py" and path.parent == PACKAGE:
                 continue
             with self.subTest(module=str(path.relative_to(PACKAGE))):
                 self.assertIn(_layer_of(path), ALLOWED)
 
     def test_no_layer_imports_one_above_it(self) -> None:
-        for path in sorted(PACKAGE.rglob("*.py")):
+        for path in _source_modules(PACKAGE):
             if path.name == "__init__.py" and path.parent == PACKAGE:
                 continue  # the facade is allowed to reach every layer
             layer = _layer_of(path)
@@ -144,14 +183,49 @@ class LayeringTests(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), "")
 
 
+    def test_examples_use_only_the_public_facade(self) -> None:
+        """A reference application must be copy-pasteable out of this package.
+
+        Reaching into `contexture.core.*` would make the example unusable as a
+        starting point — a copied directory cannot resolve a relative import
+        beyond its own top level — and would quietly contradict the claim these
+        files make about themselves.
+        """
+
+        allowed = {"contexture", "contexture.server"}
+        for path in _source_modules(PACKAGE / "examples"):
+            with self.subTest(module=str(path.relative_to(PACKAGE))):
+                for imported in _contexture_imports(path):
+                    if imported.startswith("."):
+                        # A relative import must stay inside the example itself.
+                        self.assertEqual(
+                            imported.count("."),
+                            1,
+                            f"{path.name} reaches outside the example with "
+                            f"{imported!r}; use the public facade instead.",
+                        )
+                        continue
+                    self.assertIn(
+                        imported,
+                        allowed,
+                        f"{path.name} imports {imported!r}; examples may only "
+                        f"use {sorted(allowed)}.",
+                    )
+
+
 class IOBoundaryTests(unittest.TestCase):
-    """Only one module may touch the filesystem, and none may reach the network.
+    """Only the two file-producing modules may write, and none may reach the
+    network.
+
+    Both writers produce files *for the user* — rendered context surfaces, and a
+    scaffolded project. Neither is part of the object model, which is why the
+    boundary is worth naming rather than assuming.
 
     Checks run over the parsed tree rather than the source text, because a
     substring search cannot tell `open(` from `urlopen(`.
     """
 
-    FILESYSTEM_WRITERS = {"targets/writer.py"}
+    FILESYSTEM_WRITERS = {"targets/writer.py", "cli.py"}
     NETWORK_MODULES: set[str] = set()
 
     WRITE_CALLS = {"write_text", "write_bytes", "mkdir", "touch", "unlink"}
@@ -182,7 +256,7 @@ def _modules() -> list[tuple[Path, str, ast.Module]]:
             path.relative_to(PACKAGE).as_posix(),
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path)),
         )
-        for path in sorted(PACKAGE.rglob("*.py"))
+        for path in _source_modules(PACKAGE)
     ]
 
 

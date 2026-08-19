@@ -185,20 +185,33 @@ approving its own writes.
 
 ## Serve it
 
+There is nothing to write. The framework ships the runner, so a project names
+its roots once in `pyproject.toml` and has no entry point of its own:
+
+```toml
+[tool.contexture]
+name = "my-context"
+roots = ["my_context.assistant:MyContextAssistant"]
+```
+
+```bash
+uv run contexture serve
+```
+
+Then point any host at that same command:
+
+```bash
+claude mcp add --scope project my-context -- uv run contexture serve
+codex  mcp add                 my-context -- uv run contexture serve
+```
+
+For a graph served from a process this command does not own — embedded in an
+existing service, or built inside a test — `ContextureApp` is the escape hatch:
+
 ```python
 from contexture.server import ContextureApp
 
-app = ContextureApp(roots=KubernetesIncidentResponder())
-
-if __name__ == "__main__":
-    app.run(transport="stdio")
-```
-
-Then point any host at it — the same command for each:
-
-```bash
-claude mcp add contexture -- uv run my-server
-codex mcp add contexture -- uv run my-server
+ContextureApp(roots=KubernetesIncidentResponder()).run(transport="stdio")
 ```
 
 Nothing above imports `mcp`, writes JSON-RPC, or names an agent runtime.
@@ -233,6 +246,8 @@ contexture.compiler       route / active disclosure of one node
 contexture.discovery      refs, the capability graph, discover / get_context
         │  project
 contexture.server         the native MCP server — the only layer importing mcp
+        │  run
+contexture.cli            `contexture new` scaffolds, `contexture serve` runs
         │  MCP
 Claude Code · Codex · Cursor · any MCP host
 
@@ -302,31 +317,56 @@ that classification become an argument a model can fill in.
 Python 3.10 or newer.
 
 ```bash
+uvx contexture-mcp new my-context     # scaffold a project
+cd my-context
 uv sync
-uv run contexture-incident-demo   # an MCP server over stdio
+uv run contexture list                # what it would serve
+uv run contexture serve               # serve it over stdio
+```
+
+The generated project holds declarations and nothing else. It has no entry
+point, no `main()`, and no console script of its own, because the framework
+ships the runner:
+
+```text
+my-context/
+├── pyproject.toml       dependencies, and one [tool.contexture] table
+└── my_context/
+    └── assistant/       one role and everything it owns
+        ├── role.py      the responsibility boundary
+        ├── skills.py    procedures — disclosed only when asked for
+        ├── tools.py     capabilities — typed Python methods
+        └── resources.py content — read only when read
+```
+
+It is a project, not a package: no build system, never installed into the
+environment. `contexture serve` finds it by walking up for the
+`[tool.contexture]` table and putting that directory on `sys.path`.
+
+Then point a host at it — the same command for each:
+
+```bash
+claude mcp add --scope project my-context -- uv run contexture serve
+codex  mcp add                 my-context -- uv run contexture serve
+```
+
+Add a second role by copying `assistant/`, then either list it in `roots` or
+declare it as a child of an existing role.
+
+### From a checkout
+
+```bash
+git clone git@github.com:CarterShi01/Contexture.git && cd Contexture
+uv sync
+uv run contexture new ~/my-context
+uv run contexture demo            # the bundled reference application, over stdio
 uv run python run_tests.py        # the full suite
 ```
 
 See [`src/contexture/examples/incident/`](src/contexture/examples/incident/) for
-a server two hosts can connect to, and
-[`docs/verification/hosts.md`](docs/verification/hosts.md) for a recorded run.
-
-The `targets` example declares one team across two external MCP servers:
-
-```text
-engineering-team
-├── k8s-troubleshooter      → production-kubernetes (stdio)
-│   ├── Skill: inspect-pod-failure
-│   ├── get_pod_logs, get_events            read-only
-│   └── runbook, deployment manifest        resources
-├── k8s-operator            → production-kubernetes
-│   ├── + delete_pod                        needs approval
-│   └── deployment manifest                 resource
-└── github-liaison          → github-cloud (http)
-    ├── Skill: report-incident
-    ├── create_issue                        needs approval
-    └── repository README                   resource
-```
+that reference application — a deterministic Kubernetes incident that forces the
+whole traversal — and [`docs/verification/hosts.md`](docs/verification/hosts.md)
+for a recorded run against both hosts.
 
 ## Project layout
 
@@ -337,6 +377,8 @@ src/contexture/
 ├── compiler.py      route/active compilation and capability selection
 ├── discovery.py     refs, the capability graph, discover / get_context
 ├── server/          the MCP server: app, projection, instructions, registration
+├── cli.py           the `contexture` command: new / list / serve / demo
+├── templates/       project templates, rendered by `contexture new`
 ├── examples/        reference applications built on the public API only
 └── targets/         base, markdown, claude_code, codex, cursor, writer
 ```
