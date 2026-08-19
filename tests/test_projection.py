@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import unittest
 
 from mcp.server.mcpserver.exceptions import ToolError
@@ -17,6 +18,8 @@ from contexture.core.resources import Resource
 from contexture.core.role import Role
 from contexture.core.skill import Skill
 from contexture.core.tools import Tool
+from contexture.server import instructions
+from contexture.tree import SEPARATOR, ContextTree
 from contexture.server import (
     DISCOVER_TOOL,
     Launch,
@@ -482,6 +485,139 @@ class StatelessnessTests(unittest.TestCase):
 
         self.assertEqual(self._surface(server), warm)
         self.assertEqual(warm, self.cold)
+
+
+#: Claude Code truncates server instructions at this many bytes.
+HOST_LIMIT = 2048
+
+#: Shapes to hold the roster to, as (branching factor, depth). The first two
+#: fit whole; the rest are past the budget, which is where the rules bite.
+ROSTER_SHAPES = ((2, 2), (5, 3), (8, 3), (3, 4), (10, 4))
+
+
+def _forest(branch: int, depth: int) -> list[Role]:
+    """A uniform forest, for asking what the roster does when it runs out."""
+
+    def build(ref: str, remaining: int) -> Role:
+        children = (
+            [build(f"{ref}-{i}", remaining - 1) for i in range(branch)]
+            if remaining > 1
+            else []
+        )
+        return Role(
+            name=ref,
+            description=f"Role {ref} does something specific.",
+            instructions="Do the thing.",
+            children=children,
+        )
+
+    return [build(f"r{i}", depth) for i in range(branch)]
+
+
+def _listed(text: str) -> list[str]:
+    """The refs a roster actually names, ignoring its truncation line."""
+
+    return re.findall(r"^- ([^:.][^:]*):", text, re.MULTILINE)
+
+
+class RosterTests(unittest.TestCase):
+    """What the bootstrap roster promises when it cannot say everything.
+
+    The roster is the only thing a host reads before calling anything, and it
+    is budgeted, so it is always at risk of describing a choice that is not the
+    real one. ADR 004 stated the rule and ADR 007 kept it: every sibling is
+    visible before the choice, and what cannot be seen together is opened
+    rather than guessed between.
+    """
+
+    def _partial_groups(self, tree: ContextTree, text: str) -> list[str]:
+        """Parents the roster names some — but not all — of the children of."""
+
+        held: dict[str, int] = {}
+        for ref, _ in tree.roles_with_refs():
+            if SEPARATOR in ref:
+                parent = ref.rsplit(SEPARATOR, 1)[0]
+                held[parent] = held.get(parent, 0) + 1
+
+        shown: dict[str, int] = {}
+        for ref in _listed(text):
+            if SEPARATOR in ref:
+                parent = ref.rsplit(SEPARATOR, 1)[0]
+                shown[parent] = shown.get(parent, 0) + 1
+
+        return [
+            parent
+            for parent, total in held.items()
+            if 0 < shown.get(parent, 0) < total
+        ]
+
+    def test_a_sibling_set_is_never_shown_in_part(self) -> None:
+        """Three of a role's eight sub-roles look like the whole choice.
+
+        This is the failure the budget produces on its own: it stops mid-group,
+        and nothing in the text says the group it stopped inside of was cut.
+        Listing none of that role's children is strictly better — the reader
+        then knows to open it.
+        """
+
+        for branch, depth in ROSTER_SHAPES:
+            with self.subTest(shape=f"{branch}x{depth}"):
+                tree = ContextTree.of(_forest(branch, depth))
+                text = instructions.build(tree)
+
+                self.assertEqual(self._partial_groups(tree, text), [])
+
+    def test_the_roster_fits_the_budget_the_host_actually_enforces(self) -> None:
+        """Whole groups must not be bought by overrunning the host's limit."""
+
+        for branch, depth in ROSTER_SHAPES:
+            with self.subTest(shape=f"{branch}x{depth}"):
+                tree = ContextTree.of(_forest(branch, depth))
+
+                self.assertLessEqual(len(instructions.build(tree)), HOST_LIMIT)
+
+    def test_a_forest_that_fits_is_listed_whole(self) -> None:
+        """Group-wise spending must not cost a small server its full roster."""
+
+        tree = ContextTree.of(_forest(2, 2))
+        listed = _listed(instructions.build(tree))
+
+        self.assertEqual(len(listed), len(list(tree.roles_with_refs())))
+        self.assertNotIn("...and", instructions.build(tree))
+
+    def test_what_was_dropped_is_counted_and_pointed_at(self) -> None:
+        tree = ContextTree.of(_forest(8, 3))
+        text = instructions.build(tree)
+
+        total = len(list(tree.roles_with_refs()))
+        line = next(l for l in text.splitlines() if l.startswith("- ...and"))
+
+        self.assertIn(f"{total - len(_listed(text))} more role(s)", line)
+        self.assertIn("open one of the roles above", line)
+
+    def test_roots_are_cut_last_and_recovered_by_a_named_call(self) -> None:
+        """A root is the first segment of every ref beneath it.
+
+        Cutting the root list silently would hide whole branches with no way
+        back. It is also the one cut a single call undoes, because since
+        ADR 007 the roots are exactly what discover answers with — so this is
+        the one place the roster may show a group in part, and it has to say
+        which call completes it.
+        """
+
+        crowded = ContextTree.of(
+            [
+                Role(name=f"root-{i:03d}", description="D" * 70, instructions="x")
+                for i in range(60)
+            ]
+        )
+        text = instructions.build(crowded)
+        line = next(l for l in text.splitlines() if l.startswith("- ...and"))
+
+        self.assertLessEqual(len(text), HOST_LIMIT)
+        self.assertIn("more root role(s)", line)
+        self.assertIn(DISCOVER_TOOL, line)
+        self.assertGreater(len(_listed(text)), 0)
 
 
 if __name__ == "__main__":  # pragma: no cover

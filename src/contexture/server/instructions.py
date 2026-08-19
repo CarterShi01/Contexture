@@ -27,11 +27,28 @@ trip, and a small forest fits whole. It walks **breadth-first**, because a
 roster is a list that gets cut off, and a depth-first cut spends the budget on
 one deep spine while never mentioning the root's siblings — the worst possible
 answer for text whose only job is routing.
+
+Breadth-first fixes the axis the budget is spent along. It does not, on its
+own, stop the budget running out *inside* one parent's children, and a roster
+that lists three of a role's eight sub-roles is worse than one that lists none
+of them: the three look like the whole choice. So the budget is spent in whole
+sibling groups. A group is listed only if all of it fits, which keeps the rule
+ADR 004 stated and ADR 007 kept — every sibling is visible before the choice,
+and what cannot be seen together is opened rather than guessed between.
+
+The roots are the exception, and are cut entry by entry when even they do not
+fit. A roster with no roots says nothing about what the server is for, which is
+the one job this text has; and since ADR 007 the roots are exactly what
+`contexture_discover` answers with, so a cut root list is the only incomplete
+group a single named call restores. The message says which call.
 """
 
 from __future__ import annotations
 
-from ..tree import ContextTree
+from typing import Iterator
+
+from ..core.role import Role
+from ..tree import SEPARATOR, ContextTree
 from .contract import DISCOVER_TOOL, PREAMBLE, REF_RULE
 
 #: Claude Code truncates server instructions at 2KB; leave room for the rest.
@@ -46,33 +63,68 @@ def build(
 ) -> str:
     """Return server instructions: the contract first, the roster second."""
 
-    entries = [
-        f"- {ref}: {role.description}" for ref, role in tree.roles_by_level()
-    ]
-
     roster: list[str] = []
     spent = 0
-    for index, entry in enumerate(entries):
-        if spent + len(entry) > budget:
-            remaining = len(entries) - index
-            roster.append(
-                f"- ...and {remaining} more role(s) below these; open one of "
-                "the roles above to see what it holds."
-            )
-            break
-        roster.append(entry)
-        spent += len(entry) + 1
+    dropped = 0
+    full = False
+    for index, group in enumerate(_sibling_groups(tree)):
+        entries = [f"- {ref}: {role.description}" for ref, role in group]
+        cost = sum(len(entry) + 1 for entry in entries)
+        if index == 0:
+            # The roots. Cut per entry rather than as a group, because a roster
+            # with no roots says nothing about what the server is for, and
+            # because this is the one group a single named call restores.
+            for entry in entries:
+                if spent + len(entry) > budget:
+                    dropped += 1
+                    continue
+                roster.append(entry)
+                spent += len(entry) + 1
+            if dropped:
+                roster.append(
+                    f"- ...and {dropped} more root role(s); call "
+                    f"{DISCOVER_TOOL} for the complete list."
+                )
+                return _assemble(preamble, roster)
+            continue
+        if full or spent + cost > budget:
+            full = True
+            dropped += len(entries)
+            continue
+        roster.extend(entries)
+        spent += cost
+    if dropped:
+        roster.append(
+            f"- ...and {dropped} more role(s) below these; open one of "
+            "the roles above to see what it holds."
+        )
 
-    return "\n".join(
-        [
-            preamble.strip(),
-            "",
-            "Roles:",
-            *roster,
-            "",
-            REF_RULE,
-        ]
-    )
+    return _assemble(preamble, roster)
+
+
+def _assemble(preamble: str, roster: list[str]) -> str:
+    return "\n".join([preamble.strip(), "", "Roles:", *roster, "", REF_RULE])
+
+
+def _sibling_groups(tree: ContextTree) -> Iterator[list[tuple[str, Role]]]:
+    """Group the breadth-first walk into the sets a reader chooses between.
+
+    `roles_by_level` queues each role's children together, so one parent's
+    children arrive as a contiguous run and grouping is a matter of watching
+    the ref's prefix change rather than of walking the tree a second time.
+    """
+
+    group: list[tuple[str, Role]] = []
+    parent: str | None = None
+    for ref, role in tree.roles_by_level():
+        owner = ref.rsplit(SEPARATOR, 1)[0] if SEPARATOR in ref else ""
+        if group and owner != parent:
+            yield group
+            group = []
+        parent = owner
+        group.append((ref, role))
+    if group:
+        yield group
 
 
 __all__ = ["ROSTER_BUDGET", "build"]

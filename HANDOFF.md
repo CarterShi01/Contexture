@@ -13,53 +13,23 @@ Delete an item when it is done. Delete the file when it is empty.
 
 | Was | Now |
 | --- | --- |
-| "the v0.2.0 gateway has never been executed against the real SDK" | **142 tests pass** against the real SDK, `tests/test_stdio_server.py` included — it runs here instead of skipping |
+| "the v0.2.0 gateway has never been executed against the real SDK" | **149 tests pass** against the real SDK, `tests/test_stdio_server.py` included — it runs here instead of skipping |
 | "`description=` wins over `__doc__`" — reasoned from the API, never observed | **Observed.** `description=` wins; with neither, the description is `""` and there is no docstring fallback, so removing the closures' docstrings is safe *only* while every registration passes `description=` |
 | registration-by-loop over `contract.GATEWAY` untested | all five register in contract order, each hint and each description identical to the contract |
 | `_translated` renderings "audited by hand, not run" | run, and legible on the wire: a wrong ref returns what the role does hold plus the call that recovers; both wrong-door refusals name the other door; pydantic's argument errors name the field |
 | `build_server()` returning one value, unpacking sites rewritten mechanically | executed |
-| "whether a model *chooses* to navigate a gateway" — the top risk | **Claude Code did**, first try, zero errors. Recorded in [`docs/verification/hosts.md`](docs/verification/hosts.md) |
+| "whether a model *chooses* to navigate a gateway" — the top risk | **Claude Code did**, first try, zero errors, three runs across two navigation models. Recorded in [`docs/verification/hosts.md`](docs/verification/hosts.md) |
+| ADR 007's predicted extra hop, and whether it costs a turn | It does not happen on a small forest: `discover` answers with the roots while the roster keeps listing, so the opening text already carries the ref and the host skips `discover`. Seven calls where the eager skeleton took eight |
+| "a host that copes at two levels has not been shown to cope at four" | Shown. 26 roles, four levels, roster cut above the branch that mattered: one `open` per level, seven calls, zero errors, no assembled refs and no guessed siblings |
+| the roster under a budget it cannot meet | **Was broken, now fixed.** It stopped inside a sibling group — three of a role's eight sub-roles, with nothing saying the group was cut. Whole groups now, roots cut last and pointed at `contexture_discover`. `RosterTests` holds it |
 | scaffold verified only through `python -m contexture.cli` | verified through real `uv`; both claims below held |
-| atlas mermaid unchecked | `node docs/atlas/check.mjs` — 8 blocks, all parse |
+| atlas mermaid unchecked | `node docs/atlas/check.mjs` — 9 blocks, all parse |
 
 One defect was found and fixed on the way:
 `test_contract.IndependenceTests.test_deciding_what_the_agent_reads_needs_no_wire`
 asserted against the *process's* `sys.modules`, so it passed alone and failed in
 the suite — the only red test on `master`. The claim it guards is true; it now
 asks in a subprocess, the way `test_layering.py` already did.
-
----
-
-## What ADR 007 has put back into question
-
-Everything above was verified against the tree as it stood at `0920b5a`.
-[ADR 007](docs/adr/007-the-role-axis-is-lazy-too.md) landed after it and changes
-the first step of exactly the thing that run proved.
-
-**The Claude Code result is the one to re-take.** It walked
-`discover → open(role) → open(skill)`, because `discover` then returned every
-role in the forest and the specialism was on that first list. It now returns the
-roots only, so the same walk is `discover → open(root) → open(role) →
-open(skill)` — one more hop before any work. The observation that the host
-"declined to assert anything about a role whose card it had seen and not opened"
-also refers to a card that now arrives one call later than it did.
-
-None of this makes the recorded run wrong. It makes it a record of a different
-navigation model, and `docs/verification/hosts.md` should say which one it is.
-
-**Re-run and record:**
-
-1. The same prompt as the recorded run. Does the host open the root and read its
-   sub-roles, or does it stop at the roots and guess?
-2. Whether the extra hop costs a turn or is folded into one.
-3. The demo is only two levels deep. A host that copes there has not been shown
-   to cope at four, which is the shape ADR 007 exists for.
-
-Everything else above still holds: the SDK observations, the scaffold under
-`uv`, the wire renderings, and the registration loop are untouched by ADR 007.
-
-Two counts moved with it: the suite is **144** tests (was 142), and the atlas is
-**9** mermaid blocks (was 8) — plate 05 was redrawn and gained a chart.
 
 ---
 
@@ -244,9 +214,10 @@ style across a large team. If that matters, the mechanism is identical to
   newcomer needs first.
 - **`README.md`** leads with `uvx contexture-mcp new`, which does not work until
   item 1 is done.
-- **[`docs/verification/hosts.md`](docs/verification/hosts.md)** records a run
-  against the pre-ADR-007 navigation model and does not yet say so. See
-  "What ADR 007 has put back into question" above.
+- **[`docs/verification/hosts.md`](docs/verification/hosts.md)** now holds three
+  records, newest first, each naming the navigation model it verified. The
+  v0.2.0 one is kept as recorded rather than updated: `discover` answered with
+  the whole forest when it was taken.
 
 ---
 

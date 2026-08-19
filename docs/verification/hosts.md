@@ -1,7 +1,97 @@
 # Host verification
 
-Two records. The v0.2.0 run below is the current one; the v0.0.4 run is kept
-underneath it as recorded, because it verified a surface that no longer exists.
+Three records, newest first. Each verified a different navigation model, and
+none is an update of the one below it: v0.0.4 had business tools on the wire,
+v0.2.0 put them behind a gateway whose `discover` returned the whole forest,
+and ADR 007 made that first call answer with the roots alone.
+
+---
+
+# v0.2.0 + ADR 007 — one level per call
+
+Recorded 2026-08-19 against `b43b0bd` plus the roster fix below, on the same
+machine as the v0.2.0 record.
+
+ADR 007 changed the first step of the run recorded underneath this one, so that
+run is now a record of a navigation model that no longer exists. Two runs were
+taken: the same prompt against the demo, and a new one against a tree deep and
+wide enough to exercise what ADR 007 was written for.
+
+## Run 1 — the demo, same prompt as the v0.2.0 record
+
+**The predicted extra hop did not happen.** ADR 007's handoff expected
+`discover → open(root) → open(role) → open(skill)` where the earlier run had
+`discover → open(role) → open(skill)`. What the host actually did was skip
+`discover` altogether:
+
+```text
+1. contexture_open           kubernetes-platform/incident-response
+2. contexture_invoke_read_only  .../get_pod_status
+3. contexture_open           .../diagnose-crash-loop-backoff
+4. contexture_invoke_read_only  .../get_pod_logs   {previous: true}
+5. contexture_invoke_read_only  .../get_pod_events
+6. contexture_read           contexture://runbooks/crash-loop-backoff
+```
+
+Seven calls in eight turns, zero errors — one call *fewer* than before the
+change. The reason is that `contexture_discover` and the bootstrap roster no
+longer describe the same model: `discover` answers with the roots, while
+`instructions.build()` keeps listing while it has budget, so the demo's whole
+two-level forest is in the opening text. The host already had
+`kubernetes-platform/incident-response` before its first call and went straight
+there.
+
+That is the roster doing its job, and it means **a small forest cannot be used
+to test ADR 007 at all** — the opening text shortcuts the traversal being
+measured.
+
+## Run 2 — four levels, with the roster deliberately cut
+
+A synthetic platform tree: 26 roles, four levels deep, five roots. The roster
+budget cuts it after seventeen entries, and the cut lands above the branch that
+matters — `payments/ledger` is named, `payments/ledger/settlement` and
+everything under it is not. The fact the task needs sits at level four, so the
+opening text cannot shortcut anything.
+
+```text
+1. contexture_discover
+2. contexture_open           payments
+3. contexture_open           payments/ledger
+4. contexture_open           payments/ledger/settlement
+5. contexture_open           payments/ledger/settlement/reconciliation
+6. contexture_invoke_read_only  .../get_reconciliation_gap  {ledger_date}
+```
+
+**Seven calls, eight turns, zero errors.** One `open` per level, each ref taken
+from the card the previous call returned. It never assembled a ref, never took
+a wrong branch, and never guessed at a sibling it had not been shown. It also
+called `discover` here, having skipped it in run 1 — the roster's truncation
+line is the only difference between the two situations.
+
+It closed by naming what it could not answer — the tool returns an aggregate,
+not the three underlying entries — and proposed which sibling branches might
+hold a tool that could. That is the same boundary-respecting behaviour the
+v0.2.0 record noted, at three times the depth.
+
+**What this settles:** depth-four traversal works, a cut roster is navigated
+rather than guessed around, and the cost is one call per level — linear in
+depth, as designed. Seven calls at four levels against seven at two: the extra
+hops replaced the work the roster used to do for free.
+
+**What it does not:** `contract.unresolved()` still has no field evidence. Two
+hosts, three runs, and not one wrong ref.
+
+## The defect these runs found
+
+Building the truncating tree exposed a bug in the roster rather than in the
+traversal. The budget was spent entry by entry, so it could stop *inside* one
+parent's children: at 8×3, `r2` appeared with three of its eight sub-roles and
+nothing said the group was cut. Three of eight look like the whole choice,
+which is the guess ADR 004 stated the rule against and ADR 007 kept. The budget
+is now spent in whole sibling groups, and the roots — the one group a single
+named call restores, since `discover` answers with exactly them — are cut entry
+by entry with a line that names that call. `RosterTests` in
+`tests/test_projection.py` holds all of it.
 
 ---
 
