@@ -43,6 +43,15 @@ class Role(ContextNode):
     Subclassing states what one role *is*. It never states containment: a role
     that coordinates other roles holds them in `children`, whether it was
     declared or assembled at runtime.
+
+    **Membership is fixed once a tree has been built from this role.** The four
+    member lists are ordinary lists, and assembling one at runtime is supported
+    — that is what the imperative door is for. Changing one *after* the role is
+    serving is not: since the 2026-07-28 revision a server may not vary its
+    surface as a consequence of an earlier call, and an `append` here does
+    exactly that. It also skips the uniqueness and cycle checks, which run at
+    construction. Build the graph you mean to serve, then leave it alone;
+    `tests/test_projection.py` holds the statelessness this depends on.
     """
 
     instructions: str

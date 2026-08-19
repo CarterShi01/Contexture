@@ -33,6 +33,21 @@ class Tool(ContextNode):
     argument. It is projected onto the protocol's `readOnlyHint` annotation so a
     host can decide whether to ask a human before running the tool, and it must
     never appear in the tool's input schema.
+
+    **One instance serves the whole process, so `invoke` must be re-entrant.**
+    A Tool is built once, when the tree is, and every call to it — from every
+    session, and from calls a host issues in parallel on one session — arrives
+    at that same object. The SDK dispatches each request as its own task, so
+    two `invoke` bodies interleave at every `await`. Writing per-call state onto
+    `self` therefore loses it: the second call overwrites what the first read
+    and had not yet used. Keep what a call needs in its arguments and its
+    locals. This is a constraint on the object, not on your domain — locking,
+    transactions, and idempotency belong to whatever `invoke` talks to, and the
+    framework will never offer its own.
+
+    Python will not enforce this. `Tool` is slotted, but a subclass that is not
+    itself a slotted dataclass carries a `__dict__`, so `self.anything = ...`
+    inside `invoke` silently succeeds and silently shares.
     """
 
     kind: ClassVar[str] = "tool"

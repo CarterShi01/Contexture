@@ -319,5 +319,170 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn("--scope project", commands["claude-code"])
 
 
+class StatelessnessTests(unittest.TestCase):
+    """The gateway must answer out of the declaration and nothing else.
+
+    Since the 2026-07-28 revision a server may not vary its surface per
+    connection or as a consequence of an earlier call, and Contexture's whole
+    navigation model rests on that: a `ref` is an address, not a cursor. Both
+    properties hold today because nobody has written state into a gateway
+    function. These tests are what makes writing some fail — a cache of "the
+    role opened last", added to save tokens, would read as a reasonable
+    optimization and would quietly put this server out of specification.
+
+    Every assertion here compares a server that has done work against a server
+    that has done none. Comparing two exercised servers to each other is the
+    trap: a cache that degrades an answer after its first delivery poisons both
+    snapshots equally, and the comparison passes while the server is already
+    non-compliant. Only a cold answer is a trustworthy baseline.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        """Capture the cold baseline once, before any test has run.
+
+        Every answer in it is the first call of its own server's life, and the
+        sweep runs in the opposite order to `_surface`, so a payload carrying
+        anything about the call before it lands where the comparison can see.
+        Taking this per test instead would make each test's baseline depend on
+        which tests ran first — and the earliest failure would be the only one
+        that ever went red.
+        """
+
+        cls.cold = {DISCOVER_TOOL: _text(_call(_server(), DISCOVER_TOOL))}
+        for ref in reversed(cls._refs()):
+            cls.cold[ref] = _text(_call(_server(), OPEN_TOOL, {"ref": ref}))
+
+    @staticmethod
+    def _refs() -> list[str]:
+        """Every ref the fixture addresses, read off the model, not the gateway.
+
+        Enumerating through `discover` and `open` would spend the very calls a
+        cold baseline is made of: by the time the list was in hand, every ref
+        on it would already have been delivered once.
+        """
+
+        app = ContextureApp(roots=Responder(), name="test")
+        refs = []
+        for ref, role in app.tree.roles_with_refs():
+            refs.append(ref)
+            refs.extend(
+                f"{ref}/{member.name}"
+                for member in (*role.skills, *role.tools, *role.resources)
+            )
+        return refs
+
+    def _surface(self, server) -> dict[str, str]:
+        """Everything `server` discloses now, as raw response text."""
+
+        surface = {DISCOVER_TOOL: _text(_call(server, DISCOVER_TOOL))}
+        for ref in self._refs():
+            surface[ref] = _text(_call(server, OPEN_TOOL, {"ref": ref}))
+        return surface
+
+    def _exercise(self, server) -> None:
+        """Put a server through every call it will ever be asked to serve."""
+
+        refs = self._refs()
+        for ref in refs + list(reversed(refs)):
+            _call(server, OPEN_TOOL, {"ref": ref})
+        _call(server, DISCOVER_TOOL)
+        _call(
+            server,
+            INVOKE_READ_ONLY_TOOL,
+            {"ref": "responder/get_pod_logs",
+             "arguments": {"namespace": "prod", "pod": "api"}},
+        )
+        _call(server, READ_TOOL, {"ref": "responder/runbook"})
+
+    def test_history_never_changes_an_answer(self) -> None:
+        """Repetition, and the order refs are opened in, change nothing."""
+
+        server = _server()
+        self._exercise(server)
+
+        self.assertEqual(self._surface(server), self.cold)
+
+    def test_a_ref_resolves_on_a_server_that_was_never_discovered(self) -> None:
+        """`discover` is where an agent learns a ref, not where one is issued."""
+
+        server = _server()
+
+        opened = json.loads(
+            _text(_call(server, OPEN_TOOL, {"ref": "responder/get_pod_logs"}))
+        )
+        self.assertEqual(opened["name"], "get_pod_logs")
+
+    def test_running_a_write_leaves_the_surface_untouched(self) -> None:
+        """The one call most likely to be given a memory is the one that
+        changes the world. It must not change this server."""
+
+        server = _server()
+        listed_before = [
+            tool.model_dump(mode="json") for tool in asyncio.run(server.list_tools())
+        ]
+
+        _call(
+            server,
+            INVOKE_TOOL,
+            {"ref": "responder/delete_pod",
+             "arguments": {"namespace": "prod", "pod": "api"}},
+        )
+
+        self.assertEqual(self._surface(server), self.cold)
+        self.assertEqual(
+            [tool.model_dump(mode="json") for tool in asyncio.run(server.list_tools())],
+            listed_before,
+        )
+
+    def test_a_failed_call_leaves_the_surface_untouched(self) -> None:
+        """An error path is where a half-written cache would survive."""
+
+        server = _server()
+
+        for name, arguments in (
+            (OPEN_TOOL, {"ref": "responder/banana"}),
+            (INVOKE_READ_ONLY_TOOL, {"ref": "responder/delete_pod",
+                                     "arguments": {"namespace": "p", "pod": "a"}}),
+            (INVOKE_READ_ONLY_TOOL, {"ref": "responder/get_pod_logs",
+                                     "arguments": {"namespace": "prod"}}),
+        ):
+            with self.subTest(tool=name), self.assertRaises(ToolError):
+                _call(server, name, arguments)
+
+        self.assertEqual(self._surface(server), self.cold)
+
+    def test_a_used_server_owes_a_new_one_the_same_answers(self) -> None:
+        """Two hosts connecting to one declaration are owed the same server.
+
+        They share an app, and so share the `Dispatch` whose schema cache the
+        first connection warms. The second must not be able to tell.
+        """
+
+        app = ContextureApp(roots=Responder(), name="test")
+        first = app.build_server()
+        self._exercise(first)
+        second = app.build_server()
+
+        self.assertEqual(
+            tuple(tool.name for tool in asyncio.run(second.list_tools())),
+            GATEWAY_TOOLS,
+        )
+        self.assertEqual(self._surface(second), self.cold)
+
+    def test_the_schema_cache_is_a_cache_and_not_a_state(self) -> None:
+        """`Dispatch` memoizes derivation; dropping it must change nothing."""
+
+        app = ContextureApp(roots=Responder(), name="test")
+        server = app.build_server()
+        self._exercise(server)
+
+        warm = self._surface(server)
+        app.dispatch._derived.clear()
+
+        self.assertEqual(self._surface(server), warm)
+        self.assertEqual(warm, self.cold)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

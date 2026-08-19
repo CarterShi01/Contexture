@@ -484,6 +484,36 @@ These stay yours:
   specification, for the reasons in
   [`docs/adr/003-remove-the-outbound-half.md`](docs/adr/003-remove-the-outbound-half.md).
 
+Consistency under concurrency is on that list too, and deliberately. Locks,
+transactions, leases, and idempotency keys belong where the data is. A
+framework-supplied lock would be a weaker duplicate of the one your database
+already has, and a misleading one, because Contexture cannot see the writes it
+would be claiming to order.
+
+### One rule this does leave you: declared objects are shared
+
+Holding none of your state does not mean holding none of your objects.
+Contexture builds each Role, Skill, Tool, and Resource once, when the tree is
+built, and every call reaches that same instance — from every session, and from
+the parallel calls a single host issues on one connection, which the SDK
+dispatches as concurrent tasks.
+
+Two things follow, and they are the whole of the contract:
+
+- **`invoke` and `read` must be re-entrant.** Keep a call's state in its
+  arguments and its locals, never on `self`. Nothing enforces this: a Tool
+  subclass carries a `__dict__`, so `self.pending = ...` succeeds quietly and
+  is then shared with every other call in flight.
+- **Do not change a role's members once it is serving.** Assemble the graph at
+  runtime if you like — that is what the imperative constructors are for — but
+  an `append` to `role.tools` on a live server varies the surface as a
+  consequence of an earlier call, which the 2026-07-28 revision forbids.
+
+Contexture holds up its own end: the five gateway tools answer purely out of
+the declaration, and `StatelessnessTests` in `tests/test_projection.py` compares
+a server that has served every call it will ever see against one that has served
+none.
+
 ### Also true
 
 - Not a new protocol. It speaks MCP through the official SDK rather than its own
