@@ -6,6 +6,6 @@ and are the credentials, network, and RBAC correct? Everything here is served
 from `fixtures`, so a failed run means the framework failed.
 """
 
-from .role import KubernetesIncidentResponder
+from .role import DeploymentOps, IncidentResponse, KubernetesPlatform
 
-__all__ = ["KubernetesIncidentResponder"]
+__all__ = ["DeploymentOps", "IncidentResponse", "KubernetesPlatform"]

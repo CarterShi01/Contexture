@@ -21,4 +21,14 @@ class CrashLoopRunbook(Resource):
         return fixtures.CRASH_LOOP_RUNBOOK
 
 
-__all__ = ["CrashLoopRunbook"]
+class RollbackPolicy(Resource):
+    """When a rollback is the right remediation, and what it costs."""
+
+    uri = "contexture://runbooks/rollback-policy"
+    mime_type = "text/markdown"
+
+    async def read(self) -> str:
+        return fixtures.ROLLBACK_POLICY
+
+
+__all__ = ["CrashLoopRunbook", "RollbackPolicy"]

@@ -89,7 +89,7 @@ class StdioServerTests(unittest.TestCase):
         # The roster is here rather than behind a first discover call: a
         # gateway whose five tool names all begin `contexture_` otherwise gives
         # a host no sign of what the server is for.
-        self.assertIn("kubernetes-incident-responder", instructions)
+        self.assertIn("kubernetes-platform/incident-response", instructions)
         # Codex asks that the opening be self-contained; Claude Code truncates
         # the whole field at 2KB. Both limits are checked, not just documented.
         self.assertIn("contexture_open", instructions[:512])
@@ -158,8 +158,14 @@ class StdioServerTests(unittest.TestCase):
         """The whole chain: skeleton, open a role, open its skill, gather, read."""
 
         async def work(session):
+            # Navigate rather than assume: the skeleton names the specialisms,
+            # and the one that matches a restart loop is chosen from it.
             roles = await session.call_tool("contexture_discover", {})
-            role_ref = roles.structured_content["roles"][0]["ref"]
+            role_ref = next(
+                card["ref"]
+                for card in roles.structured_content["roles"]
+                if card["name"] == "incident-response"
+            )
 
             role = await session.call_tool("contexture_open", {"ref": role_ref})
             skill_ref = role.structured_content["skills"][0]["ref"]
@@ -219,7 +225,7 @@ class StdioServerTests(unittest.TestCase):
             return await session.call_tool(
                 "contexture_invoke_read_only",
                 {
-                    "ref": "kubernetes-incident-responder/get_pod_status",
+                    "ref": "kubernetes-platform/incident-response/get_pod_status",
                     "arguments": {"namespace": "prod", "pod": "payments-api-7d9c"},
                 },
             )
@@ -232,22 +238,43 @@ class StdioServerTests(unittest.TestCase):
             "CrashLoopBackOff",
         )
 
-    def test_a_write_through_the_read_only_door_is_refused_on_the_wire(self) -> None:
-        """The demo is read-only throughout, so the check is that the door
-        itself disagrees with the ref rather than that a write happened."""
+    def test_the_doors_are_enforced_in_both_directions_on_the_wire(self) -> None:
+        """The one protection the gateway has to get right.
+
+        A host decides whether to involve a human from the hint on the entry
+        point. If a write could be run through the read-only door, that
+        decision would have been made about the wrong call.
+        """
+
+        write_ref = "kubernetes-platform/deployment-ops/roll_back_deployment"
+        read_ref = "kubernetes-platform/incident-response/get_pod_logs"
 
         async def work(session):
-            return await session.call_tool(
-                "contexture_invoke",
-                {
-                    "ref": "kubernetes-incident-responder/get_pod_logs",
-                    "arguments": {"namespace": "prod", "pod": "payments-api-7d9c"},
-                },
+            wrong_write = await session.call_tool(
+                "contexture_invoke_read_only",
+                {"ref": write_ref,
+                 "arguments": {"namespace": "prod", "deployment": "payments-api"}},
             )
+            wrong_read = await session.call_tool(
+                "contexture_invoke",
+                {"ref": read_ref,
+                 "arguments": {"namespace": "prod", "pod": "payments-api-7d9c"}},
+            )
+            allowed_write = await session.call_tool(
+                "contexture_invoke",
+                {"ref": write_ref,
+                 "arguments": {"namespace": "prod", "deployment": "payments-api"}},
+            )
+            return wrong_write, wrong_read, allowed_write
 
-        result = _run(work)
-        self.assertTrue(result.is_error)
-        self.assertIn("contexture_invoke_read_only", result.content[0].text)
+        wrong_write, wrong_read, allowed_write = _run(work)
+
+        self.assertTrue(wrong_write.is_error)
+        self.assertIn("contexture_invoke", wrong_write.content[0].text)
+        self.assertTrue(wrong_read.is_error)
+        self.assertIn("contexture_invoke_read_only", wrong_read.content[0].text)
+        self.assertFalse(allowed_write.is_error)
+        self.assertIn("Rolled prod/payments-api back", allowed_write.content[0].text)
 
     def test_the_skeleton_never_leaks_a_procedure_or_a_schema(self) -> None:
         """Progressive disclosure, asserted where it can actually be violated.
@@ -259,7 +286,11 @@ class StdioServerTests(unittest.TestCase):
         async def work(session):
             instructions = session.instructions or ""
             roles = await session.call_tool("contexture_discover", {})
-            role_ref = roles.structured_content["roles"][0]["ref"]
+            role_ref = next(
+                card["ref"]
+                for card in roles.structured_content["roles"]
+                if card["name"] == "incident-response"
+            )
             role = await session.call_tool("contexture_open", {"ref": role_ref})
             skill_ref = role.structured_content["skills"][0]["ref"]
             opened = await session.call_tool("contexture_open", {"ref": skill_ref})
@@ -285,11 +316,11 @@ class StdioServerTests(unittest.TestCase):
         async def work(session):
             opened = await session.call_tool(
                 "contexture_open",
-                {"ref": "kubernetes-incident-responder/crash-loop-runbook"},
+                {"ref": "kubernetes-platform/incident-response/crash-loop-runbook"},
             )
             read = await session.call_tool(
                 "contexture_read",
-                {"ref": "kubernetes-incident-responder/crash-loop-runbook"},
+                {"ref": "kubernetes-platform/incident-response/crash-loop-runbook"},
             )
             return opened.structured_content, read.content[0].text
 

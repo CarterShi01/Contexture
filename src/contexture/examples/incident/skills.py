@@ -38,4 +38,28 @@ Constraints:
 """
 
 
-__all__ = ["DiagnoseCrashLoopBackOff"]
+class RollBackAFailedRelease(Skill):
+    """Decide whether to roll a release back, and what to capture first."""
+
+    name = "roll-back-a-failed-release"
+
+    instructions = """\
+A rollback destroys the evidence it was called for. Work in this order.
+
+1. Read contexture://runbooks/rollback-policy before doing anything else.
+2. Call get_rollout_status. Compare the current and previous image: if they
+   differ only in a tag, the cause may not be in the image at all.
+3. Establish the cause first, using the incident-response role. A rollback that
+   follows a guess will be needed again on the next release.
+4. Only then call roll_back_deployment, and say plainly what evidence is lost.
+
+Constraints:
+- Do not roll back before the cause is known and the evidence is captured.
+- A configuration fault follows the previous revision back. Say so rather than
+  presenting a rollback as a fix.
+- roll_back_deployment changes the cluster. It is not read-only, so it must be
+  run through contexture_invoke and a human may be asked first.\
+"""
+
+
+__all__ = ["DiagnoseCrashLoopBackOff", "RollBackAFailedRelease"]

@@ -103,10 +103,72 @@ class GetPodEvents(Tool):
         return [PodEvent(**event) for event in fixtures.POD_EVENTS]
 
 
+
+
+
+@dataclass
+class RolloutStatus:
+    """Where one Deployment's rollout currently stands."""
+
+    namespace: str
+    deployment: str
+    current_revision: int
+    previous_revision: int
+    current_image: str
+    previous_image: str
+    updated_replicas: int
+    available_replicas: int
+    rolled_out_at: str
+
+
+def _require_known_deployment(namespace: str, deployment: str) -> None:
+    if namespace == fixtures.NAMESPACE and deployment == fixtures.DEPLOYMENT:
+        return
+    raise NodeNotFoundError(
+        f"No deployment {deployment!r} in namespace {namespace!r}. This demo "
+        f"serves a single fixed incident: deployment {fixtures.DEPLOYMENT!r} "
+        f"in namespace {fixtures.NAMESPACE!r}."
+    )
+
+
+class GetRolloutStatus(Tool):
+    """Return the current and previous revision of a Deployment's rollout."""
+
+    name = "get_rollout_status"
+    read_only = True
+
+    async def invoke(self, namespace: str, deployment: str) -> RolloutStatus:
+        _require_known_deployment(namespace, deployment)
+        return RolloutStatus(**fixtures.ROLLOUT_STATUS)
+
+
+class RollBackDeployment(Tool):
+    """Restore a Deployment's previous revision, replacing its running Pods."""
+
+    name = "roll_back_deployment"
+    # Not read-only, so it is reached through contexture_invoke and a host can
+    # put a human in front of it. This is the demo's one destructive path, and
+    # it exists so the writing door is exercised end to end.
+    read_only = False
+
+    async def invoke(self, namespace: str, deployment: str) -> str:
+        _require_known_deployment(namespace, deployment)
+        status = fixtures.ROLLOUT_STATUS
+        return (
+            f"Rolled {namespace}/{deployment} back from revision "
+            f"{status['current_revision']} to {status['previous_revision']} "
+            f"({status['previous_image']}). The failing Pods have been replaced, "
+            "so their logs and events are no longer available."
+        )
+
+
 __all__ = [
     "GetPodEvents",
     "GetPodLogs",
     "GetPodStatus",
+    "GetRolloutStatus",
     "PodEvent",
     "PodStatus",
+    "RollBackDeployment",
+    "RolloutStatus",
 ]

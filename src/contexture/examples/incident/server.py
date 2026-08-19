@@ -10,10 +10,10 @@ particular agent runtime. Claude Code and Codex run this same command.
 from __future__ import annotations
 
 from contexture.server import ContextureApp
-from .role import KubernetesIncidentResponder
+from .role import KubernetesPlatform
 
 app = ContextureApp(
-    roots=KubernetesIncidentResponder(),
+    roots=KubernetesPlatform(),
     name="contexture-demo",
 )
 

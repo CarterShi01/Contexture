@@ -86,3 +86,39 @@ restarts, so the symptom is visible long before the cause is.
 Restarting the Pod does not repair a configuration error; it produces restart
 15. Identify the cause before recommending any change.
 """
+
+
+DEPLOYMENT = "payments-api"
+
+ROLLOUT_STATUS = {
+    "namespace": NAMESPACE,
+    "deployment": DEPLOYMENT,
+    "current_revision": 9,
+    "previous_revision": 8,
+    "current_image": "registry.internal/payments-api:1.8.2",
+    "previous_image": "registry.internal/payments-api:1.8.1",
+    "updated_replicas": 3,
+    "available_replicas": 0,
+    "rolled_out_at": "2026-08-19T09:11:47Z",
+}
+
+#: The write path is a fixture too. A demo that could really roll a cluster
+#: back would be demonstrating a cluster, not a framework.
+ROLLBACK_POLICY = """\
+# Policy: rolling back a failed release
+
+A rollback is a remediation, not a diagnosis. It restores the previous revision
+and destroys the evidence of why the current one failed.
+
+Before rolling back:
+
+- Establish the cause from the workload's own output. A rollback that follows a
+  guess teaches nothing and will be needed again on the next release.
+- Capture logs and events first. The failing Pods are replaced immediately.
+- Check whether the cause is in the image at all. A missing environment
+  variable, a bad ConfigMap, or an absent Secret follows the previous revision
+  back and reappears.
+
+After rolling back, the incident is not closed. The release that failed is
+still the release that will be re-attempted.
+"""
