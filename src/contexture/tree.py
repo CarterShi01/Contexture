@@ -5,11 +5,15 @@ itself. Above it sit the five entry points `contexture.server` puts on the
 wire. This module is the whole of what joins them, and the whole of the
 navigation model.
 
-**Disclosure splits by kind, not by depth.** The role skeleton is delivered
-whole: a role card carries no instructions and no schema, so the entire
-organizational chart is cheap, and choosing between siblings requires seeing
-all of them — what cannot be seen together is guessed between rather than
-chosen between. Everything a role holds waits until that role is opened.
+**One call shows one level of siblings.** Choosing between siblings requires
+seeing all of them — what cannot be seen together is guessed between rather
+than chosen between — so a level always arrives whole. It does not follow that
+every level should arrive at once, and until v0.2.0 this module drew that
+conclusion: `skeleton()` walked the entire forest, which is affordable at the
+six roles the argument was traced against and is 440,000 tokens at eleven
+thousand. `discover` now answers with the roots, and each `open` answers with
+one more level of sub-roles alongside everything else that role holds. The
+role axis is as lazy as every other axis; see ADR 007.
 
 **A reference is a path.**::
 
@@ -101,17 +105,24 @@ class ContextTree:
     # ---- 1. the skeleton -------------------------------------------------
 
     def skeleton(self) -> CompiledContext:
-        """Every role in the forest as a card, and nothing else.
+        """The roots, as cards. One level, like every other call.
 
-        This is the whole of the first phase. It is safe to deliver in full,
-        and cheap enough to put in the server's bootstrap text, because a role
-        card is three short strings and a path.
+        This is the top sibling set and nothing below it: a root's children
+        arrive when that root is opened, which an agent must do anyway to get
+        its instructions. The cost of entering this server is therefore the
+        number of roots, not the size of the forest.
         """
 
-        return {"roles": [_card(role, ref) for ref, role in self.roles_with_refs()]}
+        return {"roles": [_card(root, root.name) for root in self.roots]}
 
     def roles_with_refs(self) -> Iterator[tuple[str, Role]]:
-        """Walk the role axis depth-first, yielding each role's reference."""
+        """Walk the whole role axis depth-first, yielding each role's reference.
+
+        This is for callers that legitimately want the entire forest at once —
+        `contexture list` printing a tree to a terminal, or a test enumerating
+        what a server can be asked. It is *not* what an agent is given; see
+        `skeleton`.
+        """
 
         def walk(role: Role, ref: str) -> Iterator[tuple[str, Role]]:
             yield ref, role
@@ -120,6 +131,23 @@ class ContextTree:
 
         for root in self.roots:
             yield from walk(root, root.name)
+
+    def roles_by_level(self) -> Iterator[tuple[str, Role]]:
+        """Walk the role axis breadth-first: every root, then every child.
+
+        Ordering matters wherever the walk is going to be *cut off*. A
+        depth-first roster truncated to a budget spends it on one deep spine
+        and never mentions the root's siblings, which is the worst possible
+        answer for something whose only job is routing.
+        """
+
+        queue: list[tuple[str, Role]] = [(root.name, root) for root in self.roots]
+        while queue:
+            ref, role = queue.pop(0)
+            yield ref, role
+            queue.extend(
+                (f"{ref}{SEPARATOR}{child.name}", child) for child in role.children
+            )
 
     # ---- 2. resolution ---------------------------------------------------
 

@@ -158,12 +158,17 @@ class StdioServerTests(unittest.TestCase):
         """The whole chain: skeleton, open a role, open its skill, gather, read."""
 
         async def work(session):
-            # Navigate rather than assume: the skeleton names the specialisms,
-            # and the one that matches a restart loop is chosen from it.
-            roles = await session.call_tool("contexture_discover", {})
+            # Navigate rather than assume, one level per call: discover names
+            # the roots, opening the root names its specialisms, and the one
+            # that matches a restart loop is chosen from those.
+            roots = await session.call_tool("contexture_discover", {})
+            root_ref = roots.structured_content["roles"][0]["ref"]
+            platform = await session.call_tool(
+                "contexture_open", {"ref": root_ref}
+            )
             role_ref = next(
                 card["ref"]
-                for card in roles.structured_content["roles"]
+                for card in platform.structured_content["sub_roles"]
                 if card["name"] == "incident-response"
             )
 
@@ -279,16 +284,20 @@ class StdioServerTests(unittest.TestCase):
     def test_the_skeleton_never_leaks_a_procedure_or_a_schema(self) -> None:
         """Progressive disclosure, asserted where it can actually be violated.
 
-        The skeleton is delivered whole, so it is the one payload every session
-        pays for unconditionally. Nothing expensive may ride along in it.
+        The bootstrap text and the first call are what every session pays for
+        unconditionally. Nothing expensive may ride along in either.
         """
 
         async def work(session):
             instructions = session.instructions or ""
-            roles = await session.call_tool("contexture_discover", {})
+            roots = await session.call_tool("contexture_discover", {})
+            root_ref = roots.structured_content["roles"][0]["ref"]
+            platform = await session.call_tool(
+                "contexture_open", {"ref": root_ref}
+            )
             role_ref = next(
                 card["ref"]
-                for card in roles.structured_content["roles"]
+                for card in platform.structured_content["sub_roles"]
                 if card["name"] == "incident-response"
             )
             role = await session.call_tool("contexture_open", {"ref": role_ref})
@@ -296,17 +305,20 @@ class StdioServerTests(unittest.TestCase):
             opened = await session.call_tool("contexture_open", {"ref": skill_ref})
             return (
                 instructions,
-                str(roles.structured_content),
+                str(roots.structured_content),
                 str(role.structured_content),
                 opened.structured_content,
             )
 
-        bootstrap, skeleton, role, opened = _run(work)
+        bootstrap, roots_payload, role, opened = _run(work)
         procedure = "Do not recommend restarting or deleting the Pod"
 
-        for payload in (bootstrap, skeleton):
+        for payload in (bootstrap, roots_payload):
             self.assertNotIn(procedure, payload)
             self.assertNotIn("input_schema", payload)
+        # The first call names the roots and nothing beneath them, so entering
+        # a large forest costs the roots rather than the forest.
+        self.assertNotIn("incident-response", roots_payload)
         self.assertNotIn(procedure, role)
         self.assertIn(procedure, opened["instructions"])
 

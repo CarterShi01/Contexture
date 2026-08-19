@@ -30,6 +30,37 @@ asks in a subprocess, the way `test_layering.py` already did.
 
 ---
 
+## What ADR 007 has put back into question
+
+Everything above was verified against the tree as it stood at `0920b5a`.
+[ADR 007](docs/adr/007-the-role-axis-is-lazy-too.md) landed after it and changes
+the first step of exactly the thing that run proved.
+
+**The Claude Code result is the one to re-take.** It walked
+`discover → open(role) → open(skill)`, because `discover` then returned every
+role in the forest and the specialism was on that first list. It now returns the
+roots only, so the same walk is `discover → open(root) → open(role) →
+open(skill)` — one more hop before any work. The observation that the host
+"declined to assert anything about a role whose card it had seen and not opened"
+also refers to a card that now arrives one call later than it did.
+
+None of this makes the recorded run wrong. It makes it a record of a different
+navigation model, and `docs/verification/hosts.md` should say which one it is.
+
+**Re-run and record:**
+
+1. The same prompt as the recorded run. Does the host open the root and read its
+   sub-roles, or does it stop at the roots and guess?
+2. Whether the extra hop costs a turn or is folded into one.
+3. The demo is only two levels deep. A host that copes there has not been shown
+   to cope at four, which is the shape ADR 007 exists for.
+
+Everything else above still holds: the SDK observations, the scaffold under
+`uv`, the wire renderings, and the registration loop are untouched by ADR 007.
+
+Two counts moved with it: the suite is **144** tests (was 142), and the atlas is
+**9** mermaid blocks (was 8) — plate 05 was redrawn and gained a chart.
+
 ---
 
 ## 0. What changed in v0.2.0, and what it breaks
@@ -44,6 +75,8 @@ Read the ADRs for the reasoning; this is what a consumer notices.
 | `NodeNotFoundError` subclassing `KeyError` | catch `NodeNotFoundError` or `ContextureError` | 006 |
 | prose inside `NodeNotFoundError` | `.reason` (a `LookupFailure`) plus `.ref` / `.segment` / `.scope` / `.kind` / `.wanted` / `.known` | 006 |
 | `Projection`, and `build_server()` returning a tuple | `build_server()` returns the `MCPServer`; ask it what it registered | 006 |
+| `contexture_discover` returning the whole forest | it returns the roots; sub-roles arrive from `contexture_open`, one level per call | [007](docs/adr/007-the-role-axis-is-lazy-too.md) |
+| `Transport` accepting `"sse"` | `"stdio"` or `"streamable-http"` | 006 |
 
 `server/` gained `contract.py`, which owns every string an agent reads. The
 version was bumped to `0.2.0` in `pyproject.toml` and `core/constants.py` so
@@ -215,8 +248,9 @@ style across a large team. If that matters, the mechanism is identical to
   It is hand-maintained and does not regenerate. After editing, run
   `node docs/atlas/check.mjs` (needs `npm install jsdom@22`) — a mermaid syntax
   error is otherwise invisible until someone opens the page, and one was caught
-  that way while writing plate 07. **Run 2026-08-19 against this commit: eight
-  blocks, all parse.** ESM ignores `NODE_PATH`, so either install `jsdom` beside
+  that way while writing plate 07, and again while redrawing plate 05 for
+  ADR 007 (`call` is a reserved word in a mermaid flowchart). **Run 2026-08-19:
+  eight blocks all parsed at `0920b5a`; nine parse now.** ESM ignores `NODE_PATH`, so either install `jsdom` beside
   the script or run a copy of it from wherever `node_modules` is, passing the
   atlas and vendor paths as `argv[2]` and `argv[3]`.
 - **[`docs/02-framework-layers.md`](docs/02-framework-layers.md)** carries a
@@ -228,7 +262,10 @@ style across a large team. If that matters, the mechanism is identical to
   atlas plate covers how a business project is laid out — arguably the plate a
   newcomer needs first.
 - **`README.md`** leads with `uvx contexture-mcp new`, which does not work until
-  item 2 is done.
+  item 1 is done.
+- **[`docs/verification/hosts.md`](docs/verification/hosts.md)** records a run
+  against the pre-ADR-007 navigation model and does not yet say so. See
+  "What ADR 007 has put back into question" above.
 
 ---
 

@@ -53,10 +53,12 @@ GATEWAY = (
         name=DISCOVER_TOOL,
         read_only=True,
         description=(
-            "List every role this server serves as a short routing card. Start "
-            "here, then open the role that matches the task. Cards never carry "
-            "instructions, tool schemas, or document content — opening is what "
-            "delivers those. Each card carries the ref that opens it."
+            "List the top-level roles this server serves, as short routing "
+            "cards. Start here, then open the one that matches the task; its "
+            "sub-roles arrive with it, one level at a time, so a large tree "
+            "costs only the branch you enter. Cards never carry instructions, "
+            "tool schemas, or document content — opening is what delivers "
+            "those. Each card carries the ref that opens it."
         ),
     ),
     GatewayTool(
@@ -107,13 +109,14 @@ GATEWAY_TOOLS = tuple(entry.name for entry in GATEWAY)
 
 #: The self-contained opening. Keep this under 512 characters.
 PREAMBLE = f"""\
-Everything this server offers is behind {OPEN_TOOL}. The roles listed below
-are the whole map: open the one that fits the task to see its skills, tools and
-resources, then open the skill you chose to get its procedure.
+Everything this server offers is behind {OPEN_TOOL}. Start from the roles
+below: open the one that fits the task to see its skills, tools, resources
+and sub-roles, then open the skill you chose for its procedure. Each call
+reveals one level; keep opening down the branch that fits.
 Run a tool with {INVOKE_READ_ONLY_TOOL} or {INVOKE_TOOL}, whichever its
 card says, passing the ref and arguments from that card.
-Collect evidence with the tools before stating a cause, and do not assert system
-state you have not read.\
+Collect evidence before stating a cause; never assert system state you have
+not read.\
 """
 
 #: Appended once the roster has been listed.
@@ -145,8 +148,8 @@ def unresolved(failure: NodeNotFoundError) -> str:
     if reason is LookupFailure.NO_SUCH_ROOT:
         return (
             f"No root role named {failure.scope!r}. This server serves: "
-            f"{known}. Call {DISCOVER_TOOL} to see each one with the ref that "
-            "opens it."
+            f"{known}. Call {DISCOVER_TOOL} for their cards, then open one to "
+            "reach what is beneath it."
         )
 
     if reason is LookupFailure.NOT_A_CONTAINER:

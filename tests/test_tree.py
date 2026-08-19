@@ -90,17 +90,42 @@ def _tree() -> ContextTree:
 
 
 class SkeletonTests(unittest.TestCase):
-    def test_the_skeleton_is_every_role_and_only_roles(self) -> None:
+    def test_the_skeleton_is_the_roots_and_stops_there(self) -> None:
+        """One call shows one level of siblings — including the first one.
+
+        Sub-roles arrive from opening the root, which an agent must do anyway
+        to get its instructions, so entering this server costs the number of
+        roots rather than the size of the forest.
+        """
+
         cards = _tree().skeleton()["roles"]
 
-        self.assertEqual(
-            [card["ref"] for card in cards],
-            ["team", "team/troubleshooter", "team/operator"],
-        )
+        self.assertEqual([card["ref"] for card in cards], ["team"])
         self.assertTrue(all(card["kind"] == "role" for card in cards))
 
+    def test_the_cost_of_entering_does_not_grow_with_depth(self) -> None:
+        """The regression this exists to catch, stated as a number."""
+
+        shallow = Role(
+            name="team", description="A team.", instructions="Route.",
+            children=[Troubleshooter(), Operator()],
+        )
+        deep = shallow
+        for level in range(6):
+            deep = Role(
+                name=f"tier-{level}",
+                description="A tier.",
+                instructions="Route.",
+                children=[deep],
+            )
+
+        self.assertEqual(
+            len(ContextTree.of(shallow).skeleton()["roles"]),
+            len(ContextTree.of(deep).skeleton()["roles"]),
+        )
+
     def test_the_skeleton_carries_no_instructions_and_no_schemas(self) -> None:
-        """This is what makes handing over the whole skeleton affordable."""
+        """A routing card is a name, a sentence and a path. Nothing else."""
 
         rendered = json.dumps(_tree().skeleton())
 
@@ -121,10 +146,14 @@ class CardTests(unittest.TestCase):
 
         tree = _tree()
         cards = list(tree.skeleton()["roles"])
-        for card in list(cards):
-            opened = tree.open(card["ref"])
+        # Walk the forest the way an agent has to now: one level per call,
+        # following only refs that were actually handed over.
+        pending = [card["ref"] for card in cards]
+        while pending:
+            opened = tree.open(pending.pop())
             for group in ("sub_roles", "skills", "tools", "resources"):
                 cards.extend(opened[group])
+            pending.extend(card["ref"] for card in opened["sub_roles"])
 
         self.assertGreater(len(cards), 6)
         for card in cards:
@@ -247,13 +276,30 @@ class DepthTests(unittest.TestCase):
             )
         return role
 
-    def test_the_skeleton_reaches_every_depth(self) -> None:
+    def test_the_skeleton_shows_only_the_root_however_deep_the_tower(self) -> None:
         tree = ContextTree.of(self._tower())
 
+        self.assertEqual([c["ref"] for c in tree.skeleton()["roles"]], ["l1"])
         self.assertEqual(
             [ref for ref, _ in tree.roles_with_refs()],
             ["l1", "l1/l2", "l1/l2/l3", "l1/l2/l3/l4"],
         )
+
+    def test_a_breadth_first_walk_finishes_a_level_before_descending(self) -> None:
+        """Ordering matters wherever the walk gets cut off by a budget."""
+
+        wide = Role(
+            name="root", description="Root.", instructions="Route.",
+            children=[
+                Role(name=f"a{i}", description="A.", instructions="Route.",
+                     children=[Role(name=f"a{i}-{j}", description="B.",
+                                    instructions="Route.") for j in range(2)])
+                for i in range(3)
+            ],
+        )
+        refs = [ref for ref, _ in ContextTree.of(wide).roles_by_level()]
+
+        self.assertEqual(refs[:4], ["root", "root/a0", "root/a1", "root/a2"])
 
     def test_opening_a_role_never_recurses_past_its_own_children(self) -> None:
         """Each level costs one call. That is the whole point of the tree."""

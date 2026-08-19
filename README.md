@@ -248,26 +248,33 @@ node.compile("route")   # what is this, and when should it be picked?
 node.compile("active")  # the detail, now that it has been picked
 ```
 
-**Disclosure splits by kind, not by depth.** The role skeleton goes out whole,
-and everything a role holds waits until that role is opened:
+**One call shows one level.** Every axis is lazy — the role axis included:
 
 ```text
-contexture_discover()        → every role in the forest, one card each
-contexture_open(role)        → its instructions, and a card for each skill,
-                               tool and resource it holds — tools with the
-                               schema needed to call them
+contexture_discover()        → the root roles, one card each
+contexture_open(role)        → its instructions, and a card for each sub-role,
+                               skill, tool and resource it holds — tools with
+                               the schema needed to call them
 contexture_open(skill)       → the full procedure, here and nowhere else
 ```
 
-A role card is a name, a sentence and a path, so the whole organizational chart
-costs almost nothing — and choosing between siblings requires seeing all of
-them. What cannot be seen together is guessed between rather than chosen
-between. What a role holds is the expensive part, and a session pays for only
-the branches it enters.
+A level always arrives whole, because choosing between siblings requires seeing
+all of them: what cannot be seen together is guessed between rather than chosen
+between. It does not follow that every level should arrive at once. Entering a
+server costs the number of roots, and a branch costs what is on the way down
+it — so a forest of eleven thousand roles is as cheap to enter as one of three.
+[ADR 007](docs/adr/007-the-role-axis-is-lazy-too.md) has the measurements, and
+what it cost to get this wrong first.
 
-The skeleton also ships inside the server's instructions, because a gateway
+The one obligation this puts on a declaration: **a role's description has to
+route for its whole subtree**, because an agent choosing among siblings cannot
+see the grandchildren.
+
+A roster of roles also ships inside the server's instructions, because a gateway
 whose five tool names all begin `contexture_` otherwise tells a host nothing
-about what the server is for.
+about what the server is for. That roster costs no round trip, so it keeps going
+while there is budget — breadth-first, so a forest too large for it is cut after
+the levels that route rather than after one deep spine.
 
 Each card carries the `ref` that opens it — a path, like
 `kubernetes-platform/incident-response/get_pod_logs`. **That ref is the agent's
@@ -402,6 +409,10 @@ src/contexture/
 - [`docs/adr/006-errors-carry-facts-and-the-contract-is-one-module.md`](docs/adr/006-errors-carry-facts-and-the-contract-is-one-module.md)
   — why a failed lookup carries facts instead of a sentence, why everything an
   agent reads moved into one module, and why `Role` took back its own lookup.
+- [`docs/adr/007-the-role-axis-is-lazy-too.md`](docs/adr/007-the-role-axis-is-lazy-too.md)
+  — why the role skeleton stopped being delivered whole: the argument for it
+  was about one level of siblings and got applied to all of them, which is
+  free at six roles and does not fit in a context window at eleven thousand.
 - [`docs/atlas/index.html`](docs/atlas/index.html) — an offline visual atlas;
   open it directly in a browser. After editing it, run
   `npm install jsdom@22 && node docs/atlas/check.mjs` to confirm every diagram

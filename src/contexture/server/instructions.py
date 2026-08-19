@@ -13,7 +13,7 @@ Two host limits shape this file, and both are real rather than defensive:
   self-contained, because that is what it has in hand while deciding whether
   to use the server at all.
 
-The role skeleton is included here rather than left for the first
+A roster is included here rather than left for the first
 `contexture_discover` call. It is static, it is small — a role card is a name,
 a sentence and a path — and putting it here answers the question a host asks
 before it has called anything: *what is this server for?* Without it, a gateway
@@ -21,8 +21,12 @@ server presents five tools whose names all begin with `contexture_` and no
 sign that any of them lead to Kubernetes. With it, the first call can be the
 one that opens the right role.
 
-When a forest is too large for the budget, the roster is cut and says so;
-`contexture_discover` is the way to read the rest.
+Unlike `contexture_discover`, which answers with the roots and nothing below
+them, this roster keeps going while there is budget left: it costs no round
+trip, and a small forest fits whole. It walks **breadth-first**, because a
+roster is a list that gets cut off, and a depth-first cut spends the budget on
+one deep spine while never mentioning the root's siblings — the worst possible
+answer for text whose only job is routing.
 """
 
 from __future__ import annotations
@@ -43,7 +47,7 @@ def build(
     """Return server instructions: the contract first, the roster second."""
 
     entries = [
-        f"- {ref}: {role.description}" for ref, role in tree.roles_with_refs()
+        f"- {ref}: {role.description}" for ref, role in tree.roles_by_level()
     ]
 
     roster: list[str] = []
@@ -52,8 +56,8 @@ def build(
         if spent + len(entry) > budget:
             remaining = len(entries) - index
             roster.append(
-                f"- ...and {remaining} more role(s); call {DISCOVER_TOOL} "
-                "for the full list."
+                f"- ...and {remaining} more role(s) below these; open one of "
+                "the roles above to see what it holds."
             )
             break
         roster.append(entry)

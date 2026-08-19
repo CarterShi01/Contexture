@@ -13,7 +13,7 @@ instead, and arrive when the role holding it is opened.
 
 What is on the surface is five tools, whatever the declaration contains::
 
-    contexture_discover              the role skeleton
+    contexture_discover              the root roles, one level
     contexture_open                  one node's detail, plus its members' cards
     contexture_read                  a resource's content
     contexture_invoke_read_only      run a tool that leaves the world unchanged

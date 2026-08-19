@@ -333,7 +333,7 @@
       <span><b>16</b> 框架源文件</span><span class="sep">·</span>
       <span><b>23</b> 个类</span><span class="sep">·</span>
       <span><b>4</b> 层单向依赖</span><span class="sep">·</span>
-      <span><b>112</b> 个测试用例</span><span class="sep">·</span>
+      <span><b>120</b> 个测试用例</span><span class="sep">·</span>
       <span>MCP <b>2026-07-28</b></span>
     </p>
   </header>
@@ -366,7 +366,7 @@
     业务能力的名字、描述、schema 只活在 payload 里,打开它所属的角色时才到达。
     <code>invoke</code> 拆成两扇门,是 <code>readOnlyHint</code> 在网关下唯一的活法:
     宿主看不见业务 tool 了,但看得见走的是哪扇门,而<strong>门与 ref 不一致的调用被拒绝而不是被执行</strong>。<br><br>
-    披露按<strong>种类</strong>切而不是按深度:角色骨架一次给全(它没有 schema,便宜),
+    披露按<strong>种类</strong>切而不是按深度:角色骨架一次给全(它没有 schema,便宜)——<strong>这一条在 v0.2.0 被 ADR 007 推翻了一半,见下</strong>,
     角色里的东西等被打开。<code>ContextTree</code> 一个类接替了
     <code>discovery.py</code> + <code>compiler.py</code> + <code>core/registry.py</code>,
     八个类变一个。代价也记在 ADR 004 里:业务 tool 的 outputSchema 没了,
@@ -385,6 +385,22 @@
     <code>core/errors.py</code> 剩下的五个异常都有活着的代码会抛;
     <code>cli.py</code> 成为<strong>全包唯一碰文件系统的模块</strong>,而且只用来生成项目——
     "从声明到线上这条路上没有任何模块开过文件",这条断言比原来那条强。
+  </div>
+
+  <div class="callout" style="margin-bottom: 40px;">
+    <strong>v0.2.0 变更:角色轴也变懒了(ADR 007,部分推翻 ADR 004)。</strong>
+    ADR 004 的依据是 <em>every sibling is visible before the choice</em>——
+    这要求<strong>一层兄弟</strong>;而实现给的是<strong>森林里所有层的兄弟</strong>。
+    在它 traced 的那个 6 角色两层例子上两者是同一个东西,于是结论被从 n=6 外推到了所有 n。<br><br>
+    量出来:交叉点约 30 个角色。585 个角色时骨架 21,000 token——<strong>在 agent 还没问任何问题之前就付掉</strong>,
+    正是网关存在的理由要消灭的那种开销;11,111 个角色时 440,808 token,<strong>根本装不进 200k 窗口</strong>,
+    服务器不可用而代码里没有任何地方说这件事。<br><br>
+    现在 <code>contexture_discover</code> 只答根,其余靠 <code>contexture_open</code> 一层一层出来——
+    而 <code>open()</code> 本来就一直在返回 <code>sub_roles</code> 卡片,所以这次改动主要是<strong>减法</strong>。
+    代价两条写在明处:到第 d 层要 d 次往返(小树因此略贵),
+    以及<strong>角色的 description 从此必须能替它整棵子树做路由</strong>。<br><br>
+    连带修掉一个:bootstrap 的 roster 原来按深度优先截断,1200 字预算全花在一条深脊上,
+    根的其他子角色一个都不提。改成广度优先。
   </div>
 
   <div class="callout" style="margin-bottom: 40px;">
@@ -432,7 +448,7 @@
           <ul>
             <li><div class="row"><span class="path">__init__.py</span><span class="desc">51 行 — 公开门面,只导出<strong>用来声明</strong>的东西;<code>ContextTree</code> 是用来<strong>运行</strong>的,故意不在这里</span></div></li>
             <li><div class="row"><span class="path">cli.py</span><span class="desc">416 行 · 3 类 — <code>contexture new</code> 生成项目 · <code>contexture serve</code> 起服务 · <code>contexture list</code> 打印它会服务什么 · <code>contexture demo</code>。骑在所有层之上,被任何层 import 都算违规</span></div></li>
-            <li><div class="row"><span class="path">tree.py</span><span class="desc">311 行 · <strong>1 类</strong> — <strong>ContextTree</strong>:<code>skeleton()</code> 骨架 · <code>find()</code> 解析 · <code>open()</code> 打开。接替了原来 compiler + discovery + registry 的八个类</span></div></li>
+            <li><div class="row"><span class="path">tree.py</span><span class="desc">339 行 · <strong>1 类</strong> — <strong>ContextTree</strong>:<code>skeleton()</code> 根卡片 · <code>find()</code> 解析 · <code>open()</code> 打开一层。接替了原来 compiler + discovery + registry 的八个类</span></div></li>
             <li>
               <div class="row"><span class="path dir">core/</span><span class="desc">对象模型 · 零 I/O · 零线路 · 不知道 MCP 存在 · 唯一必须的层</span></div>
               <ul>
@@ -450,10 +466,10 @@
             <li>
               <div class="row"><span class="path dir">server/</span><span class="desc"><strong>主路终点</strong> — 原生 MCP Server,唯一 import 官方 SDK 的层</span></div>
               <ul>
-                <li><div class="row"><span class="path">contract.py</span><span class="desc">217 行 · 1 类 — <strong>agent 读到的一切</strong>:五个动词的名字与描述 · PREAMBLE · 查找失败怎么变成一句话。<strong>不 import SDK</strong></span></div></li>
+                <li><div class="row"><span class="path">contract.py</span><span class="desc">220 行 · 1 类 — <strong>agent 读到的一切</strong>:五个动词的名字与描述 · PREAMBLE · 查找失败怎么变成一句话。<strong>不 import SDK</strong></span></div></li>
                 <li><div class="row"><span class="path">app.py</span><span class="desc">105 行 — ContextureApp,业务唯一需要接触的对象;不继承 SDK 的 MCPServer,而是组合它</span></div></li>
                 <li><div class="row"><span class="path">projection.py</span><span class="desc">223 行 · 2 类 — 把 contract 挂到 SDK 上(循环注册,不是五处 add_tool)· Dispatch(推 schema 与校验参数,<strong>不上表面</strong>)· 两扇门的一致性检查。<code>project()</code> 不返回任何东西:表面固定之后它只能复述常量</span></div></li>
-                <li><div class="row"><span class="path">instructions.py</span><span class="desc">74 行 — 只管把 contract <strong>塞进某个宿主的版面</strong>:前 512 字自包含(Codex),总长 &lt;2KB(Claude Code)</span></div></li>
+                <li><div class="row"><span class="path">instructions.py</span><span class="desc">78 行 — 只管把 contract <strong>塞进某个宿主的版面</strong>:前 512 字自包含(Codex),总长 &lt;2KB(Claude Code)</span></div></li>
                 <li><div class="row"><span class="path">registration.py</span><span class="desc">96 行 — 生成指向<strong>本 server</strong> 的宿主配置;不 import 包内任何东西</span></div></li>
               </ul>
             </li>
@@ -769,49 +785,66 @@ flowchart LR
 
   <section class="plate" id="plate-05">
     <p class="plate-eyebrow">Plate 05</p>
-    <h2 class="plate-title">披露成本 — 一次会话到底付了多少</h2>
-    <p class="plate-claim">按种类切,不按深度切。角色骨架一次给全<strong>因为它便宜</strong>,而且看不全兄弟就只能猜;角色里的东西<strong>因为贵</strong>所以等被打开。这两句是算出来的,不是审美。</p>
+    <h2 class="plate-title">披露成本 — 一次调用只看一层</h2>
+    <p class="plate-claim">一层<strong>总是给全</strong>,因为看不全兄弟就只能猜;但<strong>不能因此推出所有层都该一次给全</strong>。这是 v0.2.0 推翻的一条结论(ADR 007)——它在原来那个 6 角色的例子上是对的,在 11,111 个角色上装不进 context window。</p>
 
     <div class="figure-wrap">
       <figure>
         <pre class="mermaid">
 flowchart LR
-    subgraph eager["一次给全 — 便宜且是路由前提"]
-        sk["角色骨架<br/><i>名字 · 一句话 · 路径</i><br/>6 个角色 ≈ 210 tok"]
-    end
-    subgraph lazy["按角色懒加载 — 贵且选中才有用"]
-        r1["incident-response<br/>instructions + 5 skill 卡<br/>+ 5 tool schema + 3 resource<br/>≈ 1,065 tok"]
-        r2["deployment-ops<br/><i>本次任务不打开</i><br/>0 tok"]
-        r3["cluster-admin · observability<br/>cost-governance<br/><i>不打开</i><br/>0 tok"]
-    end
-    proc["选中的那一份 procedure<br/>≈ 220 tok"]
+    d["<b>contexture_discover</b><br/>只给根角色<br/><i>进入的代价 = 根的个数<br/>与森林大小无关</i>"]
+    r0["<b>open(根)</b><br/>它的 instructions<br/>+ 每个子角色一张卡"]
+    r1["<b>open(选中的专科)</b><br/>instructions + skill 卡<br/>+ tool schema + resource 卡"]
+    proc["<b>open(选中的 skill)</b><br/>完整 procedure<br/><i>只有这里才有</i>"]
+    skip["其余兄弟分支<br/><i>0 tok — 从不打开</i>"]
+    deep["它们下面的一切<br/><i>0 tok — 连卡片都没发过</i>"]
 
-    sk -->|"contexture_open(role)"| r1
-    sk -.->|从不打开| r2
-    sk -.->|从不打开| r3
-    r1 -->|"contexture_open(skill)"| proc
+    d --> r0 --> r1 --> proc
+    r0 -.-> skip -.-> deep
 
-    style sk stroke-width:3px
+    style d stroke-width:3px
     style proc stroke-width:3px
-    style r2 stroke-dasharray: 5 5
-    style r3 stroke-dasharray: 5 5
+    style skip stroke-dasharray: 5 5
+    style deep stroke-dasharray: 5 5
         </pre>
-        <figcaption>同一个任务("checkout 的 pod 在 crashloop"),三种策略跑同一棵 6 角色 / 21 tool 的树,每次往返按 200 tok 的推理与包装计:<b>一次一层</b> 4 次往返 ≈ 2,745;<b>整棵树一次给全</b> 3 次往返 ≈ 4,085(其中约 1,080 花在四个永远不打开的域上);<b>按种类切</b> 3 次往返 ≈ 2,545。一次一层要花一次往返去问一层本来几乎不要钱的东西;整棵树要为没走的分支付能力卡片的钱。数字是按实测文本长度估的,不是分词器输出。</figcaption>
+        <figcaption>与旧图的差别只有一条虚线:<code>deep</code>。以前<strong>没打开的分支下面的角色卡片照样全发</strong>——那正是被推翻的部分。现在没进的枝,连它有几层都不告诉你。</figcaption>
       </figure>
     </div>
 
     <div class="callout warn">
-      <strong>交叉点是真的,而且 demo 曾经站在错的一边。</strong>
-      网关不是无条件更省:整片森林的 tool 数明显多于当前任务那一个分支时它才开始赢。
-      3 个 tool 全在一个分支的 demo 上,原生表面 ≈ 1,055,网关 ≈ 1,500 —— <em>网关更贵也更慢</em>。
-      粗算交叉在 8–10 个 tool 且跨多个角色。所以 demo 改成了三个角色:
-      新读者的第一印象不该正好落在这套论证不成立的那一侧。
+      <strong>论证滑在哪里:证明的是「广度」,实现的是「广度 × 深度」。</strong>
+      ADR 004 的依据原文是 <em>every sibling is visible before the choice</em>——
+      这要求<strong>一层兄弟</strong>。而它 traced 的例子是 6 个角色、两层深,
+      在那个尺寸上「一层兄弟」和「整棵树」是同一个东西,于是结论被从 n=6 外推到了所有 n。
+    </div>
+
+    <div class="figure-wrap">
+      <figure>
+        <pre class="mermaid">
+xychart-beta
+    title "整片骨架 vs 逐层:总 token(往返按 200 计)"
+    x-axis ["6 角色", "13", "156", "585", "11111"]
+    y-axis "token(对数量级)" 0 --> 25000
+    bar [596, 841, 6083, 21845, 25000]
+    line [656, 957, 1540, 1852, 2727]
+        </pre>
+        <figcaption>柱 = 一次给全整片骨架,线 = 逐层。<strong>交叉点约在 30 个角色</strong>:之下柱更矮(0.9×,所以这个改动让小树略贵),之上迅速拉开——585 个角色时 11.8×。最右一柱实际值是 <b>441,208</b>,被 y 轴截断了,因为画到真实高度的话前面四根柱全变成一条线——<strong>它也确实装不进 200k 的窗口</strong>。</figcaption>
+      </figure>
     </div>
 
     <div class="plate-notes">
+      <p><strong>换来的代价,两条,都是真的。</strong>
+      一、到第 d 层要 d 次往返才开始干活,小树因此略贵(表里 0.9× 那两行)。
+      二、<strong>角色的 description 必须能替它整棵子树做路由</strong>——
+      agent 在兄弟之间选的时候看不见孙辈了。第二条刻意<em>不</em>用机制解决:
+      给卡片加子树摘要或计数,是在补一句没写好的描述的锅。</p>
+      <p><strong>bootstrap 里的 roster 是另一回事,故意不一样。</strong>
+      它不花往返,所以小森林不妨一次给全;它按<strong>广度优先</strong>走,
+      因为 roster 是会被预算<em>截断</em>的东西——深度优先的截断会把 1200 字全花在一条深脊上,
+      而根的其他子角色一个都不提,对只负责路由的文字来说是最坏的答案。</p>
       <p><strong>披露在一次会话内是单调的。</strong>打开过的东西不会再被收回去。
-      所以省下来的钱是真的,前提是一次会话只走几条分支;
-      一个把五个域全打开的会话,最终付的和全量常驻一样多——只是分期付。</p>
+      省下来的钱是真的,前提是一次会话只走几条分支;
+      一个把所有域全打开的会话,最终付的和全量常驻一样多——只是分期付。</p>
     </div>
   </section>
 
@@ -944,12 +977,16 @@ sequenceDiagram
     participant T as ContextTree
     participant D as Dispatch
 
-    Note over A,S: 连接时就拿到 bootstrap + 角色骨架<br/>(&lt;2KB,前 512 字自包含)
+    Note over A,S: 连接时就拿到 bootstrap + 一份 roster<br/>(&lt;2KB,前 512 字自包含)
     A->>S: contexture_discover()
     S->>T: skeleton()
-    T-->>A: 每个角色一张卡 [{kind, name, description, ref}]<br/>← 无 instructions,无 schema
+    T-->>A: 每个**根**角色一张卡 [{kind, name, description, ref}]<br/>← 无 instructions,无 schema,也没有子角色
 
-    Note over A: 从骨架里选分支。<br/>兄弟全都看得见,所以是"选"不是"猜"
+    A->>S: contexture_open(ref="kubernetes-platform")
+    S->>T: open(ref)
+    T-->>A: 根的 instructions + 子角色卡片<br/>← 一次一层,没进的枝连有几层都不告诉你
+
+    Note over A: 在这一层的兄弟之间选。<br/>兄弟全都看得见,所以是"选"不是"猜"
     A->>S: contexture_open(ref="kubernetes-platform/incident-response")
     S->>T: open(ref)
     T->>D: schema_of(tool) 逐个
@@ -975,7 +1012,7 @@ sequenceDiagram
     </div>
 
     <div class="callout">
-      <strong>一个进程服务整片森林。</strong> 既然树在 payload 里、骨架负责路由,
+      <strong>一个进程服务整片森林。</strong> 既然树在 payload 里、逐层披露负责路由,
       就没必要在启动时用 <code>--root-role</code> 钉死一个根。
       N 个叶子 role 仍然是 <strong>1 个进程</strong>,不是 N 个。
     </div>
