@@ -92,7 +92,7 @@ Cursor ──────┘
 ## Declare once
 
 ```python
-from contexture import MCPBinding, Role, Skill
+from contexture import Resource, Role, Skill, Tool
 
 class InspectPodFailure(Skill):
     """Diagnose why a Pod is crashing, restarting, or failing to become ready."""
@@ -110,17 +110,14 @@ class K8sTroubleshooter(Role):
 
     inspect_failures = InspectPodFailure
 
-    cluster = MCPBinding(
-        server=KUBERNETES,
-        allowed_tools=["get_pod_logs", "get_events"],
-        read_only_tools=["get_pod_logs", "get_events"],
-        allowed_resources=["resource://kubernetes/runbook/incidents"],
-    )
+    pod_logs = GetPodLogs
+    events = GetEvents
+    runbook = CrashLoopRunbook
 ```
 
 The class name becomes `k8s-troubleshooter`, the docstring becomes the routing
-description, and the declared members become the role's skills and grants.
-Nothing here names an agent runtime.
+description, and the declared members become the role's skills, tools, and
+resources. Nothing here names an agent runtime.
 
 Imperative construction still works exactly as before, and a declared role is
 an ordinary `Role`, so anything that accepts one accepts the other.
@@ -210,10 +207,8 @@ contexture.server         the native MCP server — the only layer importing mcp
         │  MCP
 Claude Code · Codex · Cursor · any MCP host
 
-        ┊ side roads
+        ┊ side road
 contexture.targets        rendered context files, for runtimes that cannot connect
-contexture.protocol       the outbound half: calling somebody else's MCP server
-contexture.execution      authorization and dispatch for those outbound calls
 ```
 
 Each layer may import the ones below it and never the reverse. `core` in
@@ -273,11 +268,6 @@ responsible for keeping a human in the loop. Contexture informs that decision by
 projecting each tool's `read_only` onto `readOnlyHint`, and by never letting
 that classification become an argument a model can fill in.
 
-For the outbound direction — calling somebody else's MCP server — the older
-model still applies unchanged: `MCPBinding` subsets a foreign catalog, the
-execution layer re-checks before running, and a refreshed catalog may not orphan
-an existing grant.
-
 ## Quick start
 
 Python 3.10 or newer.
@@ -285,7 +275,7 @@ Python 3.10 or newer.
 ```bash
 uv sync
 uv run contexture-incident-demo   # an MCP server over stdio
-uv run python run_tests.py        # 140 tests
+uv run python run_tests.py        # the full suite
 ```
 
 See [`src/contexture/examples/incident/`](src/contexture/examples/incident/) for
@@ -314,14 +304,12 @@ engineering-team
 ```text
 src/contexture/
 ├── core/            object model: context, role, skill, tools, resources,
-│                    servers, binding, registry, declarative
+│                    registry, declarative
 ├── compiler.py      route/active compilation and capability selection
 ├── discovery.py     refs, the capability graph, discover / get_context
 ├── server/          the MCP server: app, projection, instructions, registration
 ├── examples/        reference applications built on the public API only
-├── targets/         base, markdown, claude_code, codex, cursor, writer
-├── protocol/        messages, transport, client, host
-└── execution.py     authorization and dispatch
+└── targets/         base, markdown, claude_code, codex, cursor, writer
 ```
 
 ## Design documents

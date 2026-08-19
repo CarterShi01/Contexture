@@ -8,7 +8,8 @@ A business application should state its context once, in its own vocabulary:
         instructions = "Inspect before changing the cluster."
 
         diagnose = DiagnoseDeploymentFailure
-        cluster = MCPBinding(server=kubernetes, allowed_tools=["get_deployment"])
+        get_deployment = GetDeployment
+        runbook = RolloutRunbook
 
 This module turns that class body into a `Declaration`: an ordered, validated
 record of what the class stated, resolved across its whole inheritance chain.

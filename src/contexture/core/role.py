@@ -6,10 +6,8 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar, Iterable
 
 from . import declarative
-from .binding import MCPBinding
 from .context import CompileLevel, ContextNode
 from .errors import (
-    CapabilityDeniedError,
     DeclarationError,
     DuplicateNameError,
     ModelValidationError,
@@ -38,7 +36,8 @@ class Role(ContextNode):
             instructions = "Inspect before changing the cluster."
 
             diagnose = DiagnoseDeployment
-            cluster = MCPBinding(server=kubernetes, allowed_tools=["get_pods"])
+            inspect_logs = GetPodLogs
+            runbook = CrashLoopRunbook
 
     Subclassing states what one role *is*. It never states containment: a role
     that coordinates other roles holds them in `children`, whether it was
@@ -50,7 +49,6 @@ class Role(ContextNode):
     skills: list[Skill] = field(default_factory=list)
     tools: list[Tool] = field(default_factory=list)
     resources: list[Resource] = field(default_factory=list)
-    mcp_bindings: list[MCPBinding] = field(default_factory=list)
 
     kind: ClassVar[str] = "role"
 
@@ -66,7 +64,7 @@ class Role(ContextNode):
             return
         declaration = declarative.collect(
             cls,
-            member_types=(Role, Skill, Tool, Resource, MCPBinding),
+            member_types=(Role, Skill, Tool, Resource),
         )
         _validate_declaration(cls, declaration)
         cls.declaration = declaration
@@ -93,10 +91,6 @@ class Role(ContextNode):
         self._require_unique(
             (resource.uri for resource in self.resources),
             "resource URIs",
-        )
-        self._require_unique(
-            (binding.server.server_id for binding in self.mcp_bindings),
-            "MCP server bindings",
         )
 
     @staticmethod
@@ -137,49 +131,6 @@ class Role(ContextNode):
             f"Resource {uri!r} was not found on role {self.name!r}."
         )
 
-    def get_mcp_binding(self, server_id: str) -> MCPBinding:
-        for binding in self.mcp_bindings:
-            if binding.server.server_id == server_id:
-                return binding
-        raise NodeNotFoundError(
-            f"MCP server binding {server_id!r} was not found on role {self.name!r}."
-        )
-
-    def get_mcp_binding_for_tool_ref(self, tool_ref: str) -> MCPBinding:
-        binding = self._binding_from_ref(tool_ref, "Tool", "<server_id>/<tool_name>")
-        binding.require_tool_ref(tool_ref)
-        return binding
-
-    def get_mcp_binding_for_resource_ref(self, resource_ref: str) -> MCPBinding:
-        binding = self._binding_from_ref(
-            resource_ref,
-            "Resource",
-            "<server_id>/<uri>",
-        )
-        binding.require_resource_ref(resource_ref)
-        return binding
-
-    def _binding_from_ref(self, ref: str, label: str, shape: str) -> MCPBinding:
-        """Resolve the binding behind a host reference on an authorization path.
-
-        A role with no binding to the named server is denied rather than
-        reported as a lookup miss, so every refusal reaching a host through
-        get_mcp_binding_for_* is a single exception type.
-        """
-
-        server_id, separator, remainder = ref.partition("/")
-        if not separator or not server_id or not remainder:
-            raise NodeNotFoundError(
-                f"{label} reference {ref!r} must use {shape!r}."
-            )
-        try:
-            return self.get_mcp_binding(server_id)
-        except NodeNotFoundError as exc:
-            raise CapabilityDeniedError(
-                f"Role {self.name!r} has no binding for server {server_id!r}, so "
-                f"{label.lower()} {ref!r} is not granted."
-            ) from exc
-
     def _compile_active(self) -> CompiledContext:
         return {
             **self._compile_route(),
@@ -196,16 +147,6 @@ class Role(ContextNode):
             "available_resources": [
                 resource.compile(CompileLevel.ROUTE)
                 for resource in self.resources
-            ],
-            "available_mcp_tools": [
-                tool_route
-                for binding in self.mcp_bindings
-                for tool_route in binding.compile_tool_routes()
-            ],
-            "available_mcp_resources": [
-                resource_route
-                for binding in self.mcp_bindings
-                for resource_route in binding.compile_resource_routes()
             ],
         }
 
@@ -263,15 +204,6 @@ def _validate_declaration(
         owner=cls.__name__,
         label="resources",
     )
-    declarative.require_unique(
-        {
-            member.attribute: member.value.server.server_id
-            for member in declaration.members
-            if isinstance(member.value, MCPBinding)
-        },
-        owner=cls.__name__,
-        label="MCP server bindings",
-    )
 
 
 def _declarative_init(self: Role, **overrides: Any) -> None:
@@ -289,7 +221,6 @@ def _declarative_init(self: Role, **overrides: Any) -> None:
             "skills": list(declaration.of_type(Skill)),
             "tools": list(declaration.of_type(Tool)),
             "resources": list(declaration.of_type(Resource)),
-            "mcp_bindings": list(declaration.of_type(MCPBinding)),
             **overrides,
         },
     )

@@ -4,37 +4,25 @@ from __future__ import annotations
 
 import unittest
 
-from contexture import (
-    DeclarationError,
-    MCPBinding,
-    MCPResource,
-    MCPServer,
-    MCPTool,
-    Role,
-    Skill,
-)
+from contexture import DeclarationError, Resource, Role, Skill, Tool
 
 
-def _server(server_id: str = "kubernetes") -> MCPServer:
-    return MCPServer(
-        server_id=server_id,
-        name="k8s",
-        description="Cluster operations.",
-        tools=[
-            MCPTool(
-                name="get_pods",
-                description="List pods.",
-                input_schema={"type": "object", "properties": {}},
-            )
-        ],
-        resources=[
-            MCPResource(
-                name="runbook",
-                description="Incident runbook.",
-                uri="k8s://runbook",
-            )
-        ],
-    )
+class GetPods(Tool):
+    """List pods in a namespace."""
+
+    read_only = True
+
+    async def invoke(self, namespace: str) -> str:
+        return namespace
+
+
+class Runbook(Resource):
+    """Incident runbook."""
+
+    uri = "k8s://runbook"
+
+    async def read(self) -> str:
+        return "runbook"
 
 
 class Diagnose(Skill):
@@ -115,9 +103,7 @@ class MemberCollectionTests(unittest.TestCase):
 
         self.assertIs(Troubleshooter().skills[0], shared)
 
-    def test_bindings_and_children_land_in_their_own_lists(self) -> None:
-        binding = MCPBinding(server=_server(), allowed_tools=["get_pods"])
-
+    def test_members_land_in_their_own_lists(self) -> None:
         class Child(Role):
             """A child role."""
 
@@ -128,11 +114,13 @@ class MemberCollectionTests(unittest.TestCase):
 
             instructions = "Route work."
             child = Child
-            grant = binding
+            pods = GetPods
+            runbook = Runbook
 
         role = Parent()
         self.assertEqual([c.name for c in role.children], ["child"])
-        self.assertEqual(role.mcp_bindings, [binding])
+        self.assertEqual([t.name for t in role.tools], ["get-pods"])
+        self.assertEqual([r.uri for r in role.resources], ["k8s://runbook"])
         self.assertEqual(role.skills, [])
 
     def test_declaration_order_is_preserved(self) -> None:
@@ -264,18 +252,6 @@ class FailFastTests(unittest.TestCase):
         self.assertIn("alpha", message)
         self.assertIn("beta", message)
 
-    def test_two_bindings_to_one_server_are_rejected(self) -> None:
-        server = _server()
-
-        with self.assertRaises(DeclarationError):
-
-            class TwoBindings(Role):
-                """Two grants against one server."""
-
-                instructions = "Go."
-                first = MCPBinding(server=server, allowed_tools=["get_pods"])
-                second = MCPBinding(server=server, allowed_tools=[])
-
     def test_a_non_string_scalar_is_rejected(self) -> None:
         with self.assertRaises(DeclarationError):
 
@@ -287,21 +263,21 @@ class FailFastTests(unittest.TestCase):
 
 class IntrospectionTests(unittest.TestCase):
     def test_the_declaration_is_readable_without_instantiating(self) -> None:
-        binding = MCPBinding(server=_server(), allowed_tools=["get_pods"])
-
         class Troubleshooter(Role):
             """Diagnose failures."""
 
             instructions = "Read only."
             diagnose = Diagnose
-            cluster = binding
+            pods = GetPods
 
         declaration = Troubleshooter.declaration
         assert declaration is not None
         self.assertEqual(declaration.owner, "Troubleshooter")
         self.assertEqual(declaration.name, "troubleshooter")
-        self.assertEqual(declaration.attribute_of(binding), "cluster")
-        self.assertEqual(len(declaration.of_type(MCPBinding)), 1)
+        self.assertEqual(len(declaration.of_type(Tool)), 1)
+        self.assertEqual(
+            declaration.attribute_of(declaration.of_type(Tool)[0]), "pods"
+        )
 
     def test_an_imperative_role_has_no_declaration(self) -> None:
         role = Role(name="r", description="A role.", instructions="Go.")

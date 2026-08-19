@@ -16,8 +16,6 @@ The package is layered, and the layering is the architecture:
 
     contexture.targets     rendered context files, for runtimes that cannot
                            connect
-    contexture.protocol    the outbound half: calling somebody else's server
-    contexture.execution   authorization and dispatch for outbound calls
 
 Each layer may import the ones below it and never the reverse. Importing this
 facade does not load the server layer or the SDK; `contexture.server` is an
@@ -32,68 +30,38 @@ from .compiler import (
 )
 from .core.constants import PACKAGE_VERSION as __version__
 from .core import (
-    CapabilityDeniedError,
     CompileLevel,
-    ConfirmationRequired,
     ContextNode,
     ContextureError,
     DeclarationError,
     DuplicateNameError,
-    HTTPConnection,
-    JSON_RPC_VERSION,
-    MCPBinding,
-    MCPProtocolError,
-    MCPRemoteError,
-    MCPResource,
-    MCPServer,
-    MCPTool,
-    MCPTransportError,
-    MCP_PROTOCOL_VERSION,
     ModelValidationError,
     NodeNotFoundError,
     Resource,
     Role,
     RoleRegistry,
-    ServerConnection,
     Skill,
-    StdioConnection,
     TargetRenderError,
     Tool,
-    ToolAnnotations,
 )
 
 __all__ = [
-    "CapabilityDeniedError",
     "CapabilitySelection",
     "CompileLevel",
     "CompileRequest",
     "CompiledRoleContext",
-    "ConfirmationRequired",
     "ContextNode",
     "ContextureError",
     "DeclarationError",
     "DuplicateNameError",
-    "HTTPConnection",
-    "JSON_RPC_VERSION",
-    "MCPBinding",
-    "MCPProtocolError",
-    "MCPRemoteError",
-    "MCPResource",
-    "MCPServer",
-    "MCPTool",
-    "MCPTransportError",
-    "MCP_PROTOCOL_VERSION",
     "ModelValidationError",
     "NodeNotFoundError",
     "Resource",
     "Role",
     "RoleCompiler",
     "RoleRegistry",
-    "ServerConnection",
     "Skill",
-    "StdioConnection",
     "TargetRenderError",
     "Tool",
-    "ToolAnnotations",
     "__version__",
 ]

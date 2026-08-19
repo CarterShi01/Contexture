@@ -23,8 +23,6 @@ ALLOWED: dict[str, set[str]] = {
     "compiler": {"core"},
     "discovery": {"core", "compiler"},
     "targets": {"core", "compiler"},
-    "protocol": {"core"},
-    "execution": {"core", "compiler", "protocol"},
     "server": {"core", "compiler", "discovery"},
     # Reference applications sit above everything and are imported by nothing.
     "examples": {"core", "compiler", "discovery", "server"},
@@ -112,8 +110,8 @@ class LayeringTests(unittest.TestCase):
             "import sys; sys.path.insert(0, %r);"
             "import contexture.core;"
             "upper = [m for m in sys.modules if m.startswith('contexture.') "
-            "and m.split('.')[1] in ('protocol', 'execution', 'targets', "
-            "'server', 'discovery', 'examples')];"
+            "and m.split('.')[1] in ('targets', 'server', 'discovery', "
+            "'examples')];"
             "print(','.join(sorted(upper)))" % str(SOURCE_ROOT)
         )
         result = subprocess.run(
@@ -147,14 +145,14 @@ class LayeringTests(unittest.TestCase):
 
 
 class IOBoundaryTests(unittest.TestCase):
-    """Only two modules may touch the outside world.
+    """Only one module may touch the filesystem, and none may reach the network.
 
     Checks run over the parsed tree rather than the source text, because a
     substring search cannot tell `open(` from `urlopen(`.
     """
 
     FILESYSTEM_WRITERS = {"targets/writer.py"}
-    NETWORK_MODULES = {"protocol/transport.py"}
+    NETWORK_MODULES: set[str] = set()
 
     WRITE_CALLS = {"write_text", "write_bytes", "mkdir", "touch", "unlink"}
     NETWORK_PACKAGES = {"urllib", "socket", "http", "httpx", "requests", "aiohttp"}

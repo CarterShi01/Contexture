@@ -1,10 +1,9 @@
 """Render a role tree into the surface Claude Code reads.
 
 Claude Code is the richest of the three built-in targets: it reads a project
-memory file, discovers skills as individual directories, and configures MCP
-servers from a checked-in file. That means a role tree survives this target
-with most of its shape intact — nested roles and per-skill disclosure both
-land as real, separate units.
+memory file and discovers skills as individual directories. That means a role
+tree survives this target with most of its shape intact — nested roles and
+per-skill disclosure both land as real, separate units.
 """
 
 from __future__ import annotations
@@ -13,15 +12,7 @@ from typing import ClassVar, Iterable
 
 from ..core.registry import RoleRegistry
 from ..core.role import Role
-from .base import (
-    Artifact,
-    TargetAdapter,
-    TargetCapabilities,
-    collect_servers,
-    iter_roles,
-    mcp_servers_config,
-    render_json,
-)
+from .base import Artifact, TargetAdapter, TargetCapabilities, iter_roles
 from .markdown import (
     front_matter,
     heading,
@@ -31,21 +22,18 @@ from .markdown import (
 
 
 class ClaudeCodeAdapter(TargetAdapter):
-    """Emit CLAUDE.md, one SKILL.md per skill, and .mcp.json."""
+    """Emit CLAUDE.md and one SKILL.md per skill."""
 
     name: ClassVar[str] = "claude-code"
     display_name: ClassVar[str] = "Claude Code"
     capabilities: ClassVar[TargetCapabilities] = TargetCapabilities(
         separate_skill_files=True,
-        mcp_configuration=True,
-        tool_allowlist=False,
         progressive_disclosure=True,
         nested_roles=True,
     )
 
     memory_path: ClassVar[str] = "CLAUDE.md"
     skills_root: ClassVar[str] = ".claude/skills"
-    mcp_path: ClassVar[str] = ".mcp.json"
 
     def _render_artifacts(
         self,
@@ -60,14 +48,6 @@ class ClaudeCodeAdapter(TargetAdapter):
                     path=f"{self.skills_root}/{skill.name}/SKILL.md",
                     content=self._skill(skill, owner),
                 )
-
-        servers = collect_servers(role)
-        if any(server.connection is not None for server in servers):
-            yield Artifact(
-                path=self.mcp_path,
-                content=render_json(mcp_servers_config(servers)),
-                media_type="application/json",
-            )
 
     def _memory(self, role: Role) -> str:
         lines = [
@@ -134,16 +114,3 @@ class ClaudeCodeAdapter(TargetAdapter):
         body += skill.instructions.strip() + "\n"  # type: ignore[attr-defined]
         body += f"\nDeclared by role `{owner.name}`.\n"
         return body
-
-    def _render_notes(
-        self,
-        role: Role,
-        registry: RoleRegistry,
-    ) -> Iterable[str]:
-        if not collect_servers(role):
-            return
-        yield (
-            "Claude Code reads .mcp.json for server connections but has no "
-            "per-role tool grant; the read_only_tools classification stays "
-            "with the host and is not represented in the generated files."
-        )

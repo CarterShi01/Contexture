@@ -52,44 +52,27 @@ def render_capability_table(
     *,
     include_children: bool = True,
 ) -> list[str]:
-    """Render granted tools and resources as a table, or [] when nothing is granted.
+    """Render the role's own tools and resources, or [] when it declares none.
 
-    The `Access` column carries the host's own read-only classification rather
-    than the server's `readOnlyHint`, because that hint is a remote claim and
-    never the authorization fact.
+    The `Access` column carries the declared `read_only` classification, which
+    is the host's fact about the tool rather than anything a model supplies.
     """
 
     scope = list(iter_roles(role)) if include_children else [role]
     rows: list[tuple[str, str, str, str]] = []
 
     for node in scope:
-        for binding in node.mcp_bindings:
-            server = binding.server
-            for tool_name in binding.allowed_tools:
-                tool = server.get_tool(tool_name)
-                access = (
-                    "read-only"
-                    if binding.is_tool_read_only(tool_name)
-                    else "needs approval"
+        for tool in node.tools:
+            rows.append(
+                (
+                    "tool",
+                    tool.name,
+                    "read-only" if tool.read_only else "needs approval",
+                    tool.description,
                 )
-                rows.append(
-                    (
-                        "tool",
-                        server.make_tool_ref(tool_name),
-                        access,
-                        tool.description,
-                    )
-                )
-            for uri in binding.allowed_resources:
-                resource = server.get_resource(uri)
-                rows.append(
-                    (
-                        "resource",
-                        server.make_resource_ref(uri),
-                        "read-only",
-                        resource.description,
-                    )
-                )
+            )
+        for resource in node.resources:
+            rows.append(("resource", resource.uri, "read-only", resource.description))
 
     if not rows:
         return []

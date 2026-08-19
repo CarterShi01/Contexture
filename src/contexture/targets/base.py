@@ -27,7 +27,6 @@ from typing import ClassVar, Iterable, Iterator
 from ..core.errors import TargetRenderError
 from ..core.registry import RoleRegistry
 from ..core.role import Role
-from ..core.servers import MCPServer
 
 
 @dataclass(slots=True, frozen=True, kw_only=True)
@@ -108,10 +107,6 @@ class TargetCapabilities:
 
     #: Skills can be separate, individually discoverable files.
     separate_skill_files: bool
-    #: MCP servers can be configured from a generated file.
-    mcp_configuration: bool
-    #: The surface can name which tools a role may use.
-    tool_allowlist: bool
     #: The surface can hold detail back until something is selected.
     progressive_disclosure: bool
     #: Nested roles can be expressed as their own routable units.
@@ -175,30 +170,6 @@ class TargetAdapter(ABC):
                 "detail is always visible."
             )
 
-        servers = collect_servers(role)
-        if servers and not capabilities.mcp_configuration:
-            notes.append(
-                f"{self.display_name} has no generated MCP configuration; "
-                f"{len(servers)} server(s) must be connected by hand."
-            )
-
-        unconfigurable = [
-            server.server_id for server in servers if server.connection is None
-        ]
-        if capabilities.mcp_configuration and unconfigurable:
-            notes.append(
-                "No connection was declared for MCP server(s) "
-                f"{', '.join(sorted(unconfigurable))}; they were omitted from "
-                "the generated configuration."
-            )
-
-        if not capabilities.tool_allowlist and _grants_partial_catalog(role):
-            notes.append(
-                f"{self.display_name} cannot express a per-role tool "
-                "allowlist; every tool on a connected server will be visible "
-                "to the agent, and the grant is enforced only by the host."
-            )
-
         if role.children and not capabilities.nested_roles:
             notes.append(
                 f"{self.display_name} has no nested-role concept; "
@@ -224,21 +195,6 @@ def render_all(
     }
 
 
-def mcp_servers_config(servers: Iterable[MCPServer]) -> dict[str, object]:
-    """Build the `mcpServers` mapping shared by the common JSON config files.
-
-    Servers without a declared connection are skipped; the caller reports them
-    through a note rather than emitting an entry no client could use.
-    """
-
-    entries = {
-        server.server_id: server.connection.to_client_config()
-        for server in servers
-        if server.connection is not None
-    }
-    return {"mcpServers": dict(sorted(entries.items()))}
-
-
 def render_json(payload: object) -> str:
     """Serialize configuration deterministically, with a trailing newline."""
 
@@ -257,35 +213,12 @@ def _all_skills(role: Role) -> list[object]:
     return [skill for node in iter_roles(role) for skill in node.skills]
 
 
-def collect_servers(role: Role) -> list[MCPServer]:
-    seen: dict[str, MCPServer] = {}
-    for node in iter_roles(role):
-        for binding in node.mcp_bindings:
-            seen.setdefault(binding.server.server_id, binding.server)
-    return [seen[key] for key in sorted(seen)]
-
-
-def _grants_partial_catalog(role: Role) -> bool:
-    """Report whether any role is granted less than a server's whole catalog."""
-
-    for node in iter_roles(role):
-        for binding in node.mcp_bindings:
-            server = binding.server
-            if len(binding.allowed_tools) != len(server.tools):
-                return True
-            if len(binding.allowed_resources) != len(server.resources):
-                return True
-    return False
-
-
 __all__ = [
     "Artifact",
     "ArtifactSet",
     "TargetAdapter",
     "TargetCapabilities",
-    "collect_servers",
     "iter_roles",
-    "mcp_servers_config",
     "render_all",
     "render_json",
 ]

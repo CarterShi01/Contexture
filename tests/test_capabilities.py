@@ -1,9 +1,7 @@
-"""Tests for locally implemented tools and resources.
+"""Tests for the tools and resources an application implements.
 
-`MCPTool` and `MCPResource` describe capabilities somebody else owns, and are
-covered elsewhere. These are the other half: capabilities this application
-implements, where the schema comes from a Python signature rather than from a
-hand-written dict, and content is produced only when somebody asks for it.
+A tool's schema comes from a Python signature rather than a hand-written dict,
+and a resource's content is produced only when somebody asks for it.
 """
 
 from __future__ import annotations

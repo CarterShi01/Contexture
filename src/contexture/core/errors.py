@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 
 class ContextureError(Exception):
     """Base exception for the package."""
@@ -37,31 +35,5 @@ class NodeNotFoundError(ContextureError, KeyError):
         return super(KeyError, self).__str__()
 
 
-class CapabilityDeniedError(ContextureError, PermissionError):
-    """Raised when a role attempts to use a capability it was not granted."""
-
-
-class ConfirmationRequired(ContextureError, PermissionError):
-    """Raised when an operation needs explicit approval before execution."""
-
-
 class TargetRenderError(ContextureError):
     """Raised when a target adapter cannot render a role into its surface."""
-
-
-class MCPProtocolError(ContextureError):
-    """Raised when an MCP or JSON-RPC message is structurally invalid."""
-
-
-class MCPTransportError(ContextureError):
-    """Raised when the underlying MCP transport fails."""
-
-
-class MCPRemoteError(ContextureError):
-    """Raised for a JSON-RPC error response returned by an MCP server."""
-
-    def __init__(self, code: int, message: str, data: Any = None) -> None:
-        super().__init__(f"MCP remote error {code}: {message}")
-        self.code = code
-        self.message = message
-        self.data = data

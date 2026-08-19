@@ -1,9 +1,9 @@
 """Render a role tree into the surface Cursor reads.
 
-Cursor discovers rule files under .cursor/rules and configures MCP servers from
-.cursor/mcp.json. Rules are individually addressable, so skills survive as
-separate units, but a rule carries no nesting: the role tree is flattened into
-sibling rule files whose names encode the hierarchy.
+Cursor discovers rule files under .cursor/rules. Rules are individually
+addressable, so skills survive as separate units, but a rule carries no
+nesting: the role tree is flattened into sibling rule files whose names encode
+the hierarchy.
 """
 
 from __future__ import annotations
@@ -12,15 +12,7 @@ from typing import ClassVar, Iterable
 
 from ..core.registry import RoleRegistry
 from ..core.role import Role
-from .base import (
-    Artifact,
-    TargetAdapter,
-    TargetCapabilities,
-    collect_servers,
-    iter_roles,
-    mcp_servers_config,
-    render_json,
-)
+from .base import Artifact, TargetAdapter, TargetCapabilities, iter_roles
 from .markdown import (
     front_matter,
     heading,
@@ -30,20 +22,17 @@ from .markdown import (
 
 
 class CursorAdapter(TargetAdapter):
-    """Emit one .mdc rule per role and per skill, plus .cursor/mcp.json."""
+    """Emit one .mdc rule per role and per skill."""
 
     name: ClassVar[str] = "cursor"
     display_name: ClassVar[str] = "Cursor"
     capabilities: ClassVar[TargetCapabilities] = TargetCapabilities(
         separate_skill_files=True,
-        mcp_configuration=True,
-        tool_allowlist=False,
         progressive_disclosure=True,
         nested_roles=False,
     )
 
     rules_root: ClassVar[str] = ".cursor/rules"
-    mcp_path: ClassVar[str] = ".cursor/mcp.json"
 
     def _render_artifacts(
         self,
@@ -66,14 +55,6 @@ class CursorAdapter(TargetAdapter):
                     path=f"{self.rules_root}/skill-{skill.name}.mdc",
                     content=self._skill_rule(skill, node),
                 )
-
-        servers = collect_servers(role)
-        if any(server.connection is not None for server in servers):
-            yield Artifact(
-                path=self.mcp_path,
-                content=render_json(mcp_servers_config(servers)),
-                media_type="application/json",
-            )
 
     def _root_rule(self, role: Role) -> str:
         body = front_matter(
