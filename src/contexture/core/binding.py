@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ..context import CompileLevel
-from ..errors import CapabilityDeniedError, DuplicateNameError, ModelValidationError
-from ..types import CompiledContext
-from .models import MCPResource, MCPServer, MCPTool
+from .context import CompileLevel
+from .errors import CapabilityDeniedError, DuplicateNameError, ModelValidationError
+from .resources import MCPResource
+from .servers import MCPServer
+from .tools import MCPTool
+from .types import CompiledContext
 
 
 @dataclass(slots=True, kw_only=True)

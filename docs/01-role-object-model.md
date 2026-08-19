@@ -1,11 +1,17 @@
 # Design 01 — Progressive Role Object Model
 
+> Scope note: this document covers the **object model** — what a Role is, what
+> it may reach, and how much becomes visible at each disclosure level. The
+> framework built around it (class-syntax declaration, target adapters, the
+> layer boundaries, the inbound host port) is
+> [Design 02](02-framework-layers.md).
+
 ## 1. Purpose
 
-This document records the design reasoning behind the first object model of the
-agent-team runtime. It begins with the members introduced during the incremental
-design sequence and then shows how those members fit into the terminal project
-architecture.
+This document records the design reasoning behind the object model at the
+center of Contexture. It begins with the members introduced during the
+incremental design sequence and then shows how those members fit into the
+terminal architecture.
 
 The design targets Python and uses the Model Context Protocol revision
 `2026-07-28`, whose wire messages use JSON-RPC 2.0.
@@ -697,7 +703,7 @@ The implementation protects these invariants.
 5. Every authorization refusal is one exception type, `CapabilityDeniedError`.
 6. The Server must still enforce its own authentication and authorization.
 
-## 20. Why direct objects are retained in this starter
+## 20. Why direct objects are retained
 
 The current model stores direct Python objects:
 
@@ -742,7 +748,7 @@ Each belongs behind an existing boundary rather than inside the base Role class.
 
 ## 22. Deliberate non-goals
 
-This starter does not attempt to be a full MCP SDK or a complete multi-agent
+Contexture does not attempt to be a full MCP SDK or a complete multi-agent
 orchestrator. In particular, it does not automatically implement every optional
 MCP feature, LLM provider adapter, persistence backend, distributed scheduler,
 or authorization system.
@@ -758,17 +764,22 @@ into a secure progressive Agent Host without invalidating the early concepts.
 
 | Design concept | Source file |
 |---|---|
-| Context lifecycle | `src/role_runtime/context.py` |
-| Skill | `src/role_runtime/skill.py` |
-| Role | `src/role_runtime/role.py` |
-| MCP Tool, Resource, and Server | `src/role_runtime/mcp/models.py` |
-| MCP Binding | `src/role_runtime/mcp/binding.py` |
-| JSON-RPC and request metadata | `src/role_runtime/mcp/protocol.py` |
-| MCP transport | `src/role_runtime/mcp/transport.py` |
-| MCP client | `src/role_runtime/mcp/client.py` |
-| Unified compiler | `src/role_runtime/compiler.py` |
-| Role path registry | `src/role_runtime/registry.py` |
-| Execution runtime | `src/role_runtime/runtime.py` |
+| Context lifecycle | `src/contexture/core/context.py` |
+| Skill | `src/contexture/core/skill.py` |
+| Role | `src/contexture/core/role.py` |
+| Class-syntax declaration | `src/contexture/core/declarative.py` |
+| MCP Tool | `src/contexture/core/tools.py` |
+| MCP Resource | `src/contexture/core/resources.py` |
+| MCP Server and connections | `src/contexture/core/servers.py` |
+| MCP Binding | `src/contexture/core/binding.py` |
+| Role path registry | `src/contexture/core/registry.py` |
+| Unified compiler | `src/contexture/compiler.py` |
+| Target adapters | `src/contexture/targets/` |
+| JSON-RPC and request metadata | `src/contexture/protocol/messages.py` |
+| MCP transport | `src/contexture/protocol/transport.py` |
+| MCP client | `src/contexture/protocol/client.py` |
+| MCP host port | `src/contexture/protocol/host.py` |
+| Execution runtime | `src/contexture/execution.py` |
 | Complete example | `examples/engineering_team.py` |
 
 ## 24. Official references

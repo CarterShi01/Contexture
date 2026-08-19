@@ -5,14 +5,9 @@ from __future__ import annotations
 import base64
 import unittest
 
-from role_runtime import (
-    ClientInfo,
-    MCPProtocolError,
-    MCPRequestFactory,
-    MCPTool,
-    ModelValidationError,
-)
-from role_runtime.mcp.protocol import (
+from contexture import MCPProtocolError, MCPTool, ModelValidationError
+from contexture.protocol import ClientInfo, MCPRequestFactory
+from contexture.protocol.messages import (
     build_request_headers,
     encode_header_value,
     validate_x_mcp_headers,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from role_runtime import ModelValidationError, Role, RoleRegistry
+from contexture import ModelValidationError, Role, RoleRegistry
 
 
 class RegistryTests(unittest.TestCase):

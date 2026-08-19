@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Role Runtime Atlas</title>
+<title>Contexture Atlas</title>
 <style>
   :root {
     --bg: #F5F6F7;
@@ -326,138 +326,149 @@
 <div class="page">
 
   <header class="hero">
-    <p class="eyebrow">role-runtime-starter · v0.0.2 · Contexture</p>
-    <h1 class="title">Role Runtime Atlas</h1>
-    <p class="dek">把渐进式披露(progressive disclosure)对象模型拆开看的一份地图集——文件怎么依赖、类怎么组合、一次编译和一次工具调用各自怎么流经这些类。</p>
+    <p class="eyebrow">contexture · v0.0.3</p>
+    <h1 class="title">Contexture Atlas</h1>
+    <p class="dek">一份把框架拆开看的地图集——业务怎么声明一次、五个分层谁依赖谁、类怎么组合、同一份声明怎么变成三种 Agent 各自能读的文件。</p>
     <p class="statline">
-      <span><b>16</b> 源文件</span><span class="sep">·</span>
-      <span><b>40</b> 个类</span><span class="sep">·</span>
-      <span><b>0</b> 处循环依赖</span><span class="sep">·</span>
-      <span><b>32/32</b> 测试通过</span><span class="sep">·</span>
+      <span><b>29</b> 源文件</span><span class="sep">·</span>
+      <span><b>63</b> 个类</span><span class="sep">·</span>
+      <span><b>5</b> 层单向依赖</span><span class="sep">·</span>
+      <span><b>79/79</b> 测试通过</span><span class="sep">·</span>
       <span>MCP <b>2026-07-28</b></span>
     </p>
   </header>
 
   <div class="callout" style="margin-bottom: 40px;">
-    <strong>v0.0.2 变更：</strong>自研的 Data 抽象(<code>DataSource</code> / <code>DataBinding</code> /
-    <code>DataProvider</code>)已整体删除,改由 <strong>MCP Resource</strong> 承担全部上下文数据——
-    一套授权格式、一条运行时路径。示例也从单 Server 扩成 Kubernetes + GitHub 双 Server。
+    <strong>v0.0.3 变更：</strong>项目从"一个 role runtime"重新定位为
+    <strong>面向 Agent 的通用 Context 框架</strong>。包更名 <code>role_runtime</code> →
+    <code>contexture</code> 并拆成五层；新增<strong>类式声明</strong>(<code>class K8sOperator(Role)</code>)、
+    <strong>Target Adapter</strong>(Claude Code / Codex / Cursor)与 <strong>MCPHostPort</strong> 入站边界。
+    runtime 从产品主体降为可选层——这正是包要改名的原因。
   </div>
 
   <nav class="index" aria-label="图鉴目录">
     <p class="eyebrow">图鉴目录 — 建议按顺序看</p>
     <ol>
-      <li><span class="num">00</span><a href="#plate-00">目录结构</a><span class="desc">— 先认路,17 个文件各装什么</span></li>
-      <li><span class="num">01</span><a href="#plate-01">层级地图</a><span class="desc">— 文件之间谁依赖谁,六层零循环</span></li>
+      <li><span class="num">00</span><a href="#plate-00">分层地图</a><span class="desc">— 五层各管什么,谁能依赖谁</span></li>
+      <li><span class="num">01</span><a href="#plate-01">文件依赖</a><span class="desc">— 29 个文件之间的真实 import 图</span></li>
       <li><span class="num">02</span><a href="#plate-02">对象模型</a><span class="desc">— 类怎么继承、组合成一棵树</span></li>
-      <li><span class="num">03</span><a href="#plate-03">编译路径</a><span class="desc">— LLM 能看见的 context 怎么算出来</span></li>
-      <li><span class="num">04</span><a href="#plate-04">执行路径</a><span class="desc">— 一次工具调用 / 资源读取怎么被二次授权</span></li>
+      <li><span class="num">03</span><a href="#plate-03">声明式前端</a><span class="desc">— 一个类体怎么变成 Role 对象</span></li>
+      <li><span class="num">04</span><a href="#plate-04">多目标渲染</a><span class="desc">— 一份声明怎么变成三种 Agent 的文件</span></li>
+      <li><span class="num">05</span><a href="#plate-05">编译路径</a><span class="desc">— LLM 能看见的 context 怎么算出来</span></li>
+      <li><span class="num">06</span><a href="#plate-06">执行路径</a><span class="desc">— 一次工具调用 / 资源读取怎么被二次授权</span></li>
     </ol>
   </nav>
 
   <section class="plate" id="plate-00">
     <p class="plate-eyebrow">Plate 00</p>
-    <h2 class="plate-title">目录结构</h2>
-    <p class="plate-claim">16 个源文件,每个文件只装一小撮互相配合的类——不是一类一文件,是一个内聚概念一文件。</p>
-
-    <div class="figure-wrap">
-      <ul class="tree">
-        <li>
-          <div class="row"><span class="path dir">src/role_runtime/</span></div>
-          <ul>
-            <li><div class="row"><span class="path">types.py</span><span class="desc">共享类型别名,零内部依赖</span></div></li>
-            <li><div class="row"><span class="path">constants.py</span><span class="desc">MCP 协议版本号等常量</span></div></li>
-            <li><div class="row"><span class="path">errors.py</span><span class="desc">9 个异常类,一条继承链</span></div></li>
-            <li><div class="row"><span class="path">context.py</span><span class="desc">ContextNode · CompileLevel — 渐进披露的统一契约</span></div></li>
-            <li><div class="row"><span class="path">skill.py</span><span class="desc">Skill</span></div></li>
-            <li><div class="row"><span class="path">role.py</span><span class="desc">Role — 递归组合的团队树</span></div></li>
-            <li><div class="row"><span class="path">registry.py</span><span class="desc">RoleRegistry — 路径解析 + 环检测</span></div></li>
-            <li><div class="row"><span class="path">compiler.py</span><span class="desc">RoleCompiler — 渐进披露编译器</span></div></li>
-            <li><div class="row"><span class="path">runtime.py</span><span class="desc">RoleRuntime — 执行边界,二次授权</span></div></li>
-            <li>
-              <div class="row"><span class="path dir">mcp/</span></div>
-              <ul>
-                <li><div class="row"><span class="path">models.py</span><span class="desc">MCPTool · MCPResource · MCPServer · ToolAnnotations</span></div></li>
-                <li><div class="row"><span class="path">binding.py</span><span class="desc">MCPBinding — tool 与 resource 的最小权限关系对象</span></div></li>
-                <li><div class="row"><span class="path">protocol.py</span><span class="desc">JSON-RPC 2.0 消息构造</span></div></li>
-                <li><div class="row"><span class="path">transport.py</span><span class="desc">MCPTransport 接口 + 两种实现</span></div></li>
-                <li><div class="row"><span class="path">client.py</span><span class="desc">MCPClient — tools/* 与 resources/* 的调用方</span></div></li>
-              </ul>
-            </li>
-          </ul>
-        </li>
-        <li><div class="row"><span class="path dir">examples/engineering_team.py</span><span class="desc">Kubernetes + GitHub 双 Server、三角色示例</span></div></li>
-        <li><div class="row"><span class="path dir">tests/</span><span class="desc">32 个单测,全部通过</span></div></li>
-        <li><div class="row"><span class="path dir">docs/01-role-object-model.md</span><span class="desc">设计推导文档</span></div></li>
-      </ul>
-    </div>
-
-    <div class="plate-notes">
-      <p>v0.0.1 里的 <code>data.py</code> 已删除。它装的 7 个类(<code>DataSource</code>、<code>DataBinding</code>、
-      <code>DataProvider</code> 等)构成了第二套最小权限系统,与 <code>MCPBinding</code> 回答同一个问题;
-      现在统一由 MCP Resource 承担。</p>
-    </div>
-  </section>
-
-  <section class="plate" id="plate-01">
-    <p class="plate-eyebrow">Plate 01</p>
-    <h2 class="plate-title">层级地图</h2>
-    <p class="plate-claim">按实际 import 语句追出来的依赖图——六层,单向,零循环。</p>
+    <h2 class="plate-title">分层地图</h2>
+    <p class="plate-claim">五层单向依赖。只有 <code>core</code> 是必须的——想要生成上下文文件的项目,永远不会加载一个 transport。</p>
 
     <div class="figure-wrap">
       <figure>
         <pre class="mermaid">
 flowchart TB
-    subgraph L0["Layer 0 · 无内部依赖"]
-        types["types.py"]
-        constants["constants.py"]
-        errors["errors.py"]
-    end
-    subgraph L1["Layer 1 · 生命周期契约"]
-        context["context.py<br/>ContextNode · CompileLevel"]
-    end
-    subgraph L2["Layer 2 · 叶子节点类型"]
-        skill["skill.py<br/>Skill"]
-        models["mcp/models.py<br/>MCPTool · MCPResource · MCPServer"]
-        protocol["mcp/protocol.py<br/>JSON-RPC 消息"]
-        transport["mcp/transport.py<br/>MCPTransport"]
-    end
-    subgraph L3["Layer 3 · 关系与装配"]
-        binding["mcp/binding.py<br/>MCPBinding"]
-        client["mcp/client.py<br/>MCPClient"]
-    end
-    subgraph L4["Layer 4 · 组合体"]
-        role["role.py<br/>Role"]
-    end
-    subgraph L5["Layer 5 · 编排"]
-        registry["registry.py<br/>RoleRegistry"]
-        compiler["compiler.py<br/>RoleCompiler"]
-    end
-    subgraph L6["Layer 6 · 执行边界"]
-        runtime["runtime.py<br/>RoleRuntime"]
-    end
+    biz["<b>你的应用</b><br/>声明 Role · Skill · Tool · Resource"]
+    core["<b>contexture.core</b><br/>对象模型 · 注册表 · 校验 · 声明式前端<br/><i>零 I/O · 零协议 · 零目标</i>"]
+    comp["<b>contexture.compiler</b><br/>route / active 渐进披露"]
+    targ["<b>contexture.targets</b><br/>Claude Code · Codex · Cursor 产物"]
+    proto["<b>contexture.protocol</b><br/>MCP 线路层:出站 client + 入站 host port"]
+    exec["<b>contexture.execution</b><br/>二次授权与派发"]
+    agent["<b>外部 Agent Runtime</b><br/>LLM 循环 · 规划 · 工具选择"]
 
-    context --> skill
-    context --> models
-    models --> protocol
-    models --> binding
-    protocol --> client
-    transport --> client
-    skill --> role
-    binding --> role
-    role --> registry
-    role --> compiler
-    client --> runtime
-    models --> runtime
-    registry --> runtime
-    compiler --> runtime
+    biz -->|继承 / 组合| core
+    core -->|compile| comp
+    comp -->|render| targ
+    core -.可选.-> proto
+    comp -.可选.-> exec
+    proto -.可选.-> exec
+    targ -->|产物被消费| agent
+    exec -->|tools/call| agent
+
+    style core stroke-width:3px
+    style agent stroke-dasharray: 5 5
         </pre>
-        <figcaption>箭头方向 = 谁 import 谁。<code>mcp/models.py</code> 被四条线指向(protocol、binding、client、runtime 都要用到 <code>MCPTool</code> / <code>MCPResource</code> / <code>MCPServer</code>),是全图入度最高的节点——改它的字段签名,波及面最大。删掉 data.py 后,Layer 2 少了一个节点,通往 Role 和 Runtime 的两条边也一并消失。</figcaption>
+        <figcaption>实线是必经之路,虚线是可选层。最右边那个虚线框<strong>不属于 Contexture</strong>——框架产出它消费的东西,但不运行它。依赖规则由包结构强制:每层只能 import 它下面的层,反向绝不允许,测试里有一条断言专门守着这个。</figcaption>
       </figure>
     </div>
 
     <div class="plate-notes">
-      <p><code>role_runtime/__init__.py</code> 和 <code>mcp/__init__.py</code> 没画进去——它们只做 re-export,不参与依赖方向,是给外部用的统一导入入口。</p>
+      <p><strong>为什么包要改名。</strong> 叫 <code>role_runtime</code> 的时候,runtime 就是产品全部。
+      在新定位下 runtime 是可选层、模型才是产品,包名指向了最不核心的部分。现在叫
+      <code>contexture</code>,与项目名和定位一致。</p>
+    </div>
+  </section>
+
+  <section class="plate" id="plate-01">
+    <p class="plate-eyebrow">Plate 01</p>
+    <h2 class="plate-title">文件依赖</h2>
+    <p class="plate-claim">按实际 import 语句追出来的图。<code>core/</code> 内部仍是那条干净的 DAG,上面三层各挂各的。</p>
+
+    <div class="figure-wrap">
+      <figure>
+        <pre class="mermaid">
+flowchart TB
+    subgraph CORE["contexture.core — 对象模型"]
+        direction TB
+        base["types · constants · errors<br/><i>零内部依赖</i>"]
+        context["context.py<br/>ContextNode · CompileLevel"]
+        decl["declarative.py<br/>Declaration 收集"]
+        skill["skill.py<br/>Skill"]
+        tools["tools.py<br/>MCPTool"]
+        resources["resources.py<br/>MCPResource"]
+        servers["servers.py<br/>MCPServer · 连接描述符"]
+        binding["binding.py<br/>MCPBinding"]
+        role["role.py<br/>Role"]
+        registry["registry.py<br/>RoleRegistry"]
+    end
+    subgraph TARGETS["contexture.targets"]
+        tbase["base.py<br/>Artifact · TargetAdapter"]
+        md["markdown.py"]
+        adapters["claude_code · codex · cursor"]
+        writer["writer.py<br/><i>唯一写磁盘的地方</i>"]
+    end
+    subgraph PROTO["contexture.protocol — 可选"]
+        messages["messages.py<br/>JSON-RPC"]
+        transport["transport.py"]
+        client["client.py<br/>MCPClient"]
+        host["host.py<br/>MCPHostPort"]
+    end
+
+    compiler["compiler.py<br/>RoleCompiler"]
+    execution["execution.py<br/>RoleRuntime"]
+
+    base --> context
+    context --> skill
+    context --> tools
+    context --> resources
+    tools --> servers
+    resources --> servers
+    servers --> binding
+    decl --> role
+    skill --> role
+    binding --> role
+    role --> registry
+    role --> compiler
+    role --> tbase
+    tbase --> md
+    md --> adapters
+    tbase --> writer
+    tools --> messages
+    messages --> client
+    transport --> client
+    tools --> host
+    client --> execution
+    compiler --> execution
+    registry --> execution
+        </pre>
+        <figcaption>箭头方向 = 谁 import 谁。<code>core/tools.py</code> 与 <code>core/servers.py</code> 是入度最高的节点。v0.0.2 那个塞了四个类的 <code>models.py</code> 已按概念拆成 tools / resources / servers 三个文件,消除了此前指出的"拆分粒度不统一"。</figcaption>
+      </figure>
+    </div>
+
+    <div class="plate-notes">
+      <p>各层的 <code>__init__.py</code> 没画进去——它们只做 re-export,不参与依赖方向。
+      注意<strong>没有任何一条箭头从上层指回 <code>core</code></strong>:这条约束由一个测试守着,
+      导入 <code>contexture.core</code> 后检查 <code>sys.modules</code> 里不含任何上层模块。</p>
     </div>
   </section>
 
@@ -559,6 +570,113 @@ classDiagram
 
   <section class="plate" id="plate-03">
     <p class="plate-eyebrow">Plate 03</p>
+    <h2 class="plate-title">声明式前端 — 一个类体怎么变成 Role</h2>
+    <p class="plate-claim">业务用自己的词汇写一个类,框架在<strong>类创建时</strong>把它变成 <code>Declaration</code> 并校验。出错在 import 时就炸,不等到第一次用。</p>
+
+    <div class="figure-wrap">
+      <figure>
+        <pre class="mermaid">
+flowchart LR
+    subgraph SRC["业务写的类体"]
+        direction TB
+        cls["<b>class K8sOperator(Role)</b>"]
+        doc["'''Operate Kubernetes workloads.'''"]
+        ins["instructions = '...'"]
+        sk["diagnose = DiagnoseDeployment"]
+        bd["cluster = MCPBinding(...)"]
+    end
+
+    subgraph COLLECT["__init_subclass__ · 类创建时"]
+        direction TB
+        walk["遍历 MRO<br/>base 在前,子类覆盖同名"]
+        derive["派生 name / description"]
+        mat["把声明的类实例化<br/>实例原样透传"]
+        valid["快速校验<br/>缺 instructions / 重名 / 类型错"]
+    end
+
+    decl["<b>Declaration</b><br/>owner · name · description<br/>instructions · members[]"]
+    role["<b>Role 实例</b><br/>skills / children / mcp_bindings"]
+
+    cls --> derive
+    doc --> derive
+    ins --> derive
+    sk --> walk
+    bd --> walk
+    walk --> mat
+    derive --> valid
+    mat --> valid
+    valid --> decl
+    decl -->|K8sOperator()| role
+
+    style valid stroke-width:3px
+        </pre>
+        <figcaption><code>K8sOperator</code> → <code>k8s-operator</code>,docstring 首段 → routing description。声明的 <code>Skill</code> <em>类</em>会被实例化一次并共享,声明的<em>实例</em>原样使用——两种写法含义相同。粗框那步是关键:重名、缺字段、类型错都在这里抛 <code>DeclarationError</code>,而不是等到某处第一次构造。</figcaption>
+      </figure>
+    </div>
+
+    <div class="plate-notes">
+      <p><strong>这没有违背"组合优于继承"。</strong> 两个机制回答不同问题:
+      <code>class K8sOperator(Role)</code> 说的是<em>这个节点是什么</em>,
+      <code>children=[...]</code> 说的是<em>它持有什么</em>。继承从不表达包含关系——
+      声明式角色协调其他角色时,一样把它们放进 <code>children</code>。</p>
+      <p><strong>两个 slots 陷阱。</strong> <code>@dataclass(slots=True)</code> 会<em>重建类对象</em>,
+      于是:① <code>__init_subclass__</code> 里的零参 <code>super()</code> 抛 TypeError(<code>__class__</code>
+      单元格指向被丢弃的旧类);② <code>getattr(cls,'name')</code> 返回<em>槽描述符</em>而非 None。
+      两处都不是看代码能看出来的,所以在源码里各留了一条注释。</p>
+    </div>
+  </section>
+
+  <section class="plate" id="plate-04">
+    <p class="plate-eyebrow">Plate 04</p>
+    <h2 class="plate-title">多目标渲染 — 声明一次,三种表达</h2>
+    <p class="plate-claim">这是 v0.0.3 的核心价值:同一棵 Role 树进去,三种 Agent 各自能读的文件出来,<strong>并如实报告每个目标丢了什么</strong>。</p>
+
+    <div class="figure-wrap">
+      <figure>
+        <pre class="mermaid">
+flowchart LR
+    role["<b>Role 树</b><br/>engineering-team<br/>+ 3 个专家角色<br/>+ 2 个 Skill<br/>+ 2 个 MCP Server"]
+
+    subgraph AD["TargetAdapter · 各声明自己的能力矩阵"]
+        direction TB
+        cc["<b>ClaudeCodeAdapter</b><br/>skill 文件 ✓ · 嵌套角色 ✓<br/>渐进披露 ✓ · 工具白名单 ✗"]
+        cx["<b>CodexAdapter</b><br/>skill 文件 ✗ · 嵌套角色 ✗<br/>渐进披露 ✗ · 工具白名单 ✗"]
+        cu["<b>CursorAdapter</b><br/>skill 文件 ✓ · 嵌套角色 ✗<br/>渐进披露 ✓ · 工具白名单 ✗"]
+    end
+
+    a1["CLAUDE.md<br/>.claude/skills/*/SKILL.md<br/>.mcp.json"]
+    a2["AGENTS.md<br/>.codex/config.toml"]
+    a3[".cursor/rules/*.mdc<br/>.cursor/mcp.json"]
+    notes["<b>notes[]</b><br/>每个 ✗ 自动变成一条说明"]
+    writer["<b>writer</b><br/>plan() 只比对<br/>write() 才落盘"]
+
+    role --> cc --> a1
+    role --> cx --> a2
+    role --> cu --> a3
+    cc -.-> notes
+    cx -.-> notes
+    cu -.-> notes
+    a1 --> writer
+    a2 --> writer
+    a3 --> writer
+
+    style notes stroke-width:3px
+        </pre>
+        <figcaption>能力矩阵是<strong>数据</strong>,不是每个适配器手写的警告:基类拿声明与矩阵求差,自动生成 notes。最要命的一行是"工具白名单 ✗"——三个目标<strong>都</strong>无法表达 per-role 工具授权,所以授权只能由 host 兜住。把这件事说出来是重点:一个看着权威、却悄悄放宽了授权的产物,是安全问题而不是格式问题。</figcaption>
+      </figure>
+    </div>
+
+    <div class="plate-notes">
+      <p><code>render()</code> <strong>从不写盘</strong>,只返回 <code>ArtifactSet</code>(路径 + 内容 + 摘要)。
+      全包只有 <code>targets/writer.py</code> 碰文件系统,只有 <code>protocol/transport.py</code> 碰网络——
+      这两条同样有测试守着(基于 AST,不是字符串匹配)。</p>
+      <p>摘要是内容哈希,所以"已安装的产物是否已经漂移"可以直接比对得出;
+      writer 也据此跳过内容未变的文件,不去无谓地改动时间戳。</p>
+    </div>
+  </section>
+
+  <section class="plate" id="plate-05">
+    <p class="plate-eyebrow">Plate 05</p>
     <h2 class="plate-title">编译路径 — LLM 看见什么</h2>
     <p class="plate-claim"><code>RoleCompiler</code> 只读,不执行。默认只吐 route 卡片,选中的能力才展开成 active 细节。</p>
 
@@ -592,8 +710,8 @@ sequenceDiagram
     </div>
   </section>
 
-  <section class="plate" id="plate-04">
-    <p class="plate-eyebrow">Plate 04</p>
+  <section class="plate" id="plate-06">
+    <p class="plate-eyebrow">Plate 06</p>
     <h2 class="plate-title">执行路径 — 二次授权怎么挡下来</h2>
     <p class="plate-claim">context 里看不见的工具早被挡在外面;<code>RoleRuntime</code> 假装不知道这件事,执行前重新查一遍。</p>
 
@@ -642,8 +760,9 @@ sequenceDiagram
   </section>
 
   <footer>
-    <div>role-runtime-starter · git@github.com:CarterShi01/Contexture.git · v0.0.2</div>
-    <div>本页纯手工维护,不随代码自动生成——架构变了记得回来改这份文件(见旁边 vendor/mermaid.min.js 是本地渲染依赖)。</div>
+    <div>contexture · git@github.com:CarterShi01/Contexture.git · v0.0.3</div>
+    <div>设计文档:docs/01-role-object-model.md(对象模型) · docs/02-framework-layers.md(框架分层)</div>
+    <div>本页纯手工维护,不随代码自动生成——架构变了记得回来改这份文件(旁边 vendor/mermaid.min.js 是本地离线渲染依赖)。</div>
   </footer>
 
 </div>

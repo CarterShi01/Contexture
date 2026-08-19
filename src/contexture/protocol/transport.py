@@ -10,8 +10,8 @@ from typing import Any, Awaitable, Callable, Mapping, Protocol
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
-from ..errors import MCPTransportError
-from ..types import JsonObject
+from ..core.errors import MCPTransportError
+from ..core.types import JsonObject
 
 
 @dataclass(slots=True, frozen=True, kw_only=True)

@@ -3,23 +3,45 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import ClassVar, Iterable
+from typing import Any, ClassVar, Iterable
 
+from . import declarative
+from .binding import MCPBinding
 from .context import CompileLevel, ContextNode
 from .errors import (
     CapabilityDeniedError,
+    DeclarationError,
     DuplicateNameError,
     ModelValidationError,
     NodeNotFoundError,
 )
-from .mcp.binding import MCPBinding
 from .skill import Skill
 from .types import CompiledContext
 
 
 @dataclass(slots=True, kw_only=True)
 class Role(ContextNode):
-    """A responsibility boundary composed from roles, skills, and MCP grants."""
+    """A responsibility boundary composed from roles, skills, and MCP grants.
+
+    Build one imperatively::
+
+        Role(name="k8s-operator", description="...", instructions="...")
+
+    or declare one as a class, which is how a business project states a role it
+    owns::
+
+        class KubernetesOperator(Role):
+            '''Operate and diagnose Kubernetes workloads.'''
+
+            instructions = "Inspect before changing the cluster."
+
+            diagnose = DiagnoseDeployment
+            cluster = MCPBinding(server=kubernetes, allowed_tools=["get_pods"])
+
+    Subclassing states what one role *is*. It never states containment: a role
+    that coordinates other roles holds them in `children`, whether it was
+    declared or assembled at runtime.
+    """
 
     instructions: str
     children: list[Role] = field(default_factory=list)
@@ -27,6 +49,24 @@ class Role(ContextNode):
     mcp_bindings: list[MCPBinding] = field(default_factory=list)
 
     kind: ClassVar[str] = "role"
+
+    #: The class-body declaration, or None on an imperatively built Role.
+    declaration: ClassVar[declarative.Declaration | None] = None
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        # A zero-argument super() raises TypeError in this method: dataclass
+        # slots=True rebuilds the class object, so the implicit __class__ cell
+        # still points at the discarded original. Name the class explicitly.
+        super(Role, cls).__init_subclass__(**kwargs)
+        if not declarative.is_declarative(cls, Role):
+            return
+        declaration = declarative.collect(
+            cls,
+            member_types=(Role, Skill, MCPBinding),
+        )
+        _validate_declaration(cls, declaration)
+        cls.declaration = declaration
+        cls.__init__ = _declarative_init  # type: ignore[method-assign]
 
     def __post_init__(self) -> None:
         ContextNode.__post_init__(self)
@@ -133,3 +173,68 @@ class Role(ContextNode):
                 for resource_route in binding.compile_resource_routes()
             ],
         }
+
+
+def _validate_declaration(
+    cls: type,
+    declaration: declarative.Declaration,
+) -> None:
+    """Reject a contradictory class body while the class is being created.
+
+    These are the collisions a reader cannot see by looking at one attribute,
+    so they are worth catching at import rather than at the first instantiation
+    somewhere else in the program.
+    """
+
+    if declaration.instructions is None:
+        raise DeclarationError(
+            f"{cls.__name__} must state `instructions`; a Role without them "
+            "has nothing to disclose once it becomes the active role."
+        )
+
+    declarative.require_unique(
+        {
+            member.attribute: member.value.name
+            for member in declaration.members
+            if isinstance(member.value, Skill)
+        },
+        owner=cls.__name__,
+        label="skills",
+    )
+    declarative.require_unique(
+        {
+            member.attribute: member.value.name
+            for member in declaration.members
+            if isinstance(member.value, Role)
+        },
+        owner=cls.__name__,
+        label="child roles",
+    )
+    declarative.require_unique(
+        {
+            member.attribute: member.value.server.server_id
+            for member in declaration.members
+            if isinstance(member.value, MCPBinding)
+        },
+        owner=cls.__name__,
+        label="MCP server bindings",
+    )
+
+
+def _declarative_init(self: Role, **overrides: Any) -> None:
+    """Build a declared Role, letting the caller override any stated field."""
+
+    declaration = type(self).declaration
+    assert declaration is not None  # set by __init_subclass__ before rebinding
+    Role.__init__(
+        self,
+        **{
+            "name": declaration.name,
+            "description": declaration.description,
+            "instructions": declaration.instructions,
+            "children": list(declaration.of_type(Role)),
+            "skills": list(declaration.of_type(Skill)),
+            "mcp_bindings": list(declaration.of_type(MCPBinding)),
+            **overrides,
+        },
+    )

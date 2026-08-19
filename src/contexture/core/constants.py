@@ -1,4 +1,11 @@
-"""Protocol constants used by the reference runtime."""
+"""Package and protocol constants.
+
+The package version lives here rather than in the root `__init__` so that any
+layer can report it without importing the facade above itself.
+"""
+
+PACKAGE_NAME = "contexture"
+PACKAGE_VERSION = "0.0.3"
 
 MCP_PROTOCOL_VERSION = "2026-07-28"
 JSON_RPC_VERSION = "2.0"

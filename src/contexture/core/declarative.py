@@ -1,0 +1,266 @@
+"""Class-syntax declaration for context nodes.
+
+A business application should state its context once, in its own vocabulary:
+
+    class KubernetesOperator(Role):
+        '''Operate and diagnose Kubernetes workloads.'''
+
+        instructions = "Inspect before changing the cluster."
+
+        diagnose = DiagnoseDeploymentFailure
+        cluster = MCPBinding(server=kubernetes, allowed_tools=["get_deployment"])
+
+This module turns that class body into a `Declaration`: an ordered, validated
+record of what the class stated, resolved across its whole inheritance chain.
+
+Two things this deliberately does not change:
+
+* **Composition still models the team.** Subclassing declares what one node
+  *is*; it never expresses containment. A role that coordinates other roles
+  still holds them in `children`, exactly as an imperatively built one does.
+* **Imperative construction stays first class.** `Role(name=..., ...)` remains
+  the whole API for context assembled at runtime. Declaration is a second door
+  onto the same object, not a replacement for the first.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from types import MemberDescriptorType
+from typing import Any, Iterator, Mapping, TypeVar
+
+from .errors import DeclarationError
+
+_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+
+#: Attribute names a declarative body uses for scalars rather than members.
+RESERVED_ATTRIBUTES = frozenset({"name", "description", "instructions", "kind"})
+
+_T = TypeVar("_T")
+
+
+@dataclass(slots=True, frozen=True, kw_only=True)
+class DeclaredMember:
+    """One member a declarative class body contributed, with its origin."""
+
+    attribute: str
+    value: Any
+    declared_by: str
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"<DeclaredMember {self.declared_by}.{self.attribute}>"
+
+
+@dataclass(slots=True, frozen=True, kw_only=True)
+class Declaration:
+    """What one declarative class stated, resolved across its whole MRO.
+
+    Members keep the order they were first declared in, base classes first, so
+    a rendered surface is stable across runs and across refactors that only
+    reorder unrelated attributes.
+    """
+
+    owner: str
+    name: str
+    description: str
+    instructions: str | None
+    members: tuple[DeclaredMember, ...]
+
+    def of_type(self, *types: type[_T]) -> tuple[_T, ...]:
+        """Return declared member values matching any of `types`, in order."""
+
+        return tuple(
+            member.value
+            for member in self.members
+            if isinstance(member.value, types)
+        )
+
+    def attribute_of(self, value: Any) -> str | None:
+        """Return the attribute name a member value was declared under."""
+
+        for member in self.members:
+            if member.value is value:
+                return member.attribute
+        return None
+
+
+def derive_name(cls: type) -> str:
+    """Turn a class name into a stable kebab-case node name.
+
+    `KubernetesOperator` becomes `kubernetes-operator`, and an acronym run stays
+    together, so `MCPGatewayRole` becomes `mcp-gateway-role`.
+    """
+
+    return _CAMEL_BOUNDARY.sub("-", cls.__name__).lower()
+
+
+def derive_description(cls: type) -> str:
+    """Use the first paragraph of the class docstring as the routing card text.
+
+    Only the class's own docstring counts. Python hands an undocumented class
+    its parent's `__doc__`, and silently routing on an inherited sentence is
+    worse than refusing to guess.
+    """
+
+    own_doc = cls.__dict__.get("__doc__")
+    if not isinstance(own_doc, str) or not own_doc.strip():
+        return ""
+    paragraph = own_doc.strip().split("\n\n", 1)[0]
+    return " ".join(paragraph.split())
+
+
+def is_declarative(cls: type, base: type) -> bool:
+    """Report whether `cls` is a business declaration rather than `base` itself."""
+
+    return cls is not base and issubclass(cls, base)
+
+
+def collect(
+    cls: type,
+    *,
+    member_types: tuple[type, ...],
+    ignore: frozenset[str] = RESERVED_ATTRIBUTES,
+) -> Declaration:
+    """Build the `Declaration` for a declarative class.
+
+    Resolution walks the MRO from the most basic class to the most derived, so
+    a subclass overriding an inherited member replaces its value while keeping
+    the position the base established.
+    """
+
+    name = _scalar(cls, "name") or derive_name(cls)
+    description = _scalar(cls, "description") or derive_description(cls)
+    instructions = _scalar(cls, "instructions")
+
+    if not description:
+        raise DeclarationError(
+            f"{cls.__name__} must state a description, either as a class "
+            "docstring or a `description` attribute. Without one it cannot "
+            "appear on a routing card."
+        )
+
+    members: dict[str, DeclaredMember] = {}
+    for attribute, value, owner in _walk_declarations(cls, ignore):
+        if isinstance(value, member_types) or _is_member_class(value, member_types):
+            members[attribute] = DeclaredMember(
+                attribute=attribute,
+                value=_materialize(value, member_types, cls, attribute),
+                declared_by=owner,
+            )
+
+    return Declaration(
+        owner=cls.__name__,
+        name=name,
+        description=description,
+        instructions=instructions,
+        members=tuple(members.values()),
+    )
+
+
+def _walk_declarations(
+    cls: type,
+    ignore: frozenset[str],
+) -> Iterator[tuple[str, Any, str]]:
+    for klass in reversed(cls.__mro__):
+        for attribute, value in vars(klass).items():
+            if attribute.startswith("_") or attribute in ignore:
+                continue
+            if isinstance(value, MemberDescriptorType):
+                # A slot from the base dataclass, not a declared member.
+                continue
+            if isinstance(value, (staticmethod, classmethod, property)):
+                continue
+            if callable(value) and not isinstance(value, type):
+                continue
+            yield attribute, value, klass.__name__
+
+
+def _is_member_class(value: Any, member_types: tuple[type, ...]) -> bool:
+    return isinstance(value, type) and issubclass(value, member_types)
+
+
+def _materialize(
+    value: Any,
+    member_types: tuple[type, ...],
+    owner: type,
+    attribute: str,
+) -> Any:
+    """Instantiate a declared member class; pass instances through unchanged.
+
+    Declaring `diagnose = DiagnoseDeployment` and `diagnose =
+    DiagnoseDeployment()` should mean the same thing, so a bare class is built
+    once here, at class-creation time, and the resulting instance is shared by
+    every instance of the declaring class.
+    """
+
+    if not _is_member_class(value, member_types):
+        return value
+    try:
+        return value()
+    except TypeError as exc:
+        raise DeclarationError(
+            f"{owner.__name__}.{attribute} declares {value.__name__}, which "
+            "cannot be built without arguments. Declare an instance instead of "
+            "the class."
+        ) from exc
+
+
+def _scalar(cls: type, attribute: str) -> str | None:
+    """Read a scalar the class body stated, ignoring the dataclass's own slots.
+
+    A plain getattr cannot be used here. `name` and `instructions` are slots on
+    the base dataclass, so getattr returns the slot descriptor rather than None
+    when nobody declared a value, and every undeclared attribute would look
+    like a type error.
+    """
+
+    for klass in cls.__mro__:
+        if attribute not in vars(klass):
+            continue
+        value = vars(klass)[attribute]
+        if isinstance(value, MemberDescriptorType):
+            return None
+        if not isinstance(value, str):
+            raise DeclarationError(
+                f"{cls.__name__}.{attribute} must be a string, not "
+                f"{type(value).__name__}."
+            )
+        stripped = value.strip()
+        return stripped or None
+    return None
+
+
+def require_unique(
+    values: Mapping[str, str],
+    *,
+    owner: str,
+    label: str,
+) -> None:
+    """Fail at class creation when declared names collide.
+
+    `values` maps attribute name to the node name it produces, so the error can
+    name the two attributes a reader has to go look at.
+    """
+
+    seen: dict[str, str] = {}
+    for attribute, node_name in values.items():
+        previous = seen.get(node_name)
+        if previous is not None:
+            raise DeclarationError(
+                f"{owner} declares two {label} named {node_name!r}: "
+                f"`{previous}` and `{attribute}`."
+            )
+        seen[node_name] = attribute
+
+
+__all__ = [
+    "Declaration",
+    "DeclaredMember",
+    "RESERVED_ATTRIBUTES",
+    "collect",
+    "derive_description",
+    "derive_name",
+    "is_declarative",
+    "require_unique",
+]

@@ -8,16 +8,16 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
-from ..constants import (
+from ..core.constants import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     JSON_RPC_VERSION,
     MCP_PROTOCOL_VERSION,
     PROTOCOL_VERSION_META_KEY,
 )
-from ..errors import MCPProtocolError, ModelValidationError
-from ..types import JsonObject, JsonValue, RequestId
-from .models import MCPTool
+from ..core.errors import MCPProtocolError, ModelValidationError
+from ..core.types import JsonObject, JsonValue, RequestId
+from ..core.tools import MCPTool
 
 _HEADER_TOKEN = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
 _BASE64_SENTINEL = re.compile(r"^=\?base64\?.*\?=$", re.DOTALL)

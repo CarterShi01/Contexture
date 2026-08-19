@@ -1,311 +1,229 @@
-# Role Runtime Starter
+# Contexture
 
-A Python reference project for modeling an agent team as a tree of composable
-`Role` objects. Each Role can contain child Roles, reusable Skills, and a
-restricted subset of the Tools and Resources exposed by MCP servers. A unified
-compiler progressively reveals only the context selected for the current LLM
-turn.
+**A context framework for agents.**
 
-The MCP boundary targets the formal **2026-07-28** protocol revision and uses
-**JSON-RPC 2.0** messages.
+Declare your roles, skills, tools, and resources once. Contexture progressively
+discloses that declaration and translates it into the skill and MCP surfaces
+that Claude Code, Codex, and Cursor each consume.
 
-## What this project demonstrates
+It does not run an agent loop, choose tools, or talk to a model. It produces
+what those runtimes read.
 
-- `ContextNode` as the stable progressive-disclosure contract.
-- `Role` as a composite responsibility boundary.
-- `Skill` as reusable workflow knowledge.
-- `MCPTool` as a protocol-compatible callable function descriptor.
-- `MCPResource` as a readable context descriptor that never carries content.
-- `MCPServer` as infrastructure owning both a tool and a resource catalog.
-- `MCPBinding` as the least-privilege relationship between a Role and a Server.
-- `RoleCompiler` as one compile interface for route and active context.
-- `RoleRegistry` for role-path resolution and cycle detection.
-- `RoleRuntime` for execution-time authorization, tool calls, and resource reads.
-- MCP request metadata, required Streamable HTTP routing headers, custom
-  `x-mcp-header` extraction, JSON responses, and request-scoped SSE parsing.
+## The problem
 
-There is deliberately **no separate Data abstraction**. Every form of contextual
-information — documents, configuration, knowledge, runbooks — is an MCP Resource
-behind the same binding that grants Tools, so one grant format and one runtime
-path cover everything a Role may touch.
-
-## Mental model
+A system that wants to work with several agents ends up maintaining the same
+context several times:
 
 ```text
-Role        = who owns the responsibility
-Skill       = how a class of work should be performed
-MCPTool     = which external function can be called
-MCPResource = which external content can be read
-MCPServer   = which provider exposes them
-MCPBinding  = which subset of that provider a Role may use
-Compiler    = what becomes visible in the current LLM context
-Runtime     = what is actually authorized and executed
+Claude Code   CLAUDE.md · .claude/skills/**/SKILL.md · .mcp.json
+Codex         AGENTS.md · ~/.codex/config.toml
+Cursor        .cursor/rules/*.mdc · .cursor/mcp.json
 ```
 
-The main object graph is:
+Every one of those files answers the same six questions: who is this role, what
+does it know, what may it run, what may it read, what is visible by default,
+and what appears only after something is selected. The answers are identical.
+Only the file formats differ — and they drift apart the moment anyone edits one
+of them.
+
+Contexture makes those answers a program.
+
+## Declare once
+
+```python
+from contexture import MCPBinding, Role, Skill
+
+class InspectPodFailure(Skill):
+    """Diagnose why a Pod is crashing, restarting, or failing to become ready."""
+
+    instructions = """
+    1. Inspect the Pod status and restart count.
+    2. Read current logs, then previous logs after a restart.
+    3. Correlate status, logs, and events before proposing remediation.
+    """
+
+class K8sTroubleshooter(Role):
+    """Diagnose unhealthy Pods, failed Deployments, and scheduling failures."""
+
+    instructions = "Start with read-only inspection. Do not modify the cluster."
+
+    inspect_failures = InspectPodFailure
+
+    cluster = MCPBinding(
+        server=KUBERNETES,
+        allowed_tools=["get_pod_logs", "get_events"],
+        read_only_tools=["get_pod_logs", "get_events"],
+        allowed_resources=["resource://kubernetes/runbook/incidents"],
+    )
+```
+
+The class name becomes `k8s-troubleshooter`, the docstring becomes the routing
+description, and the declared members become the role's skills and grants.
+Nothing here names an agent runtime.
+
+Imperative construction still works exactly as before, and a declared role is
+an ordinary `Role`, so anything that accepts one accepts the other.
+
+## Render for every target
+
+```python
+from contexture.targets import all_adapters, render_all, write
+
+surfaces = render_all(EngineeringTeam(), all_adapters())
+
+for note in surfaces["codex"].notes:
+    print(note)
+# Codex has no separate skill artifact; 2 skill(s) were inlined into the main
+# context file, so their instructions are always resident.
+
+write(surfaces["claude-code"], root=".")
+```
+
+Adapters return artifacts; they never write. A separate writer installs them,
+skips files that already match, and can report a plan without touching disk.
+
+**Losses are reported, not hidden.** Agents differ in what they can express. A
+target that cannot carry a per-role tool allowlist, or has no nested-role
+concept, says so in a note. A generated surface that looks authoritative while
+quietly dropping half a declaration is worse than no generation at all.
+
+## Layers
 
 ```text
-Role
-├── children: Role[]
-├── skills: Skill[]
-└── mcp_bindings: MCPBinding[]
-    ├── allowed_tools / read_only_tools
-    ├── allowed_resources
-    └── server: MCPServer
-        ├── tools: MCPTool[]
-        └── resources: MCPResource[]
+your application          declares roles, skills, tools, resources
+        │  inherits / composes
+contexture.core           the object model — no I/O, no wire, no targets
+        │  compile
+contexture.compiler       route / active progressive disclosure
+        │  render
+contexture.targets        Claude Code · Codex · Cursor artifacts
+        ┊
+contexture.protocol       optional MCP wire layer, outbound and inbound
+contexture.execution      optional authorization and dispatch
+        │  consumed by
+external agent runtime    LLM loop · planning · tool selection  (not ours)
 ```
+
+Only `core` is mandatory. Each layer may import the ones below it and never the
+reverse, which is why a project that just wants generated context files never
+loads a transport.
 
 ## Progressive disclosure
 
-Every `ContextNode` supports the same two-level interface:
+Every `ContextNode` — role, skill, tool, resource — answers the same two
+questions:
 
 ```python
-node.compile("route")
-node.compile("active")
+node.compile("route")   # what is this, and when should it be picked?
+node.compile("active")  # the detail, now that it has been picked
 ```
 
-`route` exposes only the small routing card:
-
-```json
-{
-  "kind": "skill",
-  "name": "inspect-pod-failure",
-  "description": "Diagnose why a Kubernetes Pod is failing."
-}
-```
-
-`active` exposes the detailed representation for the selected node. For a Skill,
-that means its instructions. For an MCP Tool, that means its full `inputSchema`.
-For an MCP Resource, that means its URI and media type — never the content,
-which only `RoleRuntime.read_resource` can fetch.
-
-An active Role still exposes its direct child Roles and capabilities only as
-route cards. The compiler activates detailed capability content only when those
-capabilities are explicitly selected.
-
-## Quick start
-
-Python 3.11 or newer is required. The source checkout has no runtime
-dependencies, so it can run immediately without installation:
-
-```bash
-python run_demo.py
-python run_tests.py
-```
-
-An editable installation is also supported:
-
-```bash
-python -m venv .venv
-
-# Linux or macOS
-source .venv/bin/activate
-
-# Windows PowerShell
-.venv\Scripts\Activate.ps1
-
-python -m pip install -e .
-python -m examples.run_demo
-python -m unittest discover -s tests -v
-```
-
-The example builds this team across two independent MCP servers:
-
-```text
-engineering-team
-├── k8s-troubleshooter        → production-kubernetes
-│   ├── Skill: inspect-pod-failure
-│   ├── Tool: get_pod_logs, get_events          (read-only)
-│   └── Resource: runbook/incidents, deployment/payments-api
-├── k8s-operator              → production-kubernetes
-│   ├── Tool: get_pod_logs, get_events          (read-only)
-│   ├── Tool: delete_pod                        (needs approval)
-│   └── Resource: deployment/payments-api
-└── github-liaison            → github-cloud
-    ├── Skill: report-incident
-    ├── Tool: create_issue                      (needs approval)
-    └── Resource: payments-api/README.md
-```
-
-The demo walks every boundary this produces:
-
-- The Troubleshooter cannot see or call `delete_pod`.
-- The Operator can see it, but the Runtime requires explicit approval because
-  the Host did not classify that tool as read-only.
-- The Troubleshooter holds no GitHub binding at all, so both the GitHub tool and
-  the GitHub resource are denied — with the same `CapabilityDeniedError` a
-  within-server denial raises.
-- Reading a granted resource returns content only from the Runtime; the compiled
-  context carried the descriptor alone.
-
-## Small construction example
+An active role exposes its own instructions plus route cards for its children,
+skills, tools, and resources. It never recursively activates its descendants.
+Detail arrives only for capabilities a caller explicitly selects:
 
 ```python
-from role_runtime import MCPBinding, MCPResource, MCPServer, MCPTool, Role, Skill
-
-get_pod_logs = MCPTool(
-    name="get_pod_logs",
-    description="Read logs from a Kubernetes Pod container.",
-    input_schema={
-        "type": "object",
-        "properties": {
-            "namespace": {"type": "string"},
-            "pod": {"type": "string"},
-            "container": {"type": "string"},
-        },
-        "required": ["namespace", "pod", "container"],
-        "additionalProperties": False,
-    },
-)
-
-runbook = MCPResource(
-    name="kubernetes-incident-runbook",
-    description="Operational guidance for common Kubernetes incidents.",
-    uri="resource://kubernetes/runbook/incidents",
-    mime_type="text/markdown",
-)
-
-server = MCPServer(
-    server_id="production-kubernetes",
-    name="kubernetes",
-    description="Kubernetes cluster operations.",
-    tools=[get_pod_logs],
-    resources=[runbook],
-)
-
-inspect_failure = Skill(
-    name="inspect-pod-failure",
-    description="Diagnose a failing Kubernetes Pod.",
-    instructions="Inspect status, current logs, previous logs, and events.",
-)
-
-troubleshooter = Role(
-    name="k8s-troubleshooter",
-    description="Diagnose Kubernetes runtime failures.",
-    instructions="Start with read-only evidence collection.",
-    skills=[inspect_failure],
-    mcp_bindings=[
-        MCPBinding(
-            server=server,
-            allowed_tools=["get_pod_logs"],
-            read_only_tools=["get_pod_logs"],
-            allowed_resources=["resource://kubernetes/runbook/incidents"],
+runtime.compile(
+    "engineering-team/k8s-troubleshooter",
+    CompileRequest(
+        selection=CapabilitySelection(
+            skill_names=("inspect-pod-failure",),
+            tool_refs=("production-kubernetes/get_pod_logs",),
         )
-    ],
+    ),
 )
 ```
 
-## Host references versus MCP protocol names
-
-The Host uses globally unique references for both capability kinds:
-
-```text
-production-kubernetes/get_pod_logs
-production-kubernetes/resource://kubernetes/runbook/incidents
-```
-
-Both are `<server_id>/<protocol identifier>` and both are split on the **first**
-separator only, so a resource URI keeps its own slashes and scheme intact. A
-server id may not contain `/`, which is what makes that parse unambiguous.
-
-The MCP requests still send the original protocol identifiers:
-
-```json
-{
-  "method": "tools/call",
-  "params": { "name": "get_pod_logs", "arguments": {} }
-}
-```
-
-```json
-{
-  "method": "resources/read",
-  "params": { "uri": "resource://kubernetes/runbook/incidents" }
-}
-```
-
-`tool_ref` and `resource_ref` are Host routing constructs. They are not MCP
-protocol fields.
+Resources are the exception that proves the rule: their boundary is not route
+versus active but **descriptor versus content**. Compiling one at any level
+yields metadata. Only `RoleRuntime.read_resource` returns bytes.
 
 ## Security model
 
-The project uses defense in depth:
-
-1. An ungranted Tool or Resource is omitted from the Role's LLM routing surface.
+1. An ungranted tool or resource never reaches the agent's routing surface.
 2. `MCPBinding` checks the grant again when a capability is activated.
-3. `RoleRuntime` checks the grant again immediately before execution.
-4. A Tool not explicitly Host-classified as read-only requires approval.
-5. Every authorization refusal is a `CapabilityDeniedError`, including the case
-   where the Role holds no binding to the named server at all.
-6. A refreshed server catalog may not orphan an existing grant, and both
-   catalogs are validated before either is replaced.
-7. The MCP Server remains responsible for its own authentication and
-   authorization.
+3. The execution layer checks it again immediately before running.
+4. A tool not host-classified as read-only requires explicit approval.
+5. Every authorization refusal is one exception type, `CapabilityDeniedError`,
+   including the case where the role holds no binding to that server at all.
+6. A refreshed server catalog may not orphan an existing grant.
 
-MCP `ToolAnnotations` are retained for display and planning, but are treated as
-untrusted hints. They are never the authorization source of truth.
+MCP `ToolAnnotations` are kept for display and planning but treated as
+untrusted hints. `read_only_tools` on the binding is the host's own
+classification and the only thing the runtime trusts.
 
 Resources carry no read-only classification because MCP defines no write path
 for them; appearing on `allowed_resources` is the entire grant.
 
-## MCP 2026-07-28 boundary
+## Serving your own capabilities
 
-The focused client in this project implements the parts needed by the Role
-Runtime example:
+`MCPClient` is the outbound half of MCP. `MCPHostPort` is the inbound half —
+the boundary an application implements so its declared tools and resources can
+be served:
 
-- JSON-RPC 2.0 request and response validation.
-- Required per-request `_meta` fields.
-- `tools/list` and `resources/list` pagination and catalog refresh.
-- `tools/call` requests and result parsing.
-- `resources/read` requests and content-block parsing.
-- `MCP-Protocol-Version`, `Mcp-Method`, and `Mcp-Name` headers.
-- `x-mcp-header` validation, extraction, and Base64 sentinel encoding.
-- Streamable HTTP JSON responses and request-scoped SSE responses.
+```python
+class MCPHostPort(Protocol):
+    def register_tool(self, tool: MCPTool, handler: ToolHandler) -> None: ...
+    def register_resource(self, resource: MCPResource, provider: ResourceProvider) -> None: ...
+```
 
-This repository is a terminal-state architecture for the Role model, not a full
-replacement for a complete MCP SDK. It does not automatically drive all
-optional MCP features such as long-lived subscriptions, resource subscriptions,
-Prompts, automatic multi-round-trip input handling, or every authorization flow.
-Those features belong behind the existing `MCPTransport` and `MCPClient`
-boundaries.
+`InMemoryHost` implements it in process, which is what the example uses. A
+deployable server is deliberately absent: the port is what keeps that decision
+cheap to make once two real callers have shown what it must do.
+
+## Quick start
+
+Python 3.10 or newer. No runtime dependencies.
+
+```bash
+python run_demo.py     # declaration → three surfaces → disclosure → execution
+python run_tests.py    # 79 tests
+```
+
+The example declares one team across two MCP servers:
+
+```text
+engineering-team
+├── k8s-troubleshooter      → production-kubernetes (stdio)
+│   ├── Skill: inspect-pod-failure
+│   ├── get_pod_logs, get_events            read-only
+│   └── runbook, deployment manifest        resources
+├── k8s-operator            → production-kubernetes
+│   ├── + delete_pod                        needs approval
+│   └── deployment manifest                 resource
+└── github-liaison          → github-cloud (http)
+    ├── Skill: report-incident
+    ├── create_issue                        needs approval
+    └── repository README                   resource
+```
 
 ## Project layout
 
 ```text
-role-runtime-starter/
-├── docs/
-│   ├── 01-role-object-model.md
-│   └── atlas/index.html          offline architecture atlas
-├── examples/
-│   ├── engineering_team.py
-│   └── run_demo.py
-├── src/role_runtime/
-│   ├── context.py
-│   ├── skill.py
-│   ├── role.py
-│   ├── compiler.py
-│   ├── registry.py
-│   ├── runtime.py
-│   └── mcp/
-│       ├── models.py
-│       ├── binding.py
-│       ├── protocol.py
-│       ├── transport.py
-│       └── client.py
-└── tests/
+src/contexture/
+├── core/            object model: context, role, skill, tools, resources,
+│                    servers, binding, registry, declarative
+├── compiler.py      route/active compilation and capability selection
+├── targets/         base, markdown, claude_code, codex, cursor, writer
+├── protocol/        messages, transport, client, host
+└── execution.py     authorization and dispatch
 ```
 
-## Design document
+## Design documents
 
-Read [`docs/01-role-object-model.md`](docs/01-role-object-model.md) for the
-step-by-step architecture decisions, invariants, protocol boundaries, and the
-terminal-state extension map.
+- [`docs/01-role-object-model.md`](docs/01-role-object-model.md) — the object
+  model, its invariants, and why each boundary sits where it does.
+- [`docs/02-framework-layers.md`](docs/02-framework-layers.md) — the framework
+  shape: declaration, compilation, targets, and the optional layers.
+- [`docs/atlas/index.html`](docs/atlas/index.html) — an offline visual atlas;
+  open it directly in a browser.
 
-## Protocol references
+## What this is not
 
-- https://modelcontextprotocol.io/specification/2026-07-28
-- https://modelcontextprotocol.io/specification/2026-07-28/architecture
-- https://modelcontextprotocol.io/specification/2026-07-28/server/tools
-- https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http
-- https://modelcontextprotocol.io/specification/2026-07-28/schema
+- Not an agent runtime. No planner, no agent loop, no tool selection.
+- Not a new protocol. It compiles to MCP and to each agent's own formats.
+- Not a model client. It never calls an LLM.
+
+## License
+
+Apache-2.0

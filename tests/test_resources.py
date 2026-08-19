@@ -5,16 +5,18 @@ from __future__ import annotations
 import unittest
 from typing import Any, Mapping
 
-from role_runtime import (
-    InMemoryTransport,
+from contexture import (
     MCPBinding,
-    MCPClient,
     MCPResource,
     MCPServer,
     ModelValidationError,
     Role,
-    RoleRuntime,
 )
+from contexture.protocol import (
+    InMemoryTransport,
+    MCPClient,
+)
+from contexture.execution import RoleRuntime
 
 from examples.engineering_team import RUNBOOK_URI, build_demo_environment
 

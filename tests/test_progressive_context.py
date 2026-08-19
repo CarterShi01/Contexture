@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from role_runtime import CapabilitySelection, CompileRequest
+from contexture import CapabilitySelection, CompileRequest
 
 from examples.engineering_team import RUNBOOK_URI, build_demo_environment
 

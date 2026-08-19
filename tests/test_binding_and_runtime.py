@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from role_runtime import (
+from contexture import (
     CapabilityDeniedError,
     ConfirmationRequired,
     MCPBinding,

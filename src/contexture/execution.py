@@ -6,21 +6,21 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from .compiler import CompileRequest, CompiledRoleContext, RoleCompiler
-from .errors import (
+from .core.errors import (
     ConfirmationRequired,
     ModelValidationError,
     NodeNotFoundError,
 )
-from .mcp.client import (
+from .protocol.client import (
     MCPClient,
     ResourceCatalog,
     ResourceReadOutcome,
     ToolCallOutcome,
     ToolCatalog,
 )
-from .mcp.models import MCPServer
-from .registry import RoleRegistry
-from .role import Role
+from .core.servers import MCPServer
+from .core.registry import RoleRegistry
+from .core.role import Role
 
 
 @dataclass(slots=True, frozen=True, kw_only=True)

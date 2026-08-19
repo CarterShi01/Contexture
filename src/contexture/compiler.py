@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .context import CompileLevel
-from .errors import ModelValidationError
-from .role import Role
-from .types import CompiledContext
+from .core.context import CompileLevel
+from .core.errors import ModelValidationError
+from .core.role import Role
+from .core.types import CompiledContext
 
 
 @dataclass(slots=True, frozen=True, kw_only=True)

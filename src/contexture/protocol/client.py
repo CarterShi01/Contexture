@@ -7,10 +7,12 @@ from dataclasses import dataclass, field
 from itertools import count
 from typing import Any, Callable, Mapping, TypeVar
 
-from ..errors import MCPProtocolError, MCPRemoteError, ModelValidationError
-from ..types import JsonObject, JsonValue
-from .models import MCPResource, MCPTool
-from .protocol import (
+from ..core.constants import PACKAGE_NAME, PACKAGE_VERSION
+from ..core.errors import MCPProtocolError, MCPRemoteError, ModelValidationError
+from ..core.types import JsonObject, JsonValue
+from ..core.resources import MCPResource
+from ..core.tools import MCPTool
+from .messages import (
     ClientInfo,
     JSONRPCResponse,
     MCPRequestFactory,
@@ -134,8 +136,8 @@ class MCPClient:
     transport: MCPTransport
     client_info: ClientInfo = field(
         default_factory=lambda: ClientInfo(
-            name="role-runtime-starter",
-            version="0.0.2",
+            name=PACKAGE_NAME,
+            version=PACKAGE_VERSION,
         )
     )
     client_capabilities: JsonObject = field(default_factory=dict)
