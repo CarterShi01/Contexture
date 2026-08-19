@@ -9,6 +9,37 @@ connect to directly.
 It does not run an agent loop, choose tools, or talk to a model. It is what
 those runtimes connect to.
 
+## Two models
+
+Everything in this repository follows from two sentences.
+
+**The runtime model — what Contexture *is* while it runs.**
+
+> Contexture organizes Role, Skill, Tool, and Resource into a single MCP server
+> surface, and discloses them progressively over the course of the interaction.
+
+**The framework model — how a developer *uses* it.**
+
+> Contexture provides the abstractions, the lifecycle, the inversion of control,
+> and the MCP runtime. Business developers extend those abstractions to define
+> capabilities; the framework turns them into a native, progressively disclosed
+> MCP server.
+
+The first answers *what is running*. The second answers *what do I write*.
+
+They meet in exactly one place — `contexture.server` — which is why that is the
+only layer permitted to import the MCP SDK, and why `contexture.core` is
+forbidden from it.
+
+The two are also the admission test for every new concept. Before a compiler, a
+registry, a resolver, a descriptor, or a request object earns a place here, it
+answers one question:
+
+> Does this help a business developer **define** a capability, or help the
+> framework **run** one?
+
+A concept that does neither is a spare part, however well made.
+
 ## The problem
 
 A system that wants to work with several agents ends up maintaining the same
