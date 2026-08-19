@@ -88,15 +88,35 @@ Then ask either one:
 ## The trace to expect
 
 ```text
-contexture_discover                → three role cards; the skeleton, no detail
-contexture_open(incident-response) → its skills, tools with schemas, resource
-contexture_open(skill)             → the full procedure, here and only here
-contexture_invoke_read_only(...)   → CrashLoopBackOff, restart_count 14
-contexture_invoke_read_only(...)   → ConfigurationError: DB_URL is missing
-contexture_invoke_read_only(...)   → container exited with code 1
-read contexture://runbooks/crash-loop-backoff
-                              → matches row 1 of the cause table
+contexture_open(kubernetes-platform/incident-response)
+                                    → its skills, its three tools with schemas,
+                                      and a card for the runbook
+contexture_open(…/diagnose-crash-loop-backoff)
+                                    → the full procedure, here and only here
+contexture_invoke_read_only(…/get_pod_status)
+                                    → CrashLoopBackOff, restart_count 14
+contexture_invoke_read_only(…/get_pod_logs)
+                                    → ConfigurationError: DB_URL is missing
+contexture_invoke_read_only(…/get_pod_events)
+                                    → container exited with code 1
+contexture_read(contexture://runbooks/crash-loop-backoff)
+                                    → matches row 1 of the cause table
 ```
+
+`contexture_discover` is not in that list, and it is not missing: it answers
+with the **root roles alone** — here a single `kubernetes-platform` card — and
+the bootstrap roster in the server's instructions already names the branch, so
+the recorded run went straight to it. See
+[`docs/verification/hosts.md`](../../../../docs/verification/hosts.md).
+
+Every step of that trace, and its cost, can be read without a host:
+
+```bash
+python tools/inspect_disclosure.py --all --read --summary
+```
+
+The whole tree, every document included, is about 3,600 estimated tokens. The
+path above is about 1,860 of them; nothing pays for `deployment-ops`.
 
 The conclusion: the container is not being killed, it is rejecting its own
 startup state because `DB_URL` is absent, and exit code 1 rather than 137
@@ -104,7 +124,9 @@ separates that from an out-of-memory kill. The remediation is to add the key
 and roll out — *not* to restart the Pod, which the skill and the runbook both
 rule out.
 
-An agent is free to skip the traversal and call a tool directly; the surface is
-flat and every tool is visible. What disclosure controls is knowledge, not
-access. The procedure, the ordering, and the "do not restart first" constraint
-exist only behind `contexture_open`.
+An agent is free to skip the traversal: a ref that was guessed rather than read
+still runs, and nothing here is an authorization boundary. What it cannot do is
+skip ahead and still know what to do. The surface carries five tools and no
+Kubernetes, so the tool names, their schemas, the procedure, the ordering, and
+the "do not restart first" constraint all arrive inside payloads that opening
+delivers. Disclosure controls knowledge, not access.
