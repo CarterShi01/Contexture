@@ -521,6 +521,28 @@ def _listed(text: str) -> list[str]:
     return re.findall(r"^- ([^:.][^:]*):", text, re.MULTILINE)
 
 
+class ResourceDisclosureTests(unittest.TestCase):
+    """A resource is reachable two ways, and both must name its fields alike.
+
+    The card a role hands out spelled it `mime_type`; opening the resource
+    spelled it `mimeType`, because that payload had been modelled on the
+    protocol's resource descriptor instead of on the card beside it. One field,
+    two key names, decided by which way the agent arrived.
+    """
+
+    def test_both_ways_to_a_resource_name_the_same_fields(self) -> None:
+        app = ContextureApp(roots=Responder(), name="test")
+
+        card = app.tree.open("responder")["resources"][0]
+        opened = app.tree.open("responder/runbook")
+
+        shared = set(card) & set(opened)
+        self.assertEqual({key: card[key] for key in shared},
+                         {key: opened[key] for key in shared})
+        self.assertEqual(set(card), set(opened))
+        self.assertEqual(opened["mime_type"], "text/markdown")
+
+
 class ToolDisclosureTests(unittest.TestCase):
     """What a tool tells an agent about how to call it.
 

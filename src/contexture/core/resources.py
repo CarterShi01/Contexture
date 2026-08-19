@@ -75,12 +75,18 @@ class Resource(ContextNode):
         )
 
     def _compile_active(self) -> CompiledContext:
+        # `mime_type`, not the protocol's `mimeType`. This payload is not a
+        # protocol resource descriptor — it travels inside a tool result, beside
+        # `read_only` and `input_schema` — and the card a role hands out for
+        # this same resource has always spelled it this way. Reaching one
+        # resource two ways and being given two different key names for one
+        # field is the same defect the tool payload was fixed for.
         compiled: CompiledContext = {
             **self._compile_route(),
             "uri": self.uri,
         }
         if self.mime_type is not None:
-            compiled["mimeType"] = self.mime_type
+            compiled["mime_type"] = self.mime_type
         return compiled
 
 
