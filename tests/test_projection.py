@@ -95,16 +95,15 @@ def _text(result):
 
 class SurfaceTests(unittest.TestCase):
     def test_the_surface_is_the_five_gateway_tools_and_nothing_else(self) -> None:
-        server, projection = _server()
+        server = _server()
 
         listed = tuple(tool.name for tool in asyncio.run(server.list_tools()))
         self.assertEqual(listed, GATEWAY_TOOLS)
-        self.assertEqual(projection.tools, GATEWAY_TOOLS)
 
     def test_no_business_capability_reaches_the_surface(self) -> None:
         """A registered capability is one every session pays for, forever."""
 
-        server, _ = _server()
+        server = _server()
 
         rendered = json.dumps(
             [tool.model_dump(mode="json") for tool in asyncio.run(server.list_tools())]
@@ -117,7 +116,7 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(resources, [])
 
     def test_only_the_writing_door_is_free_of_the_read_only_hint(self) -> None:
-        server, _ = _server()
+        server = _server()
         hints = {
             tool.name: tool.annotations and tool.annotations.read_only_hint
             for tool in asyncio.run(server.list_tools())
@@ -132,7 +131,7 @@ class SurfaceTests(unittest.TestCase):
         """A model that could pass its own approval flag would be approving
         its own writes."""
 
-        server, _ = _server()
+        server = _server()
         for tool in asyncio.run(server.list_tools()):
             with self.subTest(tool=tool.name):
                 self.assertNotIn(
@@ -143,7 +142,7 @@ class SurfaceTests(unittest.TestCase):
         """A gateway whose five tool names all begin `contexture_` gives a host
         nothing to go on until the roster tells it what this server is for."""
 
-        server, _ = _server()
+        server = _server()
 
         self.assertIn("responder", server.instructions)
         self.assertIn("Diagnose and repair unhealthy Pods.", server.instructions)
@@ -152,7 +151,7 @@ class SurfaceTests(unittest.TestCase):
 
 class NavigationTests(unittest.TestCase):
     def test_discover_returns_the_skeleton(self) -> None:
-        server, _ = _server()
+        server = _server()
 
         payload = json.loads(_text(_call(server, DISCOVER_TOOL)))
         self.assertEqual([card["ref"] for card in payload["roles"]], ["responder"])
@@ -160,7 +159,7 @@ class NavigationTests(unittest.TestCase):
     def test_opening_a_role_delivers_the_schemas_the_surface_no_longer_has(
         self,
     ) -> None:
-        server, _ = _server()
+        server = _server()
 
         opened = json.loads(_text(_call(server, OPEN_TOOL, {"ref": "responder"})))
         schemas = {tool["name"]: tool["input_schema"] for tool in opened["tools"]}
@@ -171,7 +170,7 @@ class NavigationTests(unittest.TestCase):
         self.assertEqual(schemas["get_pod_logs"]["required"], ["namespace", "pod"])
 
     def test_a_wrong_ref_is_a_sentence_and_not_a_traceback(self) -> None:
-        server, _ = _server()
+        server = _server()
 
         with self.assertRaises(ToolError) as caught:
             _call(server, OPEN_TOOL, {"ref": "responder/banana"})
@@ -183,7 +182,7 @@ class NavigationTests(unittest.TestCase):
 
 class InvocationTests(unittest.TestCase):
     def test_a_read_only_tool_runs_through_the_read_only_door(self) -> None:
-        server, _ = _server()
+        server = _server()
 
         result = _call(
             server,
@@ -194,7 +193,7 @@ class InvocationTests(unittest.TestCase):
         self.assertIn("prod/api", _text(result))
 
     def test_a_writing_tool_runs_through_the_writing_door(self) -> None:
-        server, _ = _server()
+        server = _server()
 
         result = _call(
             server,
@@ -210,7 +209,7 @@ class InvocationTests(unittest.TestCase):
         Honouring a mismatch would run a write under a read-only approval.
         """
 
-        server, _ = _server()
+        server = _server()
 
         with self.assertRaises(ToolError) as caught:
             _call(
@@ -225,7 +224,7 @@ class InvocationTests(unittest.TestCase):
         self.assertIn(INVOKE_TOOL, message)
 
     def test_a_read_sent_through_the_writing_door_is_refused(self) -> None:
-        server, _ = _server()
+        server = _server()
 
         with self.assertRaises(ToolError) as caught:
             _call(
@@ -240,7 +239,7 @@ class InvocationTests(unittest.TestCase):
     def test_arguments_are_validated_against_the_derived_schema(self) -> None:
         """Validation left the wire with the tool; it did not stop happening."""
 
-        server, _ = _server()
+        server = _server()
 
         with self.assertRaises(ToolError) as caught:
             _call(
@@ -252,7 +251,7 @@ class InvocationTests(unittest.TestCase):
         self.assertIn("pod", str(caught.exception))
 
     def test_a_ref_that_names_a_skill_is_refused_by_invoke(self) -> None:
-        server, _ = _server()
+        server = _server()
 
         with self.assertRaises(ToolError) as caught:
             _call(server, INVOKE_READ_ONLY_TOOL, {"ref": "responder/diagnose"})
@@ -262,7 +261,7 @@ class InvocationTests(unittest.TestCase):
 
 class ResourceTests(unittest.TestCase):
     def test_content_arrives_only_when_it_is_read(self) -> None:
-        server, _ = _server()
+        server = _server()
 
         opened = json.loads(
             _text(_call(server, OPEN_TOOL, {"ref": "responder/runbook"}))
@@ -274,7 +273,7 @@ class ResourceTests(unittest.TestCase):
         )
 
     def test_a_resource_reads_by_its_own_uri_as_well_as_by_ref(self) -> None:
-        server, _ = _server()
+        server = _server()
 
         result = _call(
             server, READ_TOOL, {"ref": "contexture://runbooks/crash-loop"}

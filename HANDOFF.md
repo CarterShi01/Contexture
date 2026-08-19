@@ -1,7 +1,6 @@
 # Handoff
 
-**Written:** 2026-08-19, at v0.2.0 — `67f6ab3`, the second of the two
-`refactor!` commits described below.
+**Written:** 2026-08-19, at v0.2.0 — after the three commits described below.
 
 **Why this file exists:** the machine this work was done on has **no way to
 install anything**. There is no `pip`, no `ensurepip`, no `uv`, no `pipx`; the
@@ -15,8 +14,7 @@ Delete an item when it is done. Delete the file when it is empty.
 
 ## 0. What changed in v0.2.0, and what it breaks
 
-Two commits, both `refactor!`. Read the ADRs for the reasoning; this is what a
-consumer notices.
+Read the ADRs for the reasoning; this is what a consumer notices.
 
 | Gone | Replaced by | ADR |
 | --- | --- | --- |
@@ -25,6 +23,7 @@ consumer notices.
 | `Role.get_child` / `get_skill` / `get_tool` / `get_resource` | `Role.member(name)`, `Role.members()` | [006](docs/adr/006-errors-carry-facts-and-the-contract-is-one-module.md) |
 | `NodeNotFoundError` subclassing `KeyError` | catch `NodeNotFoundError` or `ContextureError` | 006 |
 | prose inside `NodeNotFoundError` | `.reason` (a `LookupFailure`) plus `.ref` / `.segment` / `.scope` / `.kind` / `.wanted` / `.known` | 006 |
+| `Projection`, and `build_server()` returning a tuple | `build_server()` returns the `MCPServer`; ask it what it registered | 006 |
 
 `server/` gained `contract.py`, which owns every string an agent reads. The
 version was bumped to `0.2.0` in `pyproject.toml` and `core/constants.py` so
@@ -69,6 +68,11 @@ The specific things to watch, since they are the changed ones:
 - **`_translated` composes the message** from the exception's facts. Every
   assertion in `test_projection.py` that reads a `ToolError` message was audited
   by hand against the new renderings and should hold, but audited is not run.
+- **`build_server()` returns one value, not a tuple.** All sixteen unpacking
+  sites in `test_projection.py` were rewritten mechanically and checked by
+  walking the file's AST for any remaining tuple target — but nothing there has
+  been executed. This is the change most likely to fail loudly and least likely
+  to fail subtly.
 
 **Done when:** `run_tests.py` reports 130 passing with the SDK installed.
 
@@ -205,21 +209,7 @@ registered natively; under the gateway only five names are ever registered, and
 they are registered from one tuple. The failure it describes may no longer be
 reachable.
 
-### 5.2 `Projection` reports a constant
-
-`project()` returns `Projection(tools=contract.GATEWAY_TOOLS)` — always, because
-nothing about the surface varies any more. `run()` discards it. The only
-assertion on it compares a constant with itself, next to a real assertion that
-asks the server what it actually registered.
-
-Either delete it and have `build_server()` return the server alone, or give it
-something real to report — counts of what sits *behind* the gateway, which is
-what `contexture list` and the roster budget in `instructions.build()` both
-want. **Deliberately not done here**, because changing that signature cannot be
-verified on a machine where `test_projection.py` will not run. Do it in the same
-pass as item 1.
-
-### 5.3 Where ownership is written down, once there are many declarations
+### 5.2 Where ownership is written down, once there are many declarations
 
 Today a Role enumerates its members in its own class body: explicit and readable
 at one Role, a line per member and a merge hotspot at fifty. Three shapes, and
@@ -238,7 +228,7 @@ Scrapy, Django, Airflow and Nameko all converged on convention-based discovery
 rather than central enumeration — but none of their units has an owner, and a
 Tool does. That asymmetry is the whole difficulty.
 
-### 5.4 Two roles may still declare the same tool name
+### 5.3 Two roles may still declare the same tool name
 
 Uniqueness is enforced *within* one role (`Role._require_unique_members`, which
 is what `Role.member()` relies on) and across root names
@@ -250,7 +240,7 @@ old framing of this item is obsolete. **What remains is a usability question:**
 two identically-named tools in different roles are indistinguishable in a
 model's context once it has opened both. Whether to warn, and where, is open.
 
-### 5.5 Whether a per-unit generator is worth it
+### 5.4 Whether a per-unit generator is worth it
 
 Deliberately **not** built. Scrapy has `genspider` because a Spider carries
 boilerplate that is easy to get wrong; a Contexture `Tool` is six lines and

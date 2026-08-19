@@ -45,7 +45,6 @@ _EXPORTS = {
     "READ_TOOL": ".contract",
     "unresolved": ".contract",
     "Dispatch": ".projection",
-    "Projection": ".projection",
     "project": ".projection",
     "Launch": ".registration",
     "claude_code_config": ".registration",

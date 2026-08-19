@@ -331,7 +331,7 @@
     <p class="dek">一份把框架拆开看的地图集——业务怎么声明一次、分层谁依赖谁、类怎么组合、同一份声明怎么变成一个 Claude Code 和 Codex 都能连的原生 MCP Server。</p>
     <p class="statline">
       <span><b>16</b> 框架源文件</span><span class="sep">·</span>
-      <span><b>24</b> 个类</span><span class="sep">·</span>
+      <span><b>23</b> 个类</span><span class="sep">·</span>
       <span><b>4</b> 层单向依赖</span><span class="sep">·</span>
       <span><b>112</b> 个测试用例</span><span class="sep">·</span>
       <span>MCP <b>2026-07-28</b></span>
@@ -451,8 +451,8 @@
               <div class="row"><span class="path dir">server/</span><span class="desc"><strong>主路终点</strong> — 原生 MCP Server,唯一 import 官方 SDK 的层</span></div>
               <ul>
                 <li><div class="row"><span class="path">contract.py</span><span class="desc">217 行 · 1 类 — <strong>agent 读到的一切</strong>:五个动词的名字与描述 · PREAMBLE · 查找失败怎么变成一句话。<strong>不 import SDK</strong></span></div></li>
-                <li><div class="row"><span class="path">app.py</span><span class="desc">102 行 — ContextureApp,业务唯一需要接触的对象;不继承 SDK 的 MCPServer,而是组合它</span></div></li>
-                <li><div class="row"><span class="path">projection.py</span><span class="desc">226 行 · 3 类 — 把 contract 挂到 SDK 上(循环注册,不是五处 add_tool)· Dispatch(推 schema 与校验参数,<strong>不上表面</strong>)· 两扇门的一致性检查</span></div></li>
+                <li><div class="row"><span class="path">app.py</span><span class="desc">101 行 — ContextureApp,业务唯一需要接触的对象;不继承 SDK 的 MCPServer,而是组合它</span></div></li>
+                <li><div class="row"><span class="path">projection.py</span><span class="desc">223 行 · 2 类 — 把 contract 挂到 SDK 上(循环注册,不是五处 add_tool)· Dispatch(推 schema 与校验参数,<strong>不上表面</strong>)· 两扇门的一致性检查。<code>project()</code> 不返回任何东西:表面固定之后它只能复述常量</span></div></li>
                 <li><div class="row"><span class="path">instructions.py</span><span class="desc">74 行 — 只管把 contract <strong>塞进某个宿主的版面</strong>:前 512 字自包含(Codex),总长 &lt;2KB(Claude Code)</span></div></li>
                 <li><div class="row"><span class="path">registration.py</span><span class="desc">96 行 — 生成指向<strong>本 server</strong> 的宿主配置;不 import 包内任何东西</span></div></li>
               </ul>

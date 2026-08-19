@@ -97,24 +97,23 @@ class Dispatch:
         return cached[1]
 
 
-@dataclass(slots=True, kw_only=True)
-class Projection:
-    """What one projection put on the wire, so a caller can assert on it."""
-
-    tools: tuple[str, ...]
-
-
 def project(
     server: MCPServer,
     *,
     tree: ContextTree,
     dispatch: Dispatch,
-) -> Projection:
+) -> None:
     """Register the five gateway tools against `tree`.
 
     `dispatch` is the same object whose `schema` method the tree was built
     with, so a card's schema and the validation a call is checked against
     are derived once, from one place.
+
+    Returns nothing. It used to return a record of what had been registered,
+    from back when that varied with the declaration; behind a fixed gateway it
+    could only ever restate `contract.GATEWAY_TOOLS`, and a caller that wants
+    to know what is on the wire should ask the server rather than be told by
+    the function that wrote to it.
     """
 
 
@@ -164,8 +163,6 @@ def project(
             description=entry.description,
             annotations=ToolAnnotations(read_only_hint=entry.read_only),
         )
-
-    return Projection(tools=contract.GATEWAY_TOOLS)
 
 
 async def _invoke(
@@ -223,4 +220,4 @@ class _translated:
         raise ToolError(str(exc)) from exc
 
 
-__all__ = ["Dispatch", "Projection", "project"]
+__all__ = ["Dispatch", "project"]

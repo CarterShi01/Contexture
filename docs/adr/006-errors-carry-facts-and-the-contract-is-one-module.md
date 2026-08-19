@@ -105,23 +105,26 @@ without one.
 - The four member kinds were enumerated by hand in seven places; `members()`
   collapses two of them, including the pairing of the uniqueness check with the
   traversal it constrains.
-- `projection.py` drops from 294 to 226 lines and stops holding any text an
+- `projection.py` drops from 294 to 223 lines and stops holding any text an
   agent reads. `instructions.py` drops to 74 and holds only two numbers with an
   expiry date.
 - Tests split along the same seam. `test_tree` asserts the *facts* a failure
   carries and that it carries no prose; `test_contract` asserts the sentences,
   and runs without the SDK installed.
-- The framework goes from 15 source files to 16 and from 22 classes to 24. Two
+- The framework goes from 15 source files to 16 and from 22 classes to 23. Two
   of the three findings this was reviewed against are closed by construction
   rather than by fixing them one at a time.
 
 ## Not done here
 
-- `Projection` still reports a constant — `project()` cannot return anything
-  that varies now that the surface is fixed — and `build_server()` still
-  returns a tuple because of it. Left alone deliberately: changing that
-  signature is not verifiable in an environment where the SDK cannot be
-  installed.
+- ~~`Projection` still reports a constant.~~ **Removed immediately after, in
+  the commit that follows this ADR.** The reasoning here was that changing
+  `build_server()`'s signature could not be verified without the SDK; the
+  counter-argument that won is that a class whose only assertion compares a
+  constant with itself is not made safer by being kept. `project()` now returns
+  nothing and `build_server()` returns the server. A caller that wants to know
+  what is on the wire asks the server, which is the one answer that cannot go
+  stale.
 - `Dispatch` still keys its cache by `id(tool)`, but now stores the tool
   alongside the derivation, so the key cannot be recycled while the entry
   lives. The remaining `id()` use is an optimisation, not a correctness

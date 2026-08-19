@@ -32,7 +32,7 @@ from ..core.constants import PACKAGE_VERSION
 from ..core.role import Role
 from ..tree import ContextTree
 from . import instructions as instructions_module
-from .projection import Dispatch, Projection, project
+from .projection import Dispatch, project
 
 Transport = Literal["stdio", "streamable-http", "sse"]
 
@@ -55,8 +55,8 @@ class ContextureApp:
         self.dispatch = Dispatch()
         self.tree = ContextTree.of(self.roots, schema_of=self.dispatch.schema)
 
-    def build_server(self) -> tuple[MCPServer, Projection]:
-        """Build the MCP server and report what was projected onto it."""
+    def build_server(self) -> MCPServer:
+        """Build the MCP server with the gateway registered on it."""
 
         server = MCPServer(
             name=self.name,
@@ -64,15 +64,14 @@ class ContextureApp:
             instructions=self.instructions
             or instructions_module.build(self.tree),
         )
-        projection = project(server, tree=self.tree, dispatch=self.dispatch)
-        return server, projection
+        project(server, tree=self.tree, dispatch=self.dispatch)
+        return server
 
     def run(self, transport: Transport = "stdio", **kwargs: object) -> None:
         """Serve the graph. Blocks until the host disconnects."""
 
         configure_logging()
-        server, _ = self.build_server()
-        server.run(transport=transport, **kwargs)
+        self.build_server().run(transport=transport, **kwargs)
 
 
 def configure_logging(level: int = logging.INFO) -> None:
