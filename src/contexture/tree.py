@@ -96,6 +96,7 @@ class ContextTree:
                 )
             seen.add(root.name)
             _reject_cycles(root)
+            _reject_ambiguous_names(root)
 
     # ---- 1. the skeleton -------------------------------------------------
 
@@ -257,6 +258,35 @@ def _resource_card(resource: Resource, ref: str) -> CompiledContext:
     if resource.mime_type is not None:
         card["mime_type"] = resource.mime_type
     return card
+
+
+def _reject_ambiguous_names(root: Role) -> None:
+    """Refuse a name that would produce a reference nobody can resolve.
+
+    A reference is a path and a node's name is one segment of it, so a name
+    containing the separator silently splits into two. The card is still built
+    — `_card` takes the ref it is given — and the ref on it addresses nothing.
+    That is the exact failure `_card`'s signature exists to prevent, arriving
+    from the other side: not a card without a ref, but a ref without a node.
+
+    Checked here rather than in `core` because the separator is this module's
+    decision. A node has no way to know what character will be used to join it
+    to its neighbours; the tree that does the joining does.
+
+    Runs after `_reject_cycles`, which is what makes walking the forest safe.
+    """
+
+    stack = [root]
+    while stack:
+        role = stack.pop()
+        for node in (role, *role.members()):
+            if SEPARATOR in node.name:
+                raise ModelValidationError(
+                    f"{node.kind} name {node.name!r} contains {SEPARATOR!r}, "
+                    "which separates one segment of a reference from the next. "
+                    "A card for it would carry a ref that resolves to nothing."
+                )
+        stack.extend(role.children)
 
 
 def _reject_cycles(root: Role) -> None:

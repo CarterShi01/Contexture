@@ -129,4 +129,9 @@ without one.
   alongside the derivation, so the key cannot be recycled while the entry
   lives. The remaining `id()` use is an optimisation, not a correctness
   dependency on somebody else holding a reference.
-- `Transport` still offers `"sse"`, deprecated in the current MCP revision.
+- ~~`Transport` still offers `"sse"`.~~ **Removed.** HTTP+SSE was the
+  2024-11-05 two-endpoint transport, superseded by Streamable HTTP and
+  deprecated in every revision this server speaks. Offering it in a `Literal`
+  and in two `argparse` choice lists advertised a transport that was never
+  tested and should not be chosen. A host that still needs it can put a proxy
+  in front.

@@ -49,8 +49,8 @@ class Role(ContextNode):
     — that is what the imperative door is for. Changing one *after* the role is
     serving is not: since the 2026-07-28 revision a server may not vary its
     surface as a consequence of an earlier call, and an `append` here does
-    exactly that. It also skips the uniqueness and cycle checks, which run at
-    construction. Build the graph you mean to serve, then leave it alone;
+    exactly that. It also skips the uniqueness, cycle, and
+    separator checks, which all run at construction. Build the graph you mean to serve, then leave it alone;
     `tests/test_projection.py` holds the statelessness this depends on.
     """
 

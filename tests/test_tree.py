@@ -174,6 +174,117 @@ class OpenTests(unittest.TestCase):
         self.assertNotIn("RUNBOOK-BODY", json.dumps(opened))
 
 
+class NameTests(unittest.TestCase):
+    """A card that can be seen must be openable — from both directions.
+
+    `_card` takes its ref as an argument so a card cannot exist without one.
+    These cover the other half: a ref that exists but addresses nothing,
+    because a name ate the separator.
+    """
+
+    def _role(self, name: str, **members: object) -> Role:
+        return Role(
+            name=name,
+            description=f"{name}.",
+            instructions="Anything.",
+            **members,  # type: ignore[arg-type]
+        )
+
+    def test_a_role_name_may_not_contain_the_separator(self) -> None:
+        with self.assertRaises(ModelValidationError) as caught:
+            ContextTree.of(self._role("a/b"))
+
+        self.assertIn("/", str(caught.exception))
+
+    def test_a_nested_role_name_may_not_contain_the_separator(self) -> None:
+        """The check has to walk, not just look at the roots."""
+
+        deep = self._role("root", children=[
+            self._role("middle", children=[self._role("a/b")])
+        ])
+
+        with self.assertRaises(ModelValidationError):
+            ContextTree.of(deep)
+
+    def test_a_member_name_may_not_contain_the_separator_either(self) -> None:
+        """Every kind is a ref segment, not just roles."""
+
+        class Weird(Tool):
+            """A tool whose name would split its own ref."""
+
+            name = "get/logs"
+
+            async def invoke(self) -> str:
+                return "x"
+
+        with self.assertRaises(ModelValidationError) as caught:
+            ContextTree.of(self._role("r", tools=[Weird()]))
+
+        self.assertIn("tool", str(caught.exception))
+
+
+class DepthTests(unittest.TestCase):
+    """Nesting is recursive, and disclosure stays lazy at every level."""
+
+    def _tower(self) -> Role:
+        class Deep(Skill):
+            """A skill four levels down."""
+
+            instructions = "PROCEDURE-AT-DEPTH"
+
+        role = Role(
+            name="l4",
+            description="Level four.",
+            instructions="Anything.",
+            skills=[Deep()],
+        )
+        for name in ("l3", "l2", "l1"):
+            role = Role(
+                name=name,
+                description=f"Level {name}.",
+                instructions="Anything.",
+                children=[role],
+            )
+        return role
+
+    def test_the_skeleton_reaches_every_depth(self) -> None:
+        tree = ContextTree.of(self._tower())
+
+        self.assertEqual(
+            [ref for ref, _ in tree.roles_with_refs()],
+            ["l1", "l1/l2", "l1/l2/l3", "l1/l2/l3/l4"],
+        )
+
+    def test_opening_a_role_never_recurses_past_its_own_children(self) -> None:
+        """Each level costs one call. That is the whole point of the tree."""
+
+        tree = ContextTree.of(self._tower())
+
+        for ref, expected in (
+            ("l1", ["l1/l2"]),
+            ("l1/l2", ["l1/l2/l3"]),
+            ("l1/l2/l3", ["l1/l2/l3/l4"]),
+            ("l1/l2/l3/l4", []),
+        ):
+            with self.subTest(ref=ref):
+                opened = tree.open(ref)
+                self.assertEqual(
+                    [card["ref"] for card in opened["sub_roles"]], expected
+                )
+
+    def test_a_procedure_four_levels_down_arrives_only_when_opened(self) -> None:
+        tree = ContextTree.of(self._tower())
+
+        for ref in ("l1", "l1/l2", "l1/l2/l3", "l1/l2/l3/l4"):
+            with self.subTest(ref=ref):
+                self.assertNotIn("PROCEDURE-AT-DEPTH", json.dumps(tree.open(ref)))
+
+        self.assertIn(
+            "PROCEDURE-AT-DEPTH",
+            json.dumps(tree.open("l1/l2/l3/l4/deep")),
+        )
+
+
 class ResolutionTests(unittest.TestCase):
     """The tree reports *facts* about a failed lookup.
 

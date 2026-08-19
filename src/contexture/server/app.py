@@ -34,7 +34,11 @@ from ..tree import ContextTree
 from . import instructions as instructions_module
 from .projection import Dispatch, project
 
-Transport = Literal["stdio", "streamable-http", "sse"]
+#: The transports this server offers. HTTP+SSE was the 2024-11-05 two-endpoint
+#: transport; it was replaced by Streamable HTTP and is deprecated in the
+#: revisions this server speaks, so it is not offered. A host that still needs
+#: it can put a proxy in front.
+Transport = Literal["stdio", "streamable-http"]
 
 
 @dataclass(slots=True, kw_only=True)

@@ -432,7 +432,7 @@
           <ul>
             <li><div class="row"><span class="path">__init__.py</span><span class="desc">51 行 — 公开门面,只导出<strong>用来声明</strong>的东西;<code>ContextTree</code> 是用来<strong>运行</strong>的,故意不在这里</span></div></li>
             <li><div class="row"><span class="path">cli.py</span><span class="desc">416 行 · 3 类 — <code>contexture new</code> 生成项目 · <code>contexture serve</code> 起服务 · <code>contexture list</code> 打印它会服务什么 · <code>contexture demo</code>。骑在所有层之上,被任何层 import 都算违规</span></div></li>
-            <li><div class="row"><span class="path">tree.py</span><span class="desc">281 行 · <strong>1 类</strong> — <strong>ContextTree</strong>:<code>skeleton()</code> 骨架 · <code>find()</code> 解析 · <code>open()</code> 打开。接替了原来 compiler + discovery + registry 的八个类</span></div></li>
+            <li><div class="row"><span class="path">tree.py</span><span class="desc">311 行 · <strong>1 类</strong> — <strong>ContextTree</strong>:<code>skeleton()</code> 骨架 · <code>find()</code> 解析 · <code>open()</code> 打开。接替了原来 compiler + discovery + registry 的八个类</span></div></li>
             <li>
               <div class="row"><span class="path dir">core/</span><span class="desc">对象模型 · 零 I/O · 零线路 · 不知道 MCP 存在 · 唯一必须的层</span></div>
               <ul>
@@ -451,7 +451,7 @@
               <div class="row"><span class="path dir">server/</span><span class="desc"><strong>主路终点</strong> — 原生 MCP Server,唯一 import 官方 SDK 的层</span></div>
               <ul>
                 <li><div class="row"><span class="path">contract.py</span><span class="desc">217 行 · 1 类 — <strong>agent 读到的一切</strong>:五个动词的名字与描述 · PREAMBLE · 查找失败怎么变成一句话。<strong>不 import SDK</strong></span></div></li>
-                <li><div class="row"><span class="path">app.py</span><span class="desc">101 行 — ContextureApp,业务唯一需要接触的对象;不继承 SDK 的 MCPServer,而是组合它</span></div></li>
+                <li><div class="row"><span class="path">app.py</span><span class="desc">105 行 — ContextureApp,业务唯一需要接触的对象;不继承 SDK 的 MCPServer,而是组合它</span></div></li>
                 <li><div class="row"><span class="path">projection.py</span><span class="desc">223 行 · 2 类 — 把 contract 挂到 SDK 上(循环注册,不是五处 add_tool)· Dispatch(推 schema 与校验参数,<strong>不上表面</strong>)· 两扇门的一致性检查。<code>project()</code> 不返回任何东西:表面固定之后它只能复述常量</span></div></li>
                 <li><div class="row"><span class="path">instructions.py</span><span class="desc">74 行 — 只管把 contract <strong>塞进某个宿主的版面</strong>:前 512 字自包含(Codex),总长 &lt;2KB(Claude Code)</span></div></li>
                 <li><div class="row"><span class="path">registration.py</span><span class="desc">96 行 — 生成指向<strong>本 server</strong> 的宿主配置;不 import 包内任何东西</span></div></li>

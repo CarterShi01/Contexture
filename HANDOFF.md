@@ -43,8 +43,11 @@ uv sync
 uv run python run_tests.py
 ```
 
-**Expect: 130 tests, all passing.** (112 run here, of which 10 skip without the
-SDK; `test_projection.py` adds 19 that cannot even be collected here.)
+**Expect: 142 tests, all passing.** 117 real tests run here, of which 10 skip
+without the SDK; the "Ran 118" the runner prints counts the uncollectable
+`test_projection` module as one phantom test. That module holds 25 real ones —
+19 predating v0.2.0 and 6 in the statelessness suite from `57eb59b` — and not
+one of them has been collected on this machine.
 
 What was verified here instead, and what that does and does not prove: a
 throwaway stub of the SDK was written and the whole gateway driven through it —
@@ -74,7 +77,7 @@ The specific things to watch, since they are the changed ones:
   been executed. This is the change most likely to fail loudly and least likely
   to fail subtly.
 
-**Done when:** `run_tests.py` reports 130 passing with the SDK installed.
+**Done when:** `run_tests.py` reports 142 passing with the SDK installed.
 
 ---
 

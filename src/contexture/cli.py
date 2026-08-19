@@ -382,7 +382,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument(
         "--transport",
         default="stdio",
-        choices=("stdio", "streamable-http", "sse"),
+        choices=("stdio", "streamable-http"),
         help="transport to serve on (default: stdio)",
     )
     serve.set_defaults(func=command_serve)
@@ -393,7 +393,7 @@ def build_parser() -> argparse.ArgumentParser:
     demo.add_argument(
         "--transport",
         default="stdio",
-        choices=("stdio", "streamable-http", "sse"),
+        choices=("stdio", "streamable-http"),
         help="transport to serve on (default: stdio)",
     )
     demo.set_defaults(func=command_demo)
