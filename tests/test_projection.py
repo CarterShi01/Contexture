@@ -545,6 +545,70 @@ class ToolDisclosureTests(unittest.TestCase):
         self.assertEqual(opened["input_schema"], card["input_schema"])
         self.assertEqual(opened["read_only"], card["read_only"])
 
+    def test_a_disclosed_schema_carries_no_derived_titles(self) -> None:
+        """`"title": "invokeArguments"` is a pydantic artefact, not information.
+
+        It is the name of the model the SDK built from `invoke`, and the
+        per-property titles under it are the parameter names capitalised. Both
+        reach the agent on every tool card of every open.
+        """
+
+        app = ContextureApp(roots=Responder(), name="test")
+        schema = app.tree.open("responder/get_pod_logs")["input_schema"]
+
+        self.assertNotIn("title", schema)
+        self.assertEqual(
+            [key for value in schema["properties"].values() for key in value],
+            ["type", "type", "default", "type"],
+        )
+
+    def test_a_parameter_named_title_survives_the_stripping(self) -> None:
+        """The obvious way to strip titles deletes this tool's first argument."""
+
+        class Publish(Tool):
+            """Publish a note."""
+
+            name = "publish"
+
+            async def invoke(self, title: str, body: str = "") -> str:
+                return title
+
+        class Notes(Role):
+            """Keep notes."""
+
+            instructions = "Write it down."
+
+            publish = Publish
+
+        app = ContextureApp(roots=Notes(), name="test")
+        schema = app.tree.open("notes/publish")["input_schema"]
+
+        self.assertEqual(sorted(schema["properties"]), ["body", "title"])
+        self.assertNotIn("title", schema["properties"]["title"])
+
+    def test_stripping_the_disclosed_schema_leaves_validation_alone(self) -> None:
+        """The SDK validates against its own copy, which keeps its titles."""
+
+        server = _server()
+
+        self.assertIn(
+            "previous=True",
+            _text(
+                _call(
+                    server,
+                    INVOKE_READ_ONLY_TOOL,
+                    {
+                        "ref": "responder/get_pod_logs",
+                        "arguments": {
+                            "namespace": "prod",
+                            "pod": "api",
+                            "previous": True,
+                        },
+                    },
+                )
+            ),
+        )
+
     def test_a_framework_filled_parameter_is_never_disclosed(self) -> None:
         """`ctx` is the framework's to fill, so an agent must not be told of it.
 

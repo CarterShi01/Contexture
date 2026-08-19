@@ -67,14 +67,19 @@ class Dispatch:
     had been collected. Today the tree keeps every tool alive for the life of
     the server and the collision cannot happen — but that is the tree's
     property, not this cache's, and nothing here would notice it changing.
+
+    The disclosed schema is cached beside the derivation rather than recomputed,
+    because it is not the derivation: `title` is stripped from it, and doing
+    that on every card of every `open` would pay for the same walk repeatedly.
+    Validation still runs against the SDK's own copy, which keeps its titles.
     """
 
-    _derived: dict[int, tuple[Tool, SDKTool]] = field(
+    _derived: dict[int, tuple[Tool, SDKTool, JsonObject]] = field(
         default_factory=dict, repr=False
     )
 
     def schema(self, tool: Tool) -> JsonObject:
-        return self._sdk(tool).parameters
+        return self._entry(tool)[2]
 
     async def run(
         self,
@@ -82,9 +87,9 @@ class Dispatch:
         arguments: dict[str, Any] | None,
         context: Context,
     ) -> Any:
-        return await self._sdk(tool).run(arguments or {}, context)
+        return await self._entry(tool)[1].run(arguments or {}, context)
 
-    def _sdk(self, tool: Tool) -> SDKTool:
+    def _entry(self, tool: Tool) -> tuple[Tool, SDKTool, JsonObject]:
         cached = self._derived.get(id(tool))
         if cached is None:
             derived = SDKTool.from_function(
@@ -92,9 +97,9 @@ class Dispatch:
                 name=tool.name,
                 description=tool.description,
             )
-            self._derived[id(tool)] = (tool, derived)
-            return derived
-        return cached[1]
+            cached = (tool, derived, _without_titles(derived.parameters))
+            self._derived[id(tool)] = cached
+        return cached
 
 
 def project(
@@ -163,6 +168,59 @@ def project(
             description=entry.description,
             annotations=ToolAnnotations(read_only_hint=entry.read_only),
         )
+
+
+#: JSON Schema keywords whose value is one schema.
+_SUBSCHEMA = ("items", "additionalProperties", "not", "contains", "propertyNames")
+
+#: Keywords whose value is a list of schemas.
+_SUBSCHEMA_LIST = ("anyOf", "oneOf", "allOf", "prefixItems")
+
+#: Keywords whose value maps a *name* to a schema. The names are left alone: a
+#: business tool is free to take a parameter called `title`, and stripping by
+#: key name alone would delete the parameter instead of its label.
+_SUBSCHEMA_MAP = ("properties", "$defs", "definitions", "patternProperties")
+
+
+def _without_titles(schema: JsonObject) -> JsonObject:
+    """Return the schema with every `title` keyword removed.
+
+    Pydantic derives a title from whatever Python name it saw: the model it
+    built for `invoke` becomes `"title": "invokeArguments"`, and a parameter
+    called `pod` becomes `"title": "Pod"`. Both reach the agent on every tool
+    card, and neither tells it anything — one is a framework internal it has no
+    use for, the other is a capitalised copy of the key it sits under. Across
+    the bundled reference application they came to 730 characters of nothing,
+    before the payload's own indentation.
+
+    A title stated deliberately, through `Annotated[..., Field(title=...)]`,
+    goes with them. That is the accepted cost: `description` is the field a
+    model actually reads, it is untouched, and it is what a parameter that
+    needs explaining should carry.
+
+    Walked by keyword rather than by key name so that a parameter named `title`
+    survives — see `_SUBSCHEMA_MAP`.
+    """
+
+    cleaned: JsonObject = {}
+    for key, value in schema.items():
+        if key == "title":
+            continue
+        if key in _SUBSCHEMA_MAP and isinstance(value, dict):
+            cleaned[key] = {
+                name: _without_titles(sub) if isinstance(sub, dict) else sub
+                for name, sub in value.items()
+            }
+        elif key in _SUBSCHEMA and isinstance(value, dict):
+            cleaned[key] = _without_titles(value)
+        elif key in _SUBSCHEMA_LIST and isinstance(value, list):
+            cleaned[key] = [
+                _without_titles(sub) if isinstance(sub, dict) else sub
+                for sub in value
+            ]
+        else:
+            cleaned[key] = value
+    return cleaned
 
 
 async def _invoke(
