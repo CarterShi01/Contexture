@@ -315,6 +315,52 @@ def command_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_inspect(args: argparse.Namespace) -> int:
+    """Print what an agent would receive, step by step.
+
+    The tree is built through `ContextureApp` rather than `ContextTree.of`,
+    which is the whole point of the command: a tool schema on a card comes from
+    the same `Dispatch` the server validates calls with, and the instructions
+    come from the same builder. What is printed here is what is served there,
+    or this command is worth nothing.
+    """
+
+    from . import inspection
+    from .server import ContextureApp
+    from .server import instructions as instructions_module
+
+    targets, project, name = _targets_and_project(args.target)
+    app = ContextureApp(
+        roots=load_roots(targets, project=project), name=name or "contexture"
+    )
+
+    instructions = instructions_module.build(
+        app.tree,
+        budget=(
+            args.roster_budget
+            if args.roster_budget is not None
+            else instructions_module.ROSTER_BUDGET
+        ),
+    )
+    refs = list(inspection.every_ref(app.tree)) if args.all else list(args.refs)
+
+    traced = inspection.trace(
+        app.tree,
+        refs,
+        instructions=instructions,
+        discover=not args.no_discover,
+        read=args.read,
+    )
+
+    if args.json:
+        print(inspection.as_json(traced))
+    else:
+        print(inspection.render(traced, payloads=not args.summary))
+    # A refused ref or an unmet host limit is a finding, not a crash: the text
+    # is still printed, and the exit status is what a script can act on.
+    return 1 if traced.failures else 0
+
+
 def command_demo(args: argparse.Namespace) -> int:
     """Serve the bundled reference application, to prove an install works."""
 
@@ -376,6 +422,61 @@ def build_parser() -> argparse.ArgumentParser:
     )
     listing.add_argument("target", nargs="?", help="package.module:RoleClass")
     listing.set_defaults(func=command_list)
+
+    inspect = subcommands.add_parser(
+        "inspect",
+        help="print what an agent receives at each step, and what it costs",
+        description=(
+            "Replay a session without an agent: the instructions a host loads "
+            "at connect, the roots contexture_discover answers with, then one "
+            "contexture_open per ref you name. What is printed is what is "
+            "served — the same builder, the same tree, the same schemas. Only "
+            "the wire is missing. A wrong ref prints the sentence the agent "
+            "would read rather than failing."
+        ),
+    )
+    inspect.add_argument(
+        "refs",
+        nargs="*",
+        help="refs to open, in order, e.g. my-role my-role/my-skill",
+    )
+    inspect.add_argument(
+        "--target", default=None, help="package.module:RoleClass"
+    )
+    inspect.add_argument(
+        "--all",
+        action="store_true",
+        help="open every node in the tree, so you can read all of your own text",
+    )
+    inspect.add_argument(
+        "--read",
+        action="store_true",
+        help="also read each resource named, running its read() and costing it",
+    )
+    inspect.add_argument(
+        "--summary",
+        action="store_true",
+        help="costs and host limits only, without the payloads",
+    )
+    inspect.add_argument(
+        "--json", action="store_true", help="emit the trace as JSON, for diffing"
+    )
+    inspect.add_argument(
+        "--no-discover",
+        action="store_true",
+        help="skip the contexture_discover step",
+    )
+    inspect.add_argument(
+        "--roster-budget",
+        type=int,
+        default=None,
+        metavar="CHARS",
+        help=(
+            "render the bootstrap roster against a different budget, to see "
+            "where it gets cut (default: the one hosts actually get)"
+        ),
+    )
+    inspect.set_defaults(func=command_inspect)
 
     serve = subcommands.add_parser("serve", help="serve the project over MCP")
     serve.add_argument("target", nargs="?", help="package.module:RoleClass")

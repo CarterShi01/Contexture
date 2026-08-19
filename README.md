@@ -365,7 +365,13 @@ uv sync
 uv run contexture new ~/my-context
 uv run contexture demo            # the bundled reference application, over stdio
 uv run python run_tests.py        # the full suite
+uv run python tools/inspect_disclosure.py --all --summary
 ```
+
+That last command prints what an agent receives at every node of the demo, and
+what it costs, without an agent in the room. It is the same
+`contexture inspect` that ships in the package; see
+[`tools/README.md`](tools/README.md).
 
 See [`src/contexture/examples/incident/`](src/contexture/examples/incident/) for
 that reference application — a deterministic Kubernetes incident that forces the
@@ -382,10 +388,15 @@ src/contexture/
 ├── server/          the MCP server: contract (what the agent reads), instructions
 │                    (fitting it to a host), projection (hanging it on the SDK),
 │                    app, registration
-├── cli.py           the `contexture` command: new / list / serve / demo
+├── inspection.py    replaying the disclosure for a developer to read
+├── cli.py           the `contexture` command: new / list / inspect / serve / demo
 ├── templates/       project templates, rendered by `contexture new`
 └── examples/        reference applications built on the public API only
 ```
+
+Two directories sit outside the package and ship in no wheel:
+[`tools/`](tools/README.md), the development toolset — chiefly the disclosure
+inspector — and `scripts/`, the playbooks for driving a real host against it.
 
 ## Design documents
 

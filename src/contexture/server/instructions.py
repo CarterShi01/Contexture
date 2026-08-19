@@ -54,6 +54,13 @@ from .contract import DISCOVER_TOOL, PREAMBLE, REF_RULE
 #: Claude Code truncates server instructions at 2KB; leave room for the rest.
 ROSTER_BUDGET = 1200
 
+#: What Claude Code keeps of this field. Past it, the text is simply gone.
+INSTRUCTIONS_LIMIT = 2048
+
+#: How far Codex reads while deciding whether to use the server at all, so
+#: this much has to stand on its own.
+SELF_CONTAINED_PREFIX = 512
+
 
 def build(
     tree: ContextTree,
@@ -127,4 +134,9 @@ def _sibling_groups(tree: ContextTree) -> Iterator[list[tuple[str, Role]]]:
         yield group
 
 
-__all__ = ["ROSTER_BUDGET", "build"]
+__all__ = [
+    "INSTRUCTIONS_LIMIT",
+    "ROSTER_BUDGET",
+    "SELF_CONTAINED_PREFIX",
+    "build",
+]

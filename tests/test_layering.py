@@ -27,8 +27,12 @@ ALLOWED: dict[str, set[str]] = {
     # `server` is the only sibling layer they may name. See
     # LayeringTests.test_examples_use_only_the_public_facade.
     "examples": {"server"},
-    # The command line sits above everything: it scaffolds, then serves.
-    "cli": {"core", "tree", "server"},
+    # Replaying the disclosure for a developer to read sits above the server
+    # and below the command line. It reaches `server` for the text an agent is
+    # given and the budget it has to fit, and never for the wire.
+    "inspection": {"core", "tree", "server"},
+    # The command line sits above everything: it scaffolds, inspects, serves.
+    "cli": {"core", "tree", "server", "inspection"},
 }
 
 #: Layers permitted to import the official MCP SDK. The object model is not one
