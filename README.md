@@ -216,7 +216,10 @@ src/contexture/
 - [`docs/02-framework-layers.md`](docs/02-framework-layers.md) — the framework
   shape: declaration, compilation, targets, and the optional layers.
 - [`docs/atlas/index.html`](docs/atlas/index.html) — an offline visual atlas;
-  open it directly in a browser.
+  open it directly in a browser. After editing it, run
+  `npm install jsdom@22 && node docs/atlas/check.mjs` to confirm every diagram
+  still parses; a mermaid syntax error otherwise stays invisible until someone
+  opens the page.
 
 ## What this is not
 
