@@ -1,5 +1,10 @@
 # ADR 004 — Progressive disclosure as a lazily loaded role tree
 
+
+> **One detail superseded by [ADR 013](013-a-constructor-is-the-declaration.md).**
+> The member keys in an opened role are `roles`, `skills`, `tools`. The rule
+> this ADR decided — a whole sibling set per call, never a subtree — is
+> unchanged.
 **Status:** accepted, implemented in v0.1.0
 **Date:** 2026-08-19
 

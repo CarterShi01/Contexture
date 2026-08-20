@@ -96,8 +96,16 @@ class ProjectConfig:
         )
 
 
-def resolve_target(target: str, *, project: Path | None = None) -> Role:
-    """Turn `package.module:RoleClass` into a built Role.
+def resolve_target(
+    target: str,
+    *,
+    project: Path | None = None,
+) -> Role | type[Role]:
+    """Resolve `package.module:RoleClass` to the root it names.
+
+    The **class**, not an instance of it. A declared root is turned into nodes
+    by a `ControllerManager`, at registration, and building one here would put
+    a second, never-registered copy in front of the one being served.
 
     Naming the class is required rather than inferred. A module that declares a
     dozen roles has no obvious root, and guessing wrong would swap what the
@@ -128,10 +136,10 @@ def resolve_target(target: str, *, project: Path | None = None) -> Role:
         raise UsageError(
             f"{module_name!r} has no attribute {attribute!r}."
         ) from None
-    if isinstance(declared, Role):
+    if isinstance(declared, Role) or (
+        isinstance(declared, type) and issubclass(declared, Role)
+    ):
         return declared
-    if isinstance(declared, type) and issubclass(declared, Role):
-        return declared()
     raise UsageError(
         f"{target} is a {type(declared).__name__}, not a Role subclass."
     )
@@ -167,7 +175,11 @@ def _require_declared_here(
     )
 
 
-def load_roots(targets: Sequence[str], *, project: Path | None) -> list[Role]:
+def load_roots(
+    targets: Sequence[str],
+    *,
+    project: Path | None,
+) -> list[Role | type[Role]]:
     # Appended, never inserted at the front. A project directory holds whatever
     # its author put there, and a file called `types.py` or `logging.py` beside
     # `pyproject.toml` would shadow the standard library for the whole process

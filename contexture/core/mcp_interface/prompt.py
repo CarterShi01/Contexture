@@ -32,7 +32,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
-from ..errors import DeclarationError, ModelValidationError
+from ..errors import ModelValidationError
 
 
 @dataclass(slots=True, kw_only=True)
@@ -41,11 +41,19 @@ class Prompt:
 
     ::
 
-        COMPOSE_AND_SHIP = Prompt(
-            opens="one-creator/publishing/compose-and-ship",
-            description="Assemble the weekly letter and send it.",
-            model_may_open=False,
-        )
+        class ComposeAndShip(Prompt):
+            def __init__(self) -> None:
+                super().__init__(
+                    opens="one-creator/publishing/compose-and-ship",
+                    description="Assemble the weekly letter and send it.",
+                    model_may_open=False,
+                )
+
+    A subclass whose constructor hands its identity to the base — the same
+    shape as every other declaration in this package, so a business writes one
+    thing everywhere rather than one thing per plane. What a prompt *is* stays
+    different from what a node is; the type keeps that difference, and only the
+    syntax is shared.
 
     It is **open**, never invoke. A skill has no executable body: it can be
     opened and cannot be run, and a prompt naming one means *put its procedure
@@ -81,15 +89,6 @@ class Prompt:
     model_may_open: bool = True
 
     kind: ClassVar[str] = "prompt"
-
-    def __init_subclass__(cls, **kwargs: object) -> None:
-        # Never fires for `Prompt` itself; see the note in `resource.py`.
-        raise DeclarationError(
-            f"{cls.__name__} subclasses Prompt, which is constructed rather "
-            "than subclassed: Prompt(opens=..., description=...). A prompt "
-            "holds no procedure — what it opens is a node the tree already "
-            "owns. Subclassing one produces a class the tree can never hold."
-        )
 
     def __post_init__(self) -> None:
         if not self.opens.strip():

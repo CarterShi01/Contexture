@@ -14,9 +14,31 @@ axis, not this project's. See this package's README.
 putting it on a wire are two jobs, and only the second belongs to `server`.
 """
 
+from ..errors import DeclarationError
 from .prompt import Prompt
 from .resource import Resource
 from .tool import GATEWAY, GATEWAY_TOOLS, GatewayTool
+
+
+def published(entry: object) -> Prompt | Resource:
+    """Normalise one published entry, whether it arrived as a class or a value.
+
+    A business states these the way it states everything else — as a class
+    whose constructor hands its identity to the base — and this is where such a
+    class is built into the value the server hangs on a primitive. An
+    already-built instance passes through, which is what keeps a test able to
+    write one inline.
+    """
+
+    if isinstance(entry, (Prompt, Resource)):
+        return entry
+    if isinstance(entry, type) and issubclass(entry, (Prompt, Resource)):
+        return entry()
+    raise DeclarationError(
+        f"{entry!r} is neither a Prompt nor a Resource. A published entry "
+        "names a node the tree already holds; it is not a node itself."
+    )
+
 
 __all__ = [
     "GATEWAY",
@@ -24,4 +46,5 @@ __all__ = [
     "GatewayTool",
     "Prompt",
     "Resource",
+    "published",
 ]

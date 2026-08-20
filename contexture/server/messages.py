@@ -49,8 +49,8 @@ COMPLETION_LIMIT = 100
 
 #: The self-contained opening. Keep this under 512 characters.
 PREAMBLE = f"""\
-Everything this server offers is behind {OPEN_TOOL}. Start from the roles
-below: open the one that fits the task to see its skills, tools and
+Everything this server offers is behind {OPEN_TOOL}. Start from the list
+below: open the role that fits the task to see its skills, tools and
 sub-roles, then open the skill you chose for its procedure. Each call
 reveals one level; keep opening down the branch that fits.
 Run a tool with {INVOKE_READ_ONLY_TOOL} or {INVOKE_TOOL}, whichever its

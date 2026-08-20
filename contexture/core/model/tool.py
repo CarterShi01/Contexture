@@ -6,7 +6,6 @@ import inspect
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
-from . import declarative
 from .node import ContextNode
 from ..types import CompiledContext
 
@@ -18,16 +17,33 @@ class Tool(ContextNode):
     ::
 
         class GetPodLogs(Tool):
-            '''Return recent container logs for one Pod.'''
-
-            read_only = True
+            def __init__(self) -> None:
+                super().__init__(
+                    name="pod_logs",
+                    description="Return recent container logs for one Pod.",
+                    read_only=True,
+                )
 
             async def invoke(self, namespace: str, pod: str) -> str:
                 ...
 
-    The parameter schema is never written by hand. It is derived from
-    `invoke`'s type hints when the tool is projected onto an MCP surface, which
-    is why nothing in this layer needs to know what JSON Schema looks like.
+    A constructor that hands its identity to the base, and an `invoke` that is
+    the behaviour. Nothing is inferred: not from the class name, which a
+    TypeScript bundler rewrites, and not from the docstring, which no Go or
+    TypeScript runtime can read. What an agent reads is written down.
+
+    **The class is not the node.** Nothing here is built when this module is
+    imported — a class is a zero-argument factory, and the parent role's own
+    constructor is what calls it. So a graph comes into existence when a
+    `ControllerManager` registers its root, which is the only moment a node can
+    be told where it hangs and handed what it may reach.
+
+    The parameter schema is never written by hand *in this implementation*. It
+    is derived from `invoke`'s type hints when the tool is projected onto an MCP
+    surface, which is why nothing in this layer needs to know what JSON Schema
+    looks like. A Go or TypeScript implementation cannot read a signature that
+    way and states an argument object instead; what conformance pins is the
+    schema that reaches the wire, never how it was derived.
 
     `read_only` is a trusted host classification, not an agent-supplied
     argument. It is projected onto the protocol's `readOnlyHint` annotation so a
@@ -65,20 +81,11 @@ class Tool(ContextNode):
     kind: ClassVar[str] = "tool"
 
     #: Whether running this tool leaves the world unchanged.
-    read_only: ClassVar[bool] = False
-
-    #: The class-body declaration, or None on an imperatively built Tool.
-    declaration: ClassVar[declarative.Declaration | None] = None
-
-    def __init_subclass__(cls, **kwargs: Any) -> None:
-        # A zero-argument super() raises TypeError in this method: dataclass
-        # slots=True rebuilds the class object, so the implicit __class__ cell
-        # still points at the discarded original. Name the class explicitly.
-        super(Tool, cls).__init_subclass__(**kwargs)
-        if not declarative.is_declarative(cls, Tool):
-            return
-        cls.declaration = declarative.collect(cls, member_types=())
-        cls.__init__ = _declarative_tool_init  # type: ignore[method-assign]
+    #:
+    #: A field rather than a class attribute, because it is stated where the
+    #: rest of this tool's identity is stated — at the construction site, in
+    #: the same literal a Go or TypeScript implementation would write.
+    read_only: bool = False
 
     async def invoke(self, **arguments: Any) -> Any:
         """Execute the capability. Business subclasses state real parameters."""
@@ -116,19 +123,3 @@ class Tool(ContextNode):
             **self._compile_route(),
             "read_only": self.read_only,
         }
-
-
-def _declarative_tool_init(self: Tool, **overrides: Any) -> None:
-    """Build a declared Tool, letting the caller override any stated field."""
-
-    declaration = type(self).declaration
-    assert declaration is not None  # set by __init_subclass__ before rebinding
-    Tool.__init__(
-        self,
-        **{
-            "name": declaration.name,
-            "description": declaration.description,
-            **declaration.stated(),
-            **overrides,
-        },
-    )

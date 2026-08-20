@@ -47,7 +47,7 @@ from __future__ import annotations
 
 from typing import Iterator
 
-from ..core.model.role import Role
+from ..core.model.node import ContextNode
 from ..core.disclosure.tree import SEPARATOR, ContextTree
 from ..core.mcp_interface.tool import DISCOVER_TOOL
 from .messages import PREAMBLE, REF_RULE
@@ -76,7 +76,7 @@ def build(
     dropped = 0
     full = False
     for index, group in enumerate(_sibling_groups(tree)):
-        entries = [f"- {ref}: {role.description}" for ref, role in group]
+        entries = [f"- {ref}: {node.description}" for ref, node in group]
         cost = sum(len(entry) + 1 for entry in entries)
         if index == 0:
             # The roots. Cut per entry rather than as a group, because a roster
@@ -111,20 +111,29 @@ def build(
 
 
 def _assemble(preamble: str, roster: list[str]) -> str:
-    return "\n".join([preamble.strip(), "", "Roles:", *roster, "", REF_RULE])
+    return "\n".join([preamble.strip(), "", "Capabilities:", *roster, "", REF_RULE])
 
 
-def _sibling_groups(tree: ContextTree) -> Iterator[list[tuple[str, Role]]]:
+def _sibling_groups(tree: ContextTree) -> Iterator[list[tuple[str, ContextNode]]]:
     """Group the breadth-first walk into the sets a reader chooses between.
+
+    The first group is **every root, of every kind** — a standalone tool is as
+    much a top-level answer to "what is this server for" as a role is. After
+    that only roles can hold anything, so the rest of the walk is the role
+    axis.
 
     `roles_by_level` queues each role's children together, so one parent's
     children arrive as a contiguous run and grouping is a matter of watching
     the ref's prefix change rather than of walking the tree a second time.
     """
 
-    group: list[tuple[str, Role]] = []
+    yield [(root.name, root) for root in tree.roots]
+
+    group: list[tuple[str, ContextNode]] = []
     parent: str | None = None
     for ref, role in tree.roles_by_level():
+        if SEPARATOR not in ref:
+            continue                      # a root; already yielded above
         owner = ref.rsplit(SEPARATOR, 1)[0] if SEPARATOR in ref else ""
         if group and owner != parent:
             yield group

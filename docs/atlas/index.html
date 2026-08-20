@@ -346,7 +346,7 @@
       <li><span class="num">01</span><a href="#plate-01">分层地图</a><span class="desc">— core 的三个子层各管什么,谁能依赖谁</span></li>
       <li><span class="num">02</span><a href="#plate-02">文件依赖</a><span class="desc">— 文件之间的真实 import 图</span></li>
       <li><span class="num">03</span><a href="#plate-03">对象模型</a><span class="desc">— 类怎么继承、组合成一棵树</span></li>
-      <li><span class="num">04</span><a href="#plate-04">声明式前端</a><span class="desc">— 一个类体怎么变成 Role 对象</span></li>
+      <li><span class="num">04</span><a href="#plate-04">声明</a><span class="desc">— 一个类怎么变成节点，以及在什么时候</span></li>
       <li><span class="num">05</span><a href="#plate-05">披露成本</a><span class="desc">— 一次会话到底付了多少 context</span></li>
       <li><span class="num">06</span><a href="#plate-06">网关投影</a><span class="desc">— 为什么模型那一侧永远只有四个工具</span></li>
       <li><span class="num">07</span><a href="#plate-07">谁在跟 Agent 说话</a><span class="desc">— 一个失败怎么变成一句能照做的话</span></li>
@@ -377,10 +377,10 @@
                   <div class="row"><span class="path dir">model/</span><span class="desc">一个能力<strong>是什么</strong>。节点知道自己叫什么,不知道自己挂在哪里</span></div>
                   <ul>
                     <li><div class="row"><span class="path">node.py</span><span class="desc">87 行 · 2 类 — ContextNode · CompileLevel,渐进披露的统一契约</span></div></li>
-                    <li><div class="row"><span class="path">declarative.py</span><span class="desc">325 行 · 2 类 — 类体 → Declaration 的收集与校验;<strong>三个节点类型都用它</strong></span></div></li>
-                    <li><div class="row"><span class="path">skill.py</span><span class="desc">145 行 — <strong>Skill</strong>,可复用的过程知识;<code>uses</code> 用<strong>字符串</strong>指向自己不拥有的能力</span></div></li>
-                    <li><div class="row"><span class="path">tool.py</span><span class="desc">134 行 — <strong>Tool</strong>,自己实现的可执行能力;schema 从 <code>invoke</code> 签名推导。<strong>无参只读 Tool 就是"已经在那儿的内容"</strong></span></div></li>
-                    <li><div class="row"><span class="path">role.py</span><span class="desc">250 行 — <strong>Role</strong>,递归组合的团队树 + 声明式入口;成员名跨种类唯一,这是 ref 能变成纯路径的前提</span></div></li>
+                    <li><div class="row"><span class="path">manager.py</span><span class="desc">421 行 — <strong>ControllerManager</strong>,注册表:三个根列表(role / skill / tool,一个命名空间)、唯一的构造点、盖 path 与 channels、拒绝一个节点两个地址</span></div></li>
+                    <li><div class="row"><span class="path">skill.py</span><span class="desc">113 行 — <strong>Skill</strong>,可复用的过程知识;<code>uses</code> 用<strong>字符串</strong>指向自己不拥有的能力</span></div></li>
+                    <li><div class="row"><span class="path">tool.py</span><span class="desc">125 行 — <strong>Tool</strong>,自己实现的可执行能力;schema 从 <code>invoke</code> 签名推导。<strong>无参只读 Tool 就是"已经在那儿的内容"</strong></span></div></li>
+                    <li><div class="row"><span class="path">role.py</span><span class="desc">196 行 — <strong>Role</strong>,递归组合的团队树;成员在构造函数里建,成员名跨种类唯一,这是 ref 能变成纯路径的前提</span></div></li>
                   </ul>
                 </li>
                 <li>
@@ -516,7 +516,7 @@ flowchart TB
     subgraph MODEL["core.model — 一个能力是什么"]
         direction TB
         node["node.py<br/>ContextNode · CompileLevel"]
-        decl["declarative.py<br/>类体 → Declaration"]
+        mgr["manager.py<br/>ControllerManager"]
         skill["skill.py<br/>Skill · uses"]
         tool["tool.py<br/>Tool"]
         role["role.py<br/>Role"]
@@ -546,14 +546,14 @@ flowchart TB
     sdk[["官方 MCP SDK<br/>mcp · mcp_types"]]
 
     base --> node
-    base --> decl
+    base --> mgr
     base --> mres
     base --> mprompt
     node --> skill
     node --> tool
-    decl --> skill
-    decl --> tool
-    decl --> role
+    role --> mgr
+    skill --> mgr
+    tool --> mgr
     skill --> role
     tool --> role
     role --> tree
@@ -586,7 +586,7 @@ flowchart TB
     style base stroke-width:3px
     style tree stroke-width:3px
         </pre>
-        <figcaption>箭头方向 = 被 import 者 → import 者。<strong>最该看的是没有的那些线</strong>:<code>MCPI</code> 那一簇没有任何一条边连向 <code>MODEL</code> 或 <code>DISC</code>,它只从共享地基取一个异常类——协议平面持有的是 ref <strong>字符串</strong>,走不进森林,森林也够不回来。<code>role.py</code> 出度最高:它是三个概念汇合的地方,也是 <code>tree</code> 与 <code>cli</code> 共同的入口。<code>declarative.py</code> 同时喂给 Skill、Tool、Role——类体声明这条路对三者一视同仁。<code>messages.py</code> 只依赖 <code>errors</code> 与网关入口的名字——决定"跟模型说什么"不需要知道线路长什么样,所以它能脱离 SDK 单独测。<code>launch.py</code> 是全包唯一一个不 import 包内任何东西的模块,它只拼一段启动命令。<code>identity.py</code> 只有一条入边来自共享地基和一条来自 SDK——身份的<strong>形状</strong>在 <code>core</code>,身份<strong>怎么到</strong>在这里,业务实现的验票器两边都不认识。<code>types</code> / <code>errors</code> 的扇出没有画全,否则线会盖住图。</figcaption>
+        <figcaption>箭头方向 = 被 import 者 → import 者。<strong>最该看的是没有的那些线</strong>:<code>MCPI</code> 那一簇没有任何一条边连向 <code>MODEL</code> 或 <code>DISC</code>,它只从共享地基取一个异常类——协议平面持有的是 ref <strong>字符串</strong>,走不进森林,森林也够不回来。<code>role.py</code> 出度最高:它是三个概念汇合的地方,也是 <code>tree</code> 与 <code>cli</code> 共同的入口。<code>manager.py</code> 反过来收 Role、Skill、Tool 三条边——它是唯一把类变成节点的地方,三种 kind 各有一个注册方法。<code>messages.py</code> 只依赖 <code>errors</code> 与网关入口的名字——决定"跟模型说什么"不需要知道线路长什么样,所以它能脱离 SDK 单独测。<code>launch.py</code> 是全包唯一一个不 import 包内任何东西的模块,它只拼一段启动命令。<code>identity.py</code> 只有一条入边来自共享地基和一条来自 SDK——身份的<strong>形状</strong>在 <code>core</code>,身份<strong>怎么到</strong>在这里,业务实现的验票器两边都不认识。<code>types</code> / <code>errors</code> 的扇出没有画全,否则线会盖住图。</figcaption>
       </figure>
     </div>
 
@@ -702,47 +702,43 @@ classDiagram
 
   <section class="plate" id="plate-04">
     <p class="plate-eyebrow">Plate 04</p>
-    <h2 class="plate-title">声明式前端 — 一个类体怎么变成 Role</h2>
-    <p class="plate-claim">业务用自己的词汇写一个类,框架在<strong>类创建时</strong>把它变成 <code>Declaration</code> 并校验。出错在 import 时就炸,不等到第一次用。</p>
+    <h2 class="plate-title">声明 — 一个类怎么变成节点,以及在什么时候</h2>
+    <p class="plate-claim">业务写一个类,构造函数把身份交给基类、把成员建出来。<strong>import 不构造任何东西</strong>;<code>ControllerManager</code> 调一次工厂,是全包唯一一个节点诞生的时刻——也是唯一能告诉它挂在哪、能够到什么的时刻。</p>
 
     <div class="figure-wrap">
       <figure>
         <pre class="mermaid">
 flowchart LR
-    subgraph SRC["业务写的类体"]
+    subgraph SRC["业务写的类 · import 时"]
         direction TB
         cls["<b>class K8sOperator(Role)</b>"]
-        doc["'''Operate Kubernetes workloads.'''"]
-        ins["instructions = '...'"]
-        sk["diagnose = DiagnoseDeployment"]
-        bd["logs = GetPodLogs"]
+        ctor["def __init__(self)"]
+        sup["super().__init__(<br/>name= · description=<br/>instructions=<br/>skills=[Diagnose()]<br/>tools=[GetPodLogs()])"]
+        zero["活着的 ContextNode 实例: <b>0</b>"]
     end
 
-    subgraph COLLECT["__init_subclass__ · 类创建时"]
+    subgraph REG["ControllerManager · 注册时"]
         direction TB
-        walk["遍历 MRO<br/>base 在前,子类覆盖同名"]
-        derive["派生 name / description"]
-        mat["把声明的类实例化<br/>实例原样透传"]
-        valid["快速校验<br/>缺 instructions / 重名 / 类型错"]
+        build["cls() —— 唯一的构造点"]
+        rec["递归:成员由各自的构造函数建"]
+        stamp["盖章 path · channels"]
+        idx["建索引 _by_path · _by_kind"]
     end
 
-    decl["<b>Declaration</b><br/>owner · name · description<br/>instructions · members[]"]
-    role["<b>Role 实例</b><br/>children / skills / tools / resources"]
+    node["<b>Role 实例</b><br/>children / skills / tools<br/>path · channels"]
 
-    cls --> derive
-    doc --> derive
-    ins --> derive
-    sk --> walk
-    bd --> walk
-    walk --> mat
-    derive --> valid
-    mat --> valid
-    valid --> decl
-    decl -->|实例化时展开| role
+    cls --> ctor
+    ctor --> sup
+    sup -.-> zero
+    build --> rec
+    rec --> stamp
+    stamp --> idx
+    idx --> node
+    sup ==>|register_role| build
 
-    style valid stroke-width:3px
+    style build stroke-width:3px
         </pre>
-        <figcaption><code>K8sOperator</code> → <code>k8s-operator</code>,docstring 首段 → routing description。声明的 <code>Skill</code> <em>类</em>会被实例化一次并共享,声明的<em>实例</em>原样使用——两种写法含义相同。粗框那步是关键:重名、缺字段、类型错都在这里抛 <code>DeclarationError</code>,而不是等到某处第一次构造。</figcaption>
+        <figcaption>没有 <code>__init_subclass__</code>,没有类体扫描,没有从类名或 docstring 的推导——后两者在 TypeScript 和 Go 里都做不到(打包器会改类名,文档注释运行时不存在),而这个对象模型要在三种语言里都成立。粗框那步是关键:<strong>类是一个零参工厂</strong>,成员由持有它的构造函数建,所以一个没人注册的角色,它的成员从未被构造。代价是声明错误从 import 时推迟到 register 时——那仍然是 <code>main()</code> 的第一件事,而且是三种语言唯一能共享的时机,Go 根本没有 import 时钩子。见 ADR 013。</figcaption>
       </figure>
     </div>
 
@@ -750,11 +746,14 @@ flowchart LR
       <p><strong>这没有违背"组合优于继承"。</strong> 两个机制回答不同问题:
       <code>class K8sOperator(Role)</code> 说的是<em>这个节点是什么</em>,
       <code>children=[...]</code> 说的是<em>它持有什么</em>。继承从不表达包含关系——
-      声明式角色协调其他角色时,一样把它们放进 <code>children</code>。</p>
-      <p><strong>两个 slots 陷阱。</strong> <code>@dataclass(slots=True)</code> 会<em>重建类对象</em>,
-      于是:① <code>__init_subclass__</code> 里的零参 <code>super()</code> 抛 TypeError(<code>__class__</code>
-      单元格指向被丢弃的旧类);② <code>getattr(cls,'name')</code> 返回<em>槽描述符</em>而非 None。
-      两处都不是看代码能看出来的,所以在源码里各留了一条注释。</p>
+      一个角色协调其他角色时,把它们建在自己的 <code>children</code> 里。</p>
+      <p><strong>继承在两处挣到了位置,理由不同。</strong> <code>Tool</code> 的子类覆盖
+      <code>invoke</code>,那是<em>行为</em>。<code>Role</code> 和 <code>Skill</code> 的子类什么都不覆盖——
+      它们存在是为了成为<strong>一个有构造函数的具名单元</strong>,好让二十个技能是二十个
+      可命名、可复用、可共享一个基类的东西,而不是二十份写在使用点上的参数表。</p>
+      <p><strong>代价说在前面。</strong> 纯数据的节点要多写两行仪式(<code>def __init__</code> 和
+      <code>super().__init__(</code>)。二十个技能就是四十行业务样板,换掉的是 371 行框架
+      机器、一个读者要额外理解的概念,以及在三种语言里各写一套的读取器。</p>
     </div>
   </section>
 

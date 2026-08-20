@@ -2,8 +2,10 @@
 
 > **Partly superseded by [ADR 001](adr/001-native-mcp-server.md) as of v0.0.4.**
 >
-> Everything below about the object model, the declarative front end, and the
-> route/active split still holds. What changed is the **main path**. This
+> Everything below about the object model and the route/active split still
+> holds. The declarative front end it described is gone: §4 has been rewritten
+> to match [ADR 013](adr/013-a-constructor-is-the-declaration.md). What changed
+> at v0.0.4 is the **main path**. This
 > document describes rendering a declaration into per-runtime context files as
 > the primary route to an agent; in v0.0.4 that became a side road, and the
 > primary route is a native MCP server the runtimes connect to.
@@ -89,28 +91,32 @@ product, so the name pointed at the least essential part. It is now
 
 ## 4. Declaration
 
-### 4.1 Two doors onto one object
+### 4.1 One door, and a constructor is the whole of it
 
-A Role can be built two ways, and both produce the same object:
+A node is a class whose `__init__` hands its identity to the base and builds
+whatever the node holds:
 
 ```python
-# imperative — for context assembled at runtime
-Role(name="k8s-operator", description="...", instructions="...")
-
-# declarative — for context a project owns and edits
 class K8sOperator(Role):
-    """Operate and diagnose Kubernetes workloads."""
-
-    instructions = "Inspect before changing the cluster."
-
-    diagnose = DiagnoseDeployment
-    get_pods = GetPods
-    runbook = RolloutRunbook
+    def __init__(self) -> None:
+        super().__init__(
+            name="k8s-operator",
+            description="Operate and diagnose Kubernetes workloads.",
+            instructions="Inspect before changing the cluster.",
+            skills=[DiagnoseDeployment()],
+            tools=[GetPods(), RolloutRunbook()],
+        )
 ```
 
-A declared Role *is* a `Role`, so every consumer — the tree, an adapter,
-server — accepts either without knowing which door was used. Declaration adds
-a second way to state the same thing; it never becomes a parallel type.
+The base constructor is also the imperative door — `Role(name=..., ...)` is
+exactly what the line above calls — so a graph assembled at run time and a
+graph declared as classes are the same objects, and every consumer accepts
+either without knowing which was used.
+
+Through v0.4 there was a second door: a class *body* whose attributes were
+read by `core.model.declarative`. ADR 013 removed it. What it bought was three
+lines of syntax; what it cost was a metaprogramming layer, a shadow object
+graph built at import, and two inferences no other language can reproduce.
 
 ### 4.2 Why this does not contradict "composition over inheritance"
 
@@ -119,60 +125,65 @@ That still holds. The two mechanisms answer different questions:
 
 ```text
 class K8sOperator(Role)      what this node IS      — a kind of context node
-children=[troubleshooter]    what this node HOLDS   — the team structure
+children=[Troubleshooter()]  what this node HOLDS   — the team structure
 ```
 
-Subclassing never expresses containment. A declared role that coordinates other
-roles holds them in `children`, exactly as an imperatively built one does; the
-class body simply lists them.
+Subclassing never expresses containment. A role that coordinates other roles
+builds them in `children`, and its own constructor is where that happens.
 
-### 4.3 What a class body contributes
+Inheritance still earns its place twice. A `Tool` subclass overrides `invoke`,
+which is behaviour. A `Role` or `Skill` subclass overrides nothing — it exists
+to be a **named unit with a constructor**, so that twenty procedures are twenty
+things a project can name, reuse, and give a common base whose constructor
+supplies the fields they share.
 
-| Class body | Becomes |
+### 4.3 Nothing is inferred
+
+| Once derived from | Now |
 |---|---|
-| class name | the node name, kebab-cased (`K8sOperator` → `k8s-operator`) |
-| docstring, first paragraph | the routing description |
-| `instructions` | the active-level instructions |
-| `name` / `description` | explicit overrides for the two derivations |
-| a `Skill` class or instance | an entry in `skills` |
-| a `Role` class or instance | an entry in `children` |
-| a `Tool` class or instance | an entry in `tools` |
+| class name → node name | stated in the constructor |
+| docstring → routing description | stated in the constructor |
+| class attributes → member lists | built in the constructor |
 
-Members are collected across the whole MRO, base classes first, so a subclass
-inherits what its parent declared and may replace any member by rebinding its
-attribute. Declaration order is preserved, which keeps rendered surfaces stable
-across runs.
+The reason is portability rather than taste. This object model is meant to
+exist in TypeScript and Go as well, and neither can reproduce those
+derivations: a bundler renames classes, and no Go or TypeScript runtime can
+read a doc comment. A field that is optional in one implementation and required
+in the others is one declaration meaning two things.
 
-Only a class's *own* docstring counts as its description. Python hands an
-undocumented subclass its parent's `__doc__`, and routing agents on a sentence
-that describes a different role is worse than refusing to guess.
+The one thing still read off code is a tool's input schema, derived from
+`invoke`'s type hints. That is reflection over *what the code already is*
+rather than a guess at what its author meant — and even there, what the
+cross-language spec pins is the JSON Schema that reaches the wire, never how it
+was derived. Go reflects an argument struct; TypeScript states a schema object.
 
-### 4.4 Failing at class creation
+### 4.4 Nothing exists until it is registered
 
-Contradictions a reader cannot see by looking at one attribute are rejected
-while the class is being created, not at first use:
+A class is a zero-argument factory. Its members are built by its own
+constructor, so importing a module full of declarations constructs **no nodes
+at all**, and a `ControllerManager` calling one factory is the single moment a
+node comes into existence.
 
-- a Role or Skill with no `instructions`;
-- a class with no description and no docstring;
-- two skills, two children, or two bindings that collide on name or server id;
-- a scalar declared as something other than a string.
+That is the moment it can be told where it hangs (`path`) and handed what it
+may reach outside the process (`channels`), which is why registration and
+construction are deliberately the same event.
 
-This is the payoff of declaration: import the module and the shape is checked.
+The cost is that declaration errors surface at registration rather than at
+import. Registration is `main()`'s first act, so this is still start-up rather
+than run time — and it is the only moment the other two implementations can
+share, since Go has no import-time hook at all.
 
-### 4.5 Two implementation constraints worth recording
+### 4.5 One implementation constraint worth recording
 
-Both come from `@dataclass(slots=True)`, which **rebuilds the class object**
-rather than decorating it in place.
+`@dataclass(slots=True)` **rebuilds the class object** rather than decorating it
+in place, so a zero-argument `super()` inside a class-creation hook raises
+`TypeError`: the method's `__class__` cell still points at the discarded
+original. `Prompt` and `Resource` once carried such a hook and no longer do; if
+one is ever added back, it must name its class explicitly.
 
-1. A zero-argument `super()` inside `__init_subclass__` raises `TypeError`. The
-   method's `__class__` cell still points at the discarded original class, so
-   the implicit lookup fails. Every such call names its class explicitly.
-2. `getattr(cls, "name")` returns the *slot descriptor*, not `None`, when
-   nobody declared a value. Reading a declared scalar therefore walks the MRO's
-   `__dict__` and treats a `MemberDescriptorType` as "undeclared".
-
-Neither is visible from the code that trips over it, which is why they are
-written down here and commented at both call sites.
+The sibling constraint — that `getattr(cls, "name")` returns a slot descriptor
+rather than `None` for an undeclared scalar — mattered only while class bodies
+were read. Nothing reads them now.
 
 ## 5. Targets *(removed in v0.2.0)*
 
@@ -275,11 +286,15 @@ first one's clothes.
 
 ### Declaration
 
-1. A declared node is substitutable for an imperatively built one.
-2. Subclassing states identity, never containment.
-3. Declaration order and MRO order together fix member order.
-4. A class's own docstring is the only docstring that describes it.
-5. Contradictions are raised at class creation, not first use.
+- A subclass is a class whose constructor calls the base constructor. There is
+  no class-body reading, no `__init_subclass__`, and no inference.
+- Importing a declaration constructs no nodes. `ControllerManager` is the only
+  place a node comes into existence, and registration is where it is told its
+  address and handed its channels.
+- Members are listed by kind — `children`, `skills`, `tools` — because which of
+  the three a capability belongs in is the modelling decision the framework
+  asks for, and because three typed collections are what Go and TypeScript can
+  express where one mixed list is neither.
 
 ### Targets
 

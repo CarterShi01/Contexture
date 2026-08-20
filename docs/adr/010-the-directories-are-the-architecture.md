@@ -7,6 +7,10 @@
 which made the decisions. This one moves files and renames modules and changes
 no behaviour: every test that passed before it passes after it, unchanged.
 
+> `declarative.py` was deleted in v0.5.0; see
+> [ADR 013](013-a-constructor-is-the-declaration.md). The directory rule this
+> ADR decided is unchanged — `model/` simply holds one file fewer.
+
 ## Context
 
 The package was flat. `core/` held eight modules of object model, `tree.py` sat
@@ -32,7 +36,7 @@ Three names had also drifted from what they named:
 core/
 ├── README.md
 ├── errors.py  types.py  constants.py      shared ground
-├── model/          node · role · skill · tool · declarative
+├── model/          node · role · skill · tool · manager
 ├── disclosure/     tree
 └── mcp_interface/  README · tool · resource · prompt
 ```

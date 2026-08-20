@@ -11,11 +11,11 @@ from contexture import Skill
 
 
 class DiagnoseCrashLoopBackOff(Skill):
-    """Find why a Pod restarts repeatedly, before proposing any remediation."""
-
-    name = "diagnose-crash-loop-backoff"
-
-    instructions = """\
+    def __init__(self) -> None:
+        super().__init__(
+            name="diagnose-crash-loop-backoff",
+            description="Find why a Pod restarts repeatedly, before proposing any remediation.",
+            instructions="""\
 Establish the cause from evidence, in this order.
 
 1. Call get_pod_status. A high restart_count with ready=false confirms a
@@ -35,15 +35,16 @@ Constraints:
 - Do not state any cluster state you have not read from a tool.
 - Name the specific evidence, including the exit code, that supports your
   conclusion.\
-"""
+""",
+        )
 
 
 class RollBackAFailedRelease(Skill):
-    """Decide whether to roll a release back, and what to capture first."""
-
-    name = "roll-back-a-failed-release"
-
-    instructions = """\
+    def __init__(self) -> None:
+        super().__init__(
+            name="roll-back-a-failed-release",
+            description="Decide whether to roll a release back, and what to capture first.",
+            instructions="""\
 A rollback destroys the evidence it was called for. Work in this order.
 
 1. Read contexture://runbooks/rollback-policy before doing anything else.
@@ -59,7 +60,8 @@ Constraints:
   presenting a rollback as a fix.
 - roll_back_deployment changes the cluster. It is not read-only, so it must be
   run through contexture_invoke and a human may be asked first.\
-"""
+""",
+        )
 
 
 __all__ = ["DiagnoseCrashLoopBackOff", "RollBackAFailedRelease"]

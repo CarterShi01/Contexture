@@ -10,7 +10,8 @@ is served:
 
     channels = OCChannels(gateway=connect("http://gateway:8000"))
     manager = ControllerManager(channels=channels)
-    manager.register(KubernetesPlatform)
+    manager.register_role(KubernetesPlatform)
+    manager.register_tool(Ping)          # a capability that belongs to no role
 
 **Controller**, because that is what these objects are: a caller names one and
 it decides what happens. The name is chosen against MVC deliberately — the
@@ -37,6 +38,12 @@ reach them. This is `main()`'s order, and it is the order a caller assumes.
 Registration is additive and takes classes as readily as instances, so what a
 server offers is a list of calls an application makes rather than whatever
 happens to have been imported.
+
+**Three methods, one per kind.** What a root *is* decides what may hang beneath
+it, and naming the kind at the call site says so where a reader is looking
+rather than leaving it to be inferred from an argument's type. It is also the
+only shape the other two implementations can share: a typed slice per kind is
+what Go has instead of a list of `any`.
 """
 
 from __future__ import annotations
@@ -48,6 +55,8 @@ from typing import Any, AsyncIterator, Callable, Iterator, Sequence
 from ..errors import LookupFailure, ModelValidationError, NodeNotFoundError
 from .node import ContextNode
 from .role import Role
+from .skill import Skill
+from .tool import Tool
 
 
 @dataclass(slots=True)
@@ -78,7 +87,15 @@ class ControllerManager:
     #:             yield Channels(gateway=gw, db=db)
     provision: Callable[[], AbstractAsyncContextManager[Any]] | None = None
 
-    _roots: list[Role] = field(default_factory=list, repr=False)
+    #: What was registered at the top, one list per kind. Three rather than
+    #: one, because which kind a root is decides what may hang beneath it, and
+    #: naming the kind at the call site says so where a reader is looking.
+    #: They share **one namespace** all the same: a root's name is the first
+    #: segment of every reference beneath it, so two roots of two kinds cannot
+    #: be called the same thing.
+    _roles: list[Role] = field(default_factory=list, repr=False)
+    _skills: list[Skill] = field(default_factory=list, repr=False)
+    _tools: list[Tool] = field(default_factory=list, repr=False)
     _by_path: dict[tuple[str, ...], ContextNode] = field(
         default_factory=dict, repr=False
     )
@@ -161,42 +178,71 @@ class ControllerManager:
 
     # ---- registration ----------------------------------------------------
 
-    def register(self, controller: Role | type[Role]) -> Role:
-        """Take one root into this manager, and return what was registered.
+    def register_role(self, controller: Any) -> Role:
+        """Take one root role into this manager, and return what was built."""
 
-        A class is built here rather than by the caller. That is not a
-        convenience: it is what makes registration the moment a controller
-        comes into existence with everything it needs, which is the whole point
-        of taking the channels first.
+        return self._register(controller, Role, self._roles)
+
+    def register_skill(self, controller: Any) -> Skill:
+        """Take one standalone procedure — one that belongs to no role."""
+
+        return self._register(controller, Skill, self._skills)
+
+    def register_tool(self, controller: Any) -> Tool:
+        """Take one standalone capability — one that belongs to no role.
+
+        Worth knowing before reaching for this: a tool's card carries its input
+        schema, so a tool registered at the top is a schema every session is
+        handed by `contexture_discover`, before anybody has asked for it. That
+        is the right trade for a server whose whole surface is three tools, and
+        the wrong one for a server with fifty — where the fix is to put them
+        under a role, and let a session pay for the branch it enters.
         """
 
-        root = self._build(controller)
-        if any(existing.name == root.name for existing in self._roots):
+        return self._register(controller, Tool, self._tools)
+
+    def _register(
+        self,
+        controller: Any,
+        kind: type,
+        bucket: list[Any],
+    ) -> Any:
+        """Build one root, refuse a name already taken, then record it."""
+
+        root = self._build(controller, kind)
+        taken = next(
+            (held for held in self.roots if held.name == root.name), None
+        )
+        if taken is not None:
             raise ModelValidationError(
-                f"Two roots are both named {root.name!r}; a root name is the "
-                "first segment of every address beneath it, so the second one "
-                "would make its whole branch unreachable."
+                f"Two roots are both named {root.name!r} (a {taken.kind} and a "
+                f"{root.kind}); a root name is the first segment of every "
+                "address beneath it, so the second one would make its whole "
+                "branch unreachable."
             )
         self._absorb(root, (root.name,), parent=None, ancestors=())
-        self._roots.append(root)
+        bucket.append(root)
         return root
 
-    def register_all(self, controllers: Sequence[Role | type[Role]]) -> tuple[Role, ...]:
-        """Register several roots in order, returning what each became."""
-
-        return tuple(self.register(controller) for controller in controllers)
-
     @staticmethod
-    def _build(controller: Role | type[Role]) -> Role:
-        if isinstance(controller, Role):
-            return controller
-        if isinstance(controller, type) and issubclass(controller, Role):
-            return controller()
-        raise ModelValidationError(
-            f"{controller!r} is not a Role or a Role subclass. A manager "
-            "registers roots; a skill or a tool reaches this graph by being "
-            "declared inside one."
-        )
+    def _build(controller: Any, kind: type) -> Any:
+        """Turn a zero-argument factory into the node, or take one as it is.
+
+        A **class** is the ordinary door, and a class is a zero-argument
+        factory: its `__init__` passes its identity to the base and builds its
+        own members. So this is the one line in the package that brings a
+        declared graph into existence, and everything about *when* that happens
+        follows from it — nothing exists until something is registered.
+        """
+
+        built = controller() if isinstance(controller, type) else controller
+        if not isinstance(built, kind):
+            raise ModelValidationError(
+                f"{controller!r} is not a {kind.__name__}. "
+                f"`register_{kind.__name__.lower()}` takes a {kind.__name__} "
+                "or a class that builds one with no arguments."
+            )
+        return built
 
     def _absorb(
         self,
@@ -257,10 +303,33 @@ class ControllerManager:
     # ---- queries ---------------------------------------------------------
 
     @property
-    def roots(self) -> tuple[Role, ...]:
-        """The registered roots, in the order they were registered."""
+    def roles(self) -> tuple[Role, ...]:
+        """The root roles, in the order they were registered."""
 
-        return tuple(self._roots)
+        return tuple(self._roles)
+
+    @property
+    def skills(self) -> tuple[Skill, ...]:
+        """The standalone procedures, in the order they were registered."""
+
+        return tuple(self._skills)
+
+    @property
+    def tools(self) -> tuple[Tool, ...]:
+        """The standalone capabilities, in the order they were registered."""
+
+        return tuple(self._tools)
+
+    @property
+    def roots(self) -> tuple[ContextNode, ...]:
+        """Everything registered at the top, roles first, then skills, then tools.
+
+        One sequence over the three lists, for the callers that need the whole
+        top level rather than one kind of it — the name check above, and the
+        tree that discloses it.
+        """
+
+        return (*self._roles, *self._skills, *self._tools)
 
     def find(self, path: Sequence[str]) -> ContextNode:
         """Return the one controller at `path`.
@@ -286,7 +355,7 @@ class ControllerManager:
                 reason=LookupFailure.NO_SUCH_ROOT,
                 segment=segments[0],
                 scope=segments[0],
-                known=sorted(root.name for root in self._roots),
+                known=sorted(root.name for root in self.roots),
             )
         for depth in range(2, len(segments) + 1):
             if segments[:depth] in self._by_path:

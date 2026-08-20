@@ -49,8 +49,8 @@ GATEWAY = (
         name=DISCOVER_TOOL,
         read_only=True,
         description=(
-            "List the top-level roles this server serves, as short routing "
-            "cards. Start here, then open the one that matches the task; its "
+            "List the top-level capabilities this server serves, as short "
+            "routing cards. Most are roles: open the one that matches the task; its "
             "sub-roles arrive with it, one level at a time, so a large tree "
             "costs only the branch you enter. A role card is a name, a "
             "sentence, and the ref that opens it — instructions and what a "

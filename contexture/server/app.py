@@ -2,7 +2,7 @@
 
 A project states its context as roles, skills and tools, and then says::
 
-    app = ContextureApp(roots=[KubernetesPlatform()])
+    app = ContextureApp(roots=[KubernetesPlatform])
 
     if __name__ == "__main__":
         app.run()
@@ -46,9 +46,12 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from ..core.constants import PACKAGE_VERSION
 from ..core.errors import ContextureError, ModelValidationError
+from ..core.mcp_interface import published
 from ..core.mcp_interface.prompt import Prompt
 from ..core.mcp_interface.resource import Resource
+from ..core.disclosure.tree import register_root as _register
 from ..core.model.manager import ControllerManager
+from ..core.model.node import ContextNode
 from ..core.model.role import Role
 from ..core.disclosure.tree import ContextTree
 from . import instructions as instructions_module
@@ -304,7 +307,11 @@ class ContextureApp:
     #: The roots this server offers, or the registry they were registered
     #: into. Passing the registry is the order an application that has
     #: downstream connections wants: build them, register against them, serve.
-    roots: Role | Iterable[Role] | ControllerManager = ()
+    #:
+    #: A root is ordinarily a **class**, and handing over the class rather than
+    #: an instance is what keeps construction inside registration — see
+    #: `ControllerManager._build`. An already-built Role is accepted too.
+    roots: Any = ()
 
     #: A shortcut for the same thing when there is no reason to hold the
     #: registry yourself: whatever an application wants its capabilities to
@@ -321,7 +328,11 @@ class ContextureApp:
     #: Authored, never derived: adding one is a code change and a restart,
     #: which is what keeps these lists from varying under a live
     #: connection — something the protocol forbids in any case.
-    publish: Sequence[Prompt | Resource] = ()
+    #:
+    #: Stated as classes, like everything else a business declares; already
+    #: built values are accepted too. Either way they are normalised here, so
+    #: nothing below this line has to ask which arrived.
+    publish: Sequence[Any] = ()
 
     name: str = "contexture"
     version: str = PACKAGE_VERSION
@@ -334,6 +345,7 @@ class ContextureApp:
         # One Dispatch derives every schema and validates every call, so a
         # card's schema and the check a call is measured against cannot drift.
         self.dispatch = Dispatch()
+        self.publish = tuple(published(entry) for entry in self.publish)
         self.tree = ContextTree.of(
             self._registry(), schema_of=self.dispatch.schema
         )
@@ -358,9 +370,8 @@ class ContextureApp:
                 )
             return self.roots
         manager = ControllerManager(channels=self.channels, provision=self.provision)
-        roots = (self.roots,) if isinstance(self.roots, Role) else tuple(self.roots)
-        for root in roots:
-            manager.register(root)
+        for root in _each(self.roots):
+            _register(manager, root)
         return manager
 
     @property
@@ -450,6 +461,17 @@ class ContextureApp:
             # that starts and answers nobody.
             logging.getLogger(__name__).info("Serving MCP on %s", options.url)
         server.run(options.transport, **options.transport_kwargs())
+
+
+def _each(given: Any) -> tuple[Any, ...]:
+    """One root or many, told apart without making a caller say which."""
+
+    kinds = (ContextNode,)
+    if isinstance(given, kinds) or (
+        isinstance(given, type) and issubclass(given, kinds)
+    ):
+        return (given,)
+    return tuple(given)
 
 
 def configure_logging(level: int = logging.INFO) -> None:

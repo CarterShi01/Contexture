@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Iterable, Iterator, TypeVar
+from typing import ClassVar, Iterator
 
-from . import declarative
 from .node import ContextNode
 from ..errors import (
-    DeclarationError,
     DuplicateNameError,
     LookupFailure,
     ModelValidationError,
@@ -18,32 +16,37 @@ from .skill import Skill
 from .tool import Tool
 from ..types import CompiledContext
 
-_T = TypeVar("_T")
-
 
 @dataclass(slots=True, kw_only=True)
 class Role(ContextNode):
     """A responsibility boundary composed from roles, skills, and tools.
 
-    Build one imperatively::
-
-        Role(name="k8s-operator", description="...", instructions="...")
-
-    or declare one as a class, which is how a business project states a role it
-    owns::
+    ::
 
         class KubernetesOperator(Role):
-            '''Operate and diagnose Kubernetes workloads.'''
+            def __init__(self) -> None:
+                super().__init__(
+                    name="k8s-operator",
+                    description="Operate and diagnose Kubernetes workloads.",
+                    instructions="Inspect before changing the cluster.",
+                    children=[DeploymentOps()],
+                    skills=[DiagnoseDeployment()],
+                    tools=[GetPodLogs(), GetPodStatus()],
+                )
 
-            instructions = "Inspect before changing the cluster."
+        manager.register_role(KubernetesOperator)
 
-            diagnose = DiagnoseDeployment
-            inspect_logs = GetPodLogs
-            runbook = CrashLoopRunbook
+    **Members are built here, never discovered.** Three lists rather than one,
+    because which of the three a capability belongs in is the modelling
+    decision this framework asks a business to make. The three also survive
+    translation: they are three typed slices in Go and three typed arrays in
+    TypeScript, where one mixed list is neither.
 
-    Subclassing states what one role *is*. It never states containment: a role
-    that coordinates other roles holds them in `children`, whether it was
-    declared or assembled at runtime.
+    **Building them inside this constructor is what defers everything.** The
+    members of a role that nobody registers are never constructed, and two
+    registrations of one class are two independent subtrees — which matters as
+    soon as anything is stamped onto a node, because a shared member would take
+    the last stamp written anywhere in the process.
 
     **Membership is fixed once a tree has been built from this role.** The four
     member lists are ordinary lists, and assembling one at runtime is supported
@@ -84,30 +87,13 @@ class Role(ContextNode):
 
     kind: ClassVar[str] = "role"
 
-    #: The class-body declaration, or None on an imperatively built Role.
-    declaration: ClassVar[declarative.Declaration | None] = None
-
-    def __init_subclass__(cls, **kwargs: Any) -> None:
-        # A zero-argument super() raises TypeError in this method: dataclass
-        # slots=True rebuilds the class object, so the implicit __class__ cell
-        # still points at the discarded original. Name the class explicitly.
-        super(Role, cls).__init_subclass__(**kwargs)
-        if not declarative.is_declarative(cls, Role):
-            return
-        declaration = declarative.collect(
-            cls,
-            member_types=(Role, Skill, Tool),
-        )
-        _validate_declaration(cls, declaration)
-        cls.declaration = declaration
-        cls.__init__ = _declarative_init  # type: ignore[method-assign]
-
     def __post_init__(self) -> None:
         ContextNode.__post_init__(self)
         if not self.instructions.strip():
             raise ModelValidationError(
                 f"Role {self.name!r} must have active instructions."
             )
+        self._require_built_members()
         self._require_unique_members()
 
     def members(self) -> Iterator[ContextNode]:
@@ -143,6 +129,31 @@ class Role(ContextNode):
             scope=self.name,
             known=sorted(held.name for held in self.members()),
         )
+
+    def _require_built_members(self) -> None:
+        """Refuse a class where a node belongs.
+
+        A member list holds nodes, and a class is not one — it is a factory for
+        one. The mistake is `tools=[GetPodLogs]` where `tools=[GetPodLogs()]`
+        was meant, and it is caught at the construction site because that is
+        where somebody can see both halves of it.
+
+        Left to itself the mistake is quiet and strange: a class carries the
+        base dataclass's slot descriptors, so every unbuilt member reads as
+        having the same `name`, and the first thing to fail is the uniqueness
+        check below with a sentence about two members sharing a name that
+        nobody wrote.
+        """
+
+        for held in (self.children, self.skills, self.tools):
+            for member in held:
+                if isinstance(member, type):
+                    raise ModelValidationError(
+                        f"Role {self.name!r} holds the class "
+                        f"{member.__name__}, not a node. Build it: "
+                        f"{member.__name__}() — a member list holds nodes, and "
+                        "a class is the factory that makes one."
+                    )
 
     def _require_unique_members(self) -> None:
         """Reject two members of this role that share a name.
@@ -183,86 +194,3 @@ class Role(ContextNode):
         """
 
         return {**self._compile_route(), "instructions": self.instructions}
-
-
-def _validate_declaration(
-    cls: type,
-    declaration: declarative.Declaration,
-) -> None:
-    """Reject a contradictory class body while the class is being created.
-
-    These are the collisions a reader cannot see by looking at one attribute,
-    so they are worth catching at import rather than at the first instantiation
-    somewhere else in the program.
-    """
-
-    if declaration.instructions is None:
-        raise DeclarationError(
-            f"{cls.__name__} must state `instructions`; a Role without them "
-            "has nothing to disclose once it becomes the active role, and a "
-            "role that holds other nodes has nowhere to say how they are used."
-        )
-
-    declarative.require_unique(
-        {
-            member.attribute: member.value.name
-            for member in declaration.members
-            if isinstance(member.value, Skill)
-        },
-        owner=cls.__name__,
-        label="skills",
-    )
-    declarative.require_unique(
-        {
-            member.attribute: member.value.name
-            for member in declaration.members
-            if isinstance(member.value, Role)
-        },
-        owner=cls.__name__,
-        label="child roles",
-    )
-    declarative.require_unique(
-        {
-            member.attribute: member.value.name
-            for member in declaration.members
-            if isinstance(member.value, Tool)
-        },
-        owner=cls.__name__,
-        label="tools",
-    )
-
-
-def _built(declaration: declarative.Declaration, kind: type[_T]) -> list[_T]:
-    """Build this declaration's members of one kind, fresh for one owner.
-
-    Per owner rather than once per class, so two instances of a role are two
-    independent subtrees. Anything a registry stamps onto a node — its address,
-    the handle it may reach outside this process — would otherwise be written
-    onto objects a second server in the same process is also serving.
-    """
-
-    return [
-        member.build()
-        for member in declaration.members
-        if isinstance(member.value, kind)
-    ]
-
-
-def _declarative_init(self: Role, **overrides: Any) -> None:
-    """Build a declared Role, letting the caller override any stated field."""
-
-    declaration = type(self).declaration
-    assert declaration is not None  # set by __init_subclass__ before rebinding
-    Role.__init__(
-        self,
-        **{
-            "name": declaration.name,
-            "description": declaration.description,
-            "instructions": declaration.instructions,
-            "children": _built(declaration, Role),
-            "skills": _built(declaration, Skill),
-            "tools": _built(declaration, Tool),
-            **declaration.stated(),
-            **overrides,
-        },
-    )

@@ -15,10 +15,15 @@ from contexture import Tool
 
 
 class HealthRunbook(Tool):
-    """How to interpret a reachability check, and what not to conclude."""
-
-    name = "health_runbook"
-    read_only = True
+    def __init__(self) -> None:
+        super().__init__(
+            name="health_runbook",
+            description=(
+                "How to interpret a reachability check, and what not to "
+                "conclude."
+            ),
+            read_only=True,
+        )
 
     async def invoke(self) -> str:
         return (

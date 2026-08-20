@@ -41,7 +41,9 @@ Codex 与 Cursor 各有各的做法，`docs/verification/hosts.md` 记录了实�
 `core/model` 的 Role / Skill / Tool 全部落在 **Tool** 那一行——它们由模型决策，
 经四个网关入口披露。本目录的 Resource 与 Prompt 落在另外两行，由宿主或人触发。
 
-两者在类型上、依赖上都不相交：
+两者在类型上、依赖上都不相交，**写法上则刻意相同**：这里的 Prompt 与 Resource
+也是「继承一个基类、构造函数把身份交给它」，因为业务应该只学一种声明写法。
+区别由类型守住，不由语法守住：
 
 - 这里的对象**不是** `ContextNode`，没有 compile 生命周期，不进森林；
 - 它们持有的是引用**字符串**，不是对象引用——与 `Skill.uses` 同一个理由：

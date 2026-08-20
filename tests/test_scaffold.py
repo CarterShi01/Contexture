@@ -30,6 +30,8 @@ from contexture.cli import (
     resolve_target,
 )
 from contexture.core.disclosure.tree import ContextTree
+from contexture.core.mcp_interface import Resource
+from contexture.core.model.manager import ControllerManager
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -118,7 +120,7 @@ class GeneratedProjectTests(unittest.TestCase):
 
     def test_the_generated_role_imports_and_declares_every_kind(self) -> None:
         module = importlib.import_module("assistant")
-        role = module.MyContextAssistant()
+        role = ControllerManager().register_role(module.MyContextAssistant)
 
         self.assertIsInstance(role, Role)
         self.assertEqual(role.name, "my-context-assistant")
@@ -129,7 +131,7 @@ class GeneratedProjectTests(unittest.TestCase):
 
     def test_the_generated_tools_execute(self) -> None:
         module = importlib.import_module("assistant")
-        role = module.MyContextAssistant()
+        role = ControllerManager().register_role(module.MyContextAssistant)
         by_name = {tool.name: tool for tool in role.tools}
 
         result = asyncio.run(by_name["ping"].invoke(target="payments-api"))
@@ -139,9 +141,8 @@ class GeneratedProjectTests(unittest.TestCase):
     def test_the_generated_project_publishes_the_runbook(self) -> None:
         """The scaffold shows both planes: a tool to navigate to, and a URI."""
 
-        declared = importlib.import_module("publish").PUBLISHED
-
-        (published,) = declared
+        (declared,) = importlib.import_module("publish").PUBLISHED
+        published = declared()
         self.assertEqual(published.uri, "my-context://runbooks/health")
         self.assertEqual(
             published.opens, "my-context-assistant/health_runbook"
@@ -149,7 +150,7 @@ class GeneratedProjectTests(unittest.TestCase):
 
     def test_the_generated_graph_discloses_progressively(self) -> None:
         module = importlib.import_module("assistant")
-        tree = ContextTree.of(module.MyContextAssistant())
+        tree = ContextTree.of(module.MyContextAssistant)
 
         card = tree.skeleton()["roles"][0]
         self.assertNotIn("instructions", card)
@@ -162,8 +163,14 @@ class GeneratedProjectTests(unittest.TestCase):
         )
 
     def test_the_configured_root_resolves(self) -> None:
-        role = resolve_target("assistant:MyContextAssistant")
-        self.assertEqual(role.name, "my-context-assistant")
+        """It resolves to the class; a manager is what turns one into nodes."""
+
+        declared = resolve_target("assistant:MyContextAssistant")
+        self.assertTrue(issubclass(declared, Role))
+        self.assertEqual(
+            ControllerManager().register_role(declared).name,
+            "my-context-assistant",
+        )
 
     def test_the_project_is_found_from_inside_it(self) -> None:
         found = find_project(self.root / "assistant")
@@ -227,7 +234,7 @@ class CommandLineTests(unittest.TestCase):
 
 class DemoTargetTests(unittest.TestCase):
     def test_the_bundled_demo_target_resolves(self) -> None:
-        role = resolve_target(DEMO_TARGET)
+        role = ControllerManager().register_role(resolve_target(DEMO_TARGET))
 
         self.assertEqual(role.name, "kubernetes-platform")
         self.assertEqual(

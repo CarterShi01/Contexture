@@ -6,11 +6,13 @@ JSON Schema is, or that MCP exists. A node cannot *work out* where it hangs —
 it is told, by the `ControllerManager` that registered it, in segments rather
 than in an address, because how an address is spelled stays with `disclosure`.
 
-This is the layer a business developer subclasses. Everything else in the
-package exists to organise what is declared here or to put it on a wire.
+A business subclasses these and states what each one is in its constructor,
+which hands that identity to the base and builds whatever the node holds.
+Nothing is inferred from a class name or a docstring, and nothing is built when
+a declaration is imported: a class is a zero-argument factory, and a
+`ControllerManager` is the one place every node comes into existence.
 """
 
-from .declarative import Declaration
 from .manager import ControllerManager
 from .node import CompileLevel, ContextNode
 from .role import Role
@@ -21,7 +23,6 @@ __all__ = [
     "CompileLevel",
     "ContextNode",
     "ControllerManager",
-    "Declaration",
     "Role",
     "Skill",
     "Tool",

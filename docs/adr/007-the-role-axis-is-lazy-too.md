@@ -1,5 +1,10 @@
 # ADR 007 — The role axis is lazy too
 
+
+> **One detail superseded by [ADR 013](013-a-constructor-is-the-declaration.md).**
+> The payload key is now `roles` rather than `sub_roles`, and `discover`
+> answers with the same three keys `open` does, because a standalone skill or
+> tool may also be a root. The laziness this ADR decided is unchanged.
 **Status:** accepted, implemented in v0.2.0
 **Date:** 2026-08-19
 

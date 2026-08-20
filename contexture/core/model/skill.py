@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import ClassVar
 
-from . import declarative
 from .node import ContextNode
 from ..errors import ModelValidationError
 from ..types import CompiledContext
@@ -15,17 +14,19 @@ from ..types import CompiledContext
 class Skill(ContextNode):
     """A reusable method that explains how to perform a class of work.
 
-    Build one imperatively::
-
-        Skill(name="inspect-pod-failure", description="...", instructions="...")
-
-    or declare one as a class, which is how a business project usually states
-    knowledge it owns::
+    ::
 
         class InspectPodFailure(Skill):
-            '''Diagnose why a Kubernetes Pod is failing.'''
+            def __init__(self) -> None:
+                super().__init__(
+                    name="inspect-pod-failure",
+                    description="Diagnose why a Kubernetes Pod is failing.",
+                    instructions="1. Inspect status. 2. Read logs.",
+                )
 
-            instructions = "1. Inspect status. 2. Read logs."
+    Same shape as a `Tool` minus the behaviour: a Skill has no executable body,
+    so its constructor is the whole class. See `Tool` for why everything is
+    stated and why nothing is built at import.
 
     A Skill and a Role both carry instructions, and the difference is whether
     the node holds anything. A Role's instructions orchestrate its members; a
@@ -43,13 +44,16 @@ class Skill(ContextNode):
     A procedure whose steps live outside its own parent names them in `uses`::
 
         class ComposeAndShip(Skill):
-            '''Assemble the weekly letter and send it.'''
-
-            instructions = "1. Generate the cover. 2. Apply the template. ..."
-            uses = (
-                "one-creator/assets/image-gen/generate_cover",
-                "one-creator/publishing/layout/apply_template",
-            )
+            def __init__(self) -> None:
+                super().__init__(
+                    name="compose-and-ship",
+                    description="Assemble the weekly letter and send it.",
+                    instructions="1. Generate the cover. 2. Apply ...",
+                    uses=(
+                        "one-creator/assets/image-gen/generate_cover",
+                        "one-creator/publishing/layout/apply_template",
+                    ),
+                )
     """
 
     #: The complete procedure. There is no second, fuller copy anywhere: this
@@ -81,19 +85,6 @@ class Skill(ContextNode):
 
     kind: ClassVar[str] = "skill"
 
-    #: The class-body declaration, or None on an imperatively built Skill.
-    declaration: ClassVar[declarative.Declaration | None] = None
-
-    def __init_subclass__(cls, **kwargs: Any) -> None:
-        # A zero-argument super() raises TypeError in this method: dataclass
-        # slots=True rebuilds the class object, so the implicit __class__ cell
-        # still points at the discarded original. Name the class explicitly.
-        super(Skill, cls).__init_subclass__(**kwargs)
-        if not declarative.is_declarative(cls, Skill):
-            return
-        cls.declaration = declarative.collect(cls, member_types=())
-        cls.__init__ = _declarative_init  # type: ignore[method-assign]
-
     def __post_init__(self) -> None:
         ContextNode.__post_init__(self)
         if not self.instructions.strip():
@@ -120,26 +111,3 @@ class Skill(ContextNode):
             **self._compile_route(),
             "instructions": self.instructions,
         }
-
-
-def _declarative_init(self: Skill, **overrides: Any) -> None:
-    """Build a declared Skill, letting the caller override any stated field."""
-
-    declaration = type(self).declaration
-    assert declaration is not None  # set by __init_subclass__ before rebinding
-    if declaration.instructions is None and "instructions" not in overrides:
-        raise ModelValidationError(
-            f"{declaration.owner} must state `instructions`; a Skill without "
-            "them has nothing to disclose when it is activated."
-        )
-    Skill.__init__(
-        self,
-        **{
-            "name": declaration.name,
-            "description": declaration.description,
-            "instructions": declaration.instructions,
-            "uses": declarative.string_sequence(type(self), "uses") or (),
-            **declaration.stated(),
-            **overrides,
-        },
-    )

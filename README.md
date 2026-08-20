@@ -29,9 +29,9 @@ Everything in this repository follows from two sentences.
 
 > Contexture provides the abstractions, the lifecycle, the inversion of control,
 > and the MCP runtime. A business developer **subclasses** three node kinds to
-> define capabilities, and **constructs** a short, hand-written list of the ways
-> a person or a host may enter them; the framework turns both into a native,
-> progressively disclosed MCP server.
+> define capabilities, and two pointer kinds for the ways a person or a host
+> may enter them; the framework turns the result into a native, progressively
+> disclosed MCP server.
 
 The first answers *what is running*. The second answers *what do I write*.
 
@@ -51,9 +51,10 @@ A concept that does neither is a spare part, however well made.
 ## The programming model: Object-Oriented Programming
 
 The programming model is **Object-Oriented Programming (OOP)**. Not a decorator
-registry, not a DSL. The framework ships an object model; the business layer
-extends it by subclassing. There is no registration call, and no decorator that
-can drift away from the class it decorates:
+registry, not a DSL, and no metaprogramming that reads your class body and
+guesses what you meant. The framework ships an object model; the business layer
+extends it by subclassing, and each subclass says what it is in its own
+constructor:
 
 ```python
 class GetPodLogs(Tool):            # a capability you own
@@ -61,33 +62,48 @@ class DiagnoseCrashLoop(Skill):    # a procedure you own
 class IncidentResponder(Role):     # the boundary that holds them
 ```
 
-### Three planes, three verbs
+Only the roots are registered, once, from `pyproject.toml`. Everything beneath
+one is reached by traversal, so a new tool is a line in the constructor of the
+role that holds it and nothing else.
 
-Subclassing is not the only thing you do, and saying it is, is how a reader
-reaches `Prompt` and `Resource` and finds the rule does not hold. There are
-three planes, and the verb differs because what each produces differs:
+### Three planes, one verb
+
+There are three planes, because MCP splits its primitives by who decides when
+one is used. What differs between them is what they *carry*, not how you write
+them: all five are classes, and all five hand their identity to a base class.
 
 | What you are doing | Mechanism | You write | Fails at |
 | --- | --- | --- | --- |
-| Define a capability | subclass `Tool`, implement `invoke` | a class | import |
-| Define procedural knowledge | subclass `Skill`, write `instructions` | a class | import |
-| Define a responsibility boundary | subclass `Role`, bind members | a class | import |
-| Define content | subclass `Tool`, `read_only`, no arguments | a class | import |
-| Open a door for a **person** | construct `Prompt(opens=…)` | a value | server start |
-| Publish an address for a **host** | construct `Resource(opens=…, uri=…)` | a value | server start |
+| Define a capability | subclass `Tool`, implement `invoke` | a class | registration |
+| Define procedural knowledge | subclass `Skill`, state `instructions` | a class | registration |
+| Define a responsibility boundary | subclass `Role`, build its members | a class | registration |
+| Define content | subclass `Tool`, `read_only`, no arguments | a class | registration |
+| Open a door for a **person** | subclass `Prompt`, state `opens` | a class | server start |
+| Publish an address for a **host** | subclass `Resource`, state `opens` and `uri` | a class | server start |
 | Decide what the server exposes | nothing — the gateway is four fixed tools | — | — |
 
-One sentence carries all of it:
+**Every one of them is a class whose constructor hands its identity to the
+base.** One way to write a declaration, on every plane:
 
-> **Anything a model can reach is a node you subclass. Anything only a person
-> or a host can reach is a pointer you construct.**
+```python
+class GetPodLogs(Tool):
+    def __init__(self) -> None:
+        super().__init__(
+            name="pod_logs",
+            description="Return recent container logs for one Pod.",
+            read_only=True,
+        )
+
+    async def invoke(self, namespace: str, pod: str) -> str:
+        ...
+```
 
 There are exactly **three** node kinds and there is no fourth. Content is not
 one of them: it is a read-only `Tool` taking no arguments, and the file it sits
 in is organisation rather than a kind. `Prompt` and `Resource` are not nodes at
 all — each holds a reference *string* naming a node the tree already owns,
 which is what keeps one capability from becoming two declarations that can
-disagree.
+disagree. They are written the same way; the type keeps the difference.
 
 ### Two ends written by hand, everything between them discovered
 
@@ -112,10 +128,12 @@ below a root is found by traversal rather than listed.
 Four OOP mechanisms carry weight here, and each does a job the alternatives
 cannot.
 
-**Inheritance is the extension point.** `class GetPodLogs(Tool)` *is* the
-registration — there is no second act. `__init_subclass__` reads the class body
-at class-creation time, so a malformed declaration fails on import rather than
-on the first request that happens to touch it.
+**Inheritance is the extension point, and only where there is behaviour to
+extend.** `class GetPodLogs(Tool)` overrides `invoke`, which is the one method
+a business writes. A `Role` and a `Skill` are subclassed for the same reason a
+C++ class with no virtual methods still gets one: to be a named unit with a
+constructor of its own, so that twenty skills are twenty things a project can
+name, reuse and give a common base.
 
 **Encapsulation keeps the disclosure decision local.** Every node decides for
 itself what its routing card says and what its opened form says, so changing
@@ -130,17 +148,90 @@ all three and never asks what it is holding.
 
 **Composition, not inheritance, models the team.** Subclassing states what one
 node *is*; it never states containment. A role that coordinates other roles
-holds them in `children`, whether it was declared or assembled at runtime.
+builds them in `children`, inside its own constructor.
 
-Each base class states one contract and derives the rest from what the subclass
-already says. The class name becomes the node name, the docstring becomes the
-routing description, and a tool's input schema is read off the type hints on
-`invoke`. Nothing is written twice, so nothing can fall out of sync.
+That last point is what fixes *when* anything exists. A member list is built by
+the constructor that holds it, so **importing a module full of declarations
+constructs nothing**: a class is a zero-argument factory, and a
+`ControllerManager` calling one is the single moment a node comes into
+existence — which is also the only moment it can be told where it hangs and
+handed what it may reach.
+
+**Nothing is inferred.** Not the node name from the class name, and not the
+routing description from the docstring. Both were once derived and both are
+dead ends for a framework meant to exist in more than one language: a
+TypeScript bundler renames classes, and no Go or TypeScript runtime can read a
+doc comment. The one thing still read off the code is a tool's input schema,
+derived from `invoke`'s type hints — and even there, what conformance pins is
+the schema that reaches the wire, never how it was derived.
 
 Inversion of control runs the other way from a library: you never construct a
 server, dispatch a request, parse arguments, or serialize a result. You declare
 what you own and hand the roots to `ContextureApp`; the framework calls your
 code, not the reverse.
+
+## Three languages, one behaviour
+
+Python is the first implementation, not the only intended one. TypeScript and
+Go implementations are planned, and that is a **design constraint on this
+repository from now on**, not a note about the roadmap: every feature added
+here has to be one all three can carry.
+
+**What must be identical across the three**, because it is what an agent
+actually meets:
+
+| | |
+| --- | --- |
+| the gateway | four tools, these names, these descriptions, these `readOnlyHint`s |
+| the reference grammar | a path, one separator, no kind prefix |
+| the disclosure rule | one sibling set per call; a role's members arrive on opening and never before |
+| every card and payload | the exact keys of `discover`, `open`, a tool card, a `uses` card |
+| every sentence said to an agent | the five lookup failures, both wrong-door refusals, the signpost, the roster's truncation line |
+| the instruction budget | roster cut in whole sibling groups, roots cut last |
+
+**What may differ**, because forcing it identical would make all three foreign
+in at least two languages: how a business *authors* a declaration. The object
+model is the same three kinds with the same fields; the syntax that states them
+is each language's own.
+
+### The rule this imposes
+
+**No feature may depend on a capability only one language's runtime has.**
+Reflection is where this bites, and the three runtimes do not agree:
+
+| Needed for | Python | Go | TypeScript |
+| --- | --- | --- | --- |
+| Enumerating a type's members | `vars(cls)` | struct fields + tags | object properties |
+| **Parameter names and types → JSON Schema** | signature | **not available** | **not available** |
+| Doc comment → routing description | `__doc__` | not available | not available |
+
+Two consequences are already settled by that table:
+
+- **A tool's input schema is pinned at the JSON, not at how it was derived.**
+  Python reads `invoke`'s signature, Go reflects an argument struct, TypeScript
+  declares a schema object. The three authoring styles differ; the schema that
+  reaches the wire does not, and that is what conformance tests.
+- **A routing description is always written, never inferred.** Deriving it from
+  a docstring works in exactly one of the three, and a field that is optional
+  in one implementation and required in the others is the same declaration
+  meaning two things.
+
+### Where the shared behaviour is specified
+
+Prose is not enough to keep three implementations saying the same sentence to
+an agent — a port that quietly drops the recovery half of a failure message
+still starts, still answers, and no test goes red. So the shared half is
+specified as fixtures rather than described:
+
+```text
+spec/
+  fixtures/       declarations, stated language-neutrally
+  golden/         the exact payload and the exact sentence each one produces
+  conformance.md  the reference grammar, the cut rules, the door rules
+```
+
+Each implementation runs the same golden files. Anything not in `spec/` is that
+implementation's own business.
 
 ## The problem
 
@@ -174,32 +265,48 @@ Cursor ──────┘
 from contexture import Role, Skill, Tool
 
 class InspectPodFailure(Skill):
-    """Diagnose why a Pod is crashing, restarting, or failing to become ready."""
-
-    instructions = """
-    1. Inspect the Pod status and restart count.
-    2. Read current logs, then previous logs after a restart.
-    3. Correlate status, logs, and events before proposing remediation.
-    """
+    def __init__(self) -> None:
+        super().__init__(
+            name="inspect-pod-failure",
+            description=(
+                "Diagnose why a Pod is crashing, restarting, or failing to "
+                "become ready."
+            ),
+            instructions="""
+            1. Inspect the Pod status and restart count.
+            2. Read current logs, then previous logs after a restart.
+            3. Correlate status, logs, and events before proposing remediation.
+            """,
+        )
 
 class K8sTroubleshooter(Role):
-    """Diagnose unhealthy Pods, failed Deployments, and scheduling failures."""
-
-    instructions = "Start with read-only inspection. Do not modify the cluster."
-
-    inspect_failures = InspectPodFailure
-
-    pod_logs = GetPodLogs
-    events = GetEvents
-    runbook = CrashLoopRunbook       # content is a read-only tool
+    def __init__(self) -> None:
+        super().__init__(
+            name="k8s-troubleshooter",
+            description=(
+                "Diagnose unhealthy Pods, failed Deployments, and scheduling "
+                "failures."
+            ),
+            instructions=(
+                "Start with read-only inspection. Do not modify the cluster."
+            ),
+            skills=[InspectPodFailure()],
+            tools=[
+                GetPodLogs(),
+                GetEvents(),
+                CrashLoopRunbook(),      # content is a read-only tool
+            ],
+        )
 ```
 
-The class name becomes `k8s-troubleshooter`, the docstring becomes the routing
-description, and the declared members become the role's skills and tools.
-Nothing here names an agent runtime.
+Which of the three lists a capability belongs in is the modelling decision this
+framework asks you to make. Nothing here names an agent runtime, and nothing
+here has been built yet: importing this module constructs no nodes at all —
+`K8sTroubleshooter()` is called once, by the registry, when the server starts.
 
-Imperative construction still works exactly as before, and a declared role is
-an ordinary `Role`, so anything that accepts one accepts the other.
+Building a role at run time works exactly the same way: `Role(name=..., ...)`
+is what a subclass's constructor calls, and anything that accepts one accepts
+the other.
 
 ## Implement what it can do
 
@@ -210,23 +317,31 @@ A tool is a typed Python method. Nothing writes a JSON Schema — the one in
 from contexture import Tool
 
 class GetPodLogs(Tool):
-    """Return recent container logs for one Pod."""
-
-    name = "get_pod_logs"
-    read_only = True
+    def __init__(self) -> None:
+        super().__init__(
+            name="get_pod_logs",
+            description="Return recent container logs for one Pod.",
+            read_only=True,
+        )
 
     async def invoke(self, namespace: str, pod: str) -> str:
         return await kubernetes.logs(namespace, pod)
 
 class CrashLoopRunbook(Tool):
-    """How to diagnose a container that keeps restarting."""
-
-    name = "crash_loop_runbook"
-    read_only = True
+    def __init__(self) -> None:
+        super().__init__(
+            name="crash_loop_runbook",
+            description="How to diagnose a container that keeps restarting.",
+            read_only=True,
+        )
 
     async def invoke(self) -> str:
         return RUNBOOK
 ```
+
+Twenty tools of one domain that differ in three fields share a base class whose
+constructor supplies the rest — ordinary inheritance, doing what it has always
+done.
 
 `read_only` is a host classification, not an argument. It is projected onto the
 protocol's `readOnlyHint` so a host can ask a human first, and it never appears
@@ -261,7 +376,7 @@ existing service, or built inside a test — `ContextureApp` is the escape hatch
 ```python
 from contexture.server import ContextureApp
 
-ContextureApp(roots=KubernetesPlatform()).run(transport="stdio")
+ContextureApp(roots=KubernetesPlatform).run(transport="stdio")
 ```
 
 Nothing above imports `mcp`, writes JSON-RPC, or names an agent runtime.
@@ -408,7 +523,12 @@ to, and hands whatever your verifier made of it to your code.
 from contexture import Tool, current_principal
 
 class RollBackDeployment(Tool):
-    read_only = False
+    def __init__(self) -> None:
+        super().__init__(
+            name="roll_back_deployment",
+            description="Restore a Deployment's previous revision.",
+            read_only=False,
+        )
 
     async def invoke(self, namespace: str, deployment: str) -> str:
         who = current_principal()
@@ -459,12 +579,12 @@ ships the runner:
 ```text
 my-context/
 ├── pyproject.toml       dependencies, and one [tool.contexture] table
-├── assistant/           one role and what it owns — you *subclass* these
+├── assistant/           one role and what it owns
 │   ├── role.py          the responsibility boundary
 │   ├── skills.py        procedures — disclosed only when asked for
 │   ├── tools.py         capabilities, as typed Python methods
 │   └── documents.py     content — a read-only tool taking no arguments
-└── publish.py           the ways in for a person or a host — you *construct*
+└── publish.py           the ways in for a person or a host
 ```
 
 Each root role is a top-level package, the way a Django app is. Django nests a
@@ -514,7 +634,7 @@ for a recorded run against both hosts.
 ```text
 contexture/
 ├── core/
-│   ├── model/       what a capability is: node, role, skill, tool, declarative
+│   ├── model/       what a capability is: node, role, skill, tool, manager
 │   ├── disclosure/  where it hangs, and how much arrives per call
 │   └── mcp_interface/  what each of MCP's three primitives carries
 │   └── errors.py, types.py, constants.py — shared by all three
@@ -547,6 +667,9 @@ visual map.
   model, its invariants, and why each boundary sits where it does.
 - [`docs/02-framework-layers.md`](docs/02-framework-layers.md) — the framework
   shape: declaration, compilation, and the server.
+- [`docs/adr/013-a-constructor-is-the-declaration.md`](docs/adr/013-a-constructor-is-the-declaration.md)
+  — why a class body is no longer read, what the twenty never-served objects it
+  built at import were, and the three-language table that forced it.
 - [`docs/adr/001-native-mcp-server.md`](docs/adr/001-native-mcp-server.md) — why
   the main path became a server, what it cost, and what was deliberately left
   alone.

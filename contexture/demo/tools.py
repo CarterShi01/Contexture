@@ -59,10 +59,12 @@ def _require_known_pod(namespace: str, pod: str) -> None:
 
 
 class GetPodStatus(Tool):
-    """Return the current phase, container state, and restart count of a Pod."""
-
-    name = "get_pod_status"
-    read_only = True
+    def __init__(self) -> None:
+        super().__init__(
+            name="get_pod_status",
+            description="Return the current phase, container state, and restart count of a Pod.",
+            read_only=True,
+        )
 
     async def invoke(self, namespace: str, pod: str) -> PodStatus:
         _require_known_pod(namespace, pod)
@@ -70,10 +72,12 @@ class GetPodStatus(Tool):
 
 
 class GetPodLogs(Tool):
-    """Return the recent container logs for a Pod."""
-
-    name = "get_pod_logs"
-    read_only = True
+    def __init__(self) -> None:
+        super().__init__(
+            name="get_pod_logs",
+            description="Return the recent container logs for a Pod.",
+            read_only=True,
+        )
 
     async def invoke(
         self,
@@ -93,17 +97,16 @@ class GetPodLogs(Tool):
 
 
 class GetPodEvents(Tool):
-    """Return the Kubernetes events recorded against a Pod."""
-
-    name = "get_pod_events"
-    read_only = True
+    def __init__(self) -> None:
+        super().__init__(
+            name="get_pod_events",
+            description="Return the Kubernetes events recorded against a Pod.",
+            read_only=True,
+        )
 
     async def invoke(self, namespace: str, pod: str) -> list[PodEvent]:
         _require_known_pod(namespace, pod)
         return [PodEvent(**event) for event in fixtures.POD_EVENTS]
-
-
-
 
 
 @dataclass
@@ -132,10 +135,12 @@ def _require_known_deployment(namespace: str, deployment: str) -> None:
 
 
 class GetRolloutStatus(Tool):
-    """Return the current and previous revision of a Deployment's rollout."""
-
-    name = "get_rollout_status"
-    read_only = True
+    def __init__(self) -> None:
+        super().__init__(
+            name="get_rollout_status",
+            description="Return the current and previous revision of a Deployment's rollout.",
+            read_only=True,
+        )
 
     async def invoke(self, namespace: str, deployment: str) -> RolloutStatus:
         _require_known_deployment(namespace, deployment)
@@ -143,13 +148,12 @@ class GetRolloutStatus(Tool):
 
 
 class RollBackDeployment(Tool):
-    """Restore a Deployment's previous revision, replacing its running Pods."""
-
-    name = "roll_back_deployment"
-    # Not read-only, so it is reached through contexture_invoke and a host can
-    # put a human in front of it. This is the demo's one destructive path, and
-    # it exists so the writing door is exercised end to end.
-    read_only = False
+    def __init__(self) -> None:
+        super().__init__(
+            name="roll_back_deployment",
+            description="Restore a Deployment's previous revision, replacing its running Pods.",
+            read_only=False,
+        )
 
     async def invoke(self, namespace: str, deployment: str) -> str:
         _require_known_deployment(namespace, deployment)

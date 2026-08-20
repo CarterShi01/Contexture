@@ -11,11 +11,14 @@ from contexture import Skill
 
 
 class CheckTarget(Skill):
-    """Establish whether a target is reachable before reporting on it."""
-
-    name = "check-target"
-
-    instructions = """\
+    def __init__(self) -> None:
+        super().__init__(
+            name="check-target",
+            description=(
+                "Establish whether a target is reachable before reporting "
+                "on it."
+            ),
+            instructions="""\
 Work from evidence, in this order.
 
 1. Call ping with the target you were given.
@@ -25,4 +28,5 @@ Work from evidence, in this order.
 Constraints:
 - Do not state a status you have not read from a tool.
 - Reachable is not healthy. Say which one you established.
-"""
+""",
+        )

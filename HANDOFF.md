@@ -54,6 +54,44 @@ that the ADRs, the atlas and the code agree.
 
 ---
 
+## 0b. v0.5.0: the class-body front end is gone
+
+[ADR 013](docs/adr/013-a-constructor-is-the-declaration.md) has the reasoning.
+What a consumer notices:
+
+| Gone | Replaced by |
+| --- | --- |
+| `core.model.declarative` (whole module) | a constructor: `super().__init__(name=..., description=..., ...)` |
+| `Declaration`, `DeclaredMember` | nothing — the class body is not read |
+| class name → node name, docstring → description | stated explicitly |
+| `attr = SomeTool` in a Role body | `tools=[SomeTool()]` in its constructor |
+| `Prompt` / `Resource` refusing a subclass | they are subclassed like everything else |
+| `ControllerManager.register` / `register_all` | `register_role` / `register_skill` / `register_tool` |
+| `discover` answering `{"roles": [...]}` | `{"roles", "skills", "tools"}` — the same three keys `open` uses |
+| `open` answering `sub_roles` | `roles` |
+
+**Three things still need a machine this one is not.** This checkout has no
+`mcp`, no `pip`, no `uv`, and no network, so:
+
+1. **The five SDK-backed test modules never ran.** `test_app`, `test_binding`,
+   `test_channels`, `test_identity`, `test_inspection` fail to import here, and
+   three `test_scaffold.InspectFallbackTests` cases fail for the same reason —
+   the same eight as before this work started. Everything the refactor touched
+   is covered by the modules that *do* run, and all of those pass; the wire
+   itself is unverified. Run `python run_tests.py` where the SDK is installed.
+2. **The host verification is against a payload shape that no longer exists.**
+   `docs/verification/hosts.md` records Claude Code navigating `sub_roles`;
+   `discover` now answers with three keys. Re-run
+   `docs/verification/verify_claude_code.md` before trusting that row.
+3. **`docs/case-studies/oc-goal` was deliberately left on the old syntax.** Its
+   seven subclass points still use class-body declarations, so `check.py` and
+   `contexture list` will fail there. The business-contract pattern it relies on
+   — `target`, `writes`, `precondition` as plain class attributes on a `Tool`
+   subclass — still works and is pinned by a test; only the identity fields and
+   the member lists move into constructors.
+
+---
+
 ## 1. Reserve the distribution name on PyPI
 
 `contexture` is taken on PyPI by an unrelated 2014 project ("Magic Automatic
@@ -177,8 +215,8 @@ must state either `auth` or `allow_anonymous`.
 ### 4.2 Two roles may still declare the same tool name
 
 Uniqueness is enforced *within* one role (`Role._require_unique_members`, which
-is what `Role.member()` relies on) and across root names
-(`ContextTree.__post_init__`). Nothing checks the forest as a whole.
+is what `Role.member()` relies on) and across root names, of every kind
+(`ControllerManager._register`). Nothing checks the forest as a whole.
 
 Under the gateway this is no longer a startup crash — capabilities are addressed
 by path, so `a/get_logs` and `b/get_logs` coexist correctly — which means the
@@ -199,31 +237,43 @@ style across a large team. If that matters, the mechanism is identical to
 ## 5. Documentation state
 
 - **[`docs/atlas/index.html`](docs/atlas/index.html)** is current as of v0.5.0:
-  ten plates, and **every number on it was re-measured against this commit**.
+  ten plates. Plate 04 was **rewritten for ADR 013** — it now shows a
+  constructor and the registration-time build rather than the class-body
+  collection — and the `model/` file list and the module-dependency graph were
+  updated with it. The other numbers on it were re-measured against the v0.5.0
+  tree; the ones plate 04 touches were re-measured again after ADR 013.
   It is hand-maintained and does not regenerate. **It carries no changelog** —
   it states the design as it is now, and the history lives in `docs/adr/`,
   which is dated by design where the atlas is not. After editing, run
   `node docs/atlas/check.mjs` (needs `npm install jsdom@22`) — a mermaid syntax
   error is otherwise invisible until someone opens the page, and one was caught
   that way while writing plate 07, and again while redrawing plate 05 for
-  ADR 007 (`call` is a reserved word in a mermaid flowchart). **Run 2026-08-20:
-  eleven blocks all parse.** ESM ignores `NODE_PATH`, so either install `jsdom` beside
+  ADR 007, and a third time while redrawing plate 04 for ADR 013 — `call` is a
+  reserved word in a mermaid flowchart and it has now cost two blocks.
+  **Run 2026-08-20: all blocks parse.** ESM ignores `NODE_PATH`, so either install `jsdom` beside
   the script or run a copy of it from wherever `node_modules` is, passing the
   atlas and vendor paths as `argv[2]` and `argv[3]`.
-- **[`docs/02-framework-layers.md`](docs/02-framework-layers.md)** carries a
+- **[`docs/02-framework-layers.md`](docsit/02-framework-layers.md)** carries a
   supersession banner and keeps its section 5 as a record of the deleted target
-  adapters. Its capability matrix is still the clearest statement of what each
+  adapters. **Its section 4 was rewritten for ADR 013** and now describes the
+  constructor, what is no longer inferred, and why nothing exists until it is
+  registered. Its capability matrix is still the clearest statement of what each
   runtime cannot express, which is the fact that motivated serving a declaration
   instead of rendering one.
 - **Still thin:** neither design doc mentions the CLI or the scaffold, and no
   atlas plate covers how a business project is laid out — arguably the plate a
   newcomer needs first.
+- **Not written yet:** `spec/`, the language-neutral fixtures the README's
+  *Three languages, one behaviour* section describes. Until it exists, the
+  cross-language contract is prose, and prose is exactly what a port drops
+  quietly.
 - **`README.md`** leads with `uvx contexture-mcp new`, which does not work until
   item 1 is done.
 - **[`docs/verification/hosts.md`](docs/verification/hosts.md)** now holds three
   records, newest first, each naming the navigation model it verified. The
   v0.2.0 one is kept as recorded rather than updated: `discover` answered with
-  the whole forest when it was taken.
+  the whole forest when it was taken. **All three predate ADR 013**, which
+  changed the payload keys — see item 0b.
 
 ---
 

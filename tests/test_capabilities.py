@@ -17,15 +17,20 @@ from contexture.core.errors import (
     NodeNotFoundError,
 )
 from contexture.core.mcp_interface import Prompt, Resource
+from contexture.core.model.manager import ControllerManager
 from contexture.core.model.role import Role
 from contexture.core.model.skill import Skill
 from contexture.core.model.tool import Tool
 
 
 class ToolDeclarationTests(unittest.TestCase):
-    def test_a_class_body_supplies_the_name_and_the_routing_card(self) -> None:
+    def test_a_constructor_hands_its_identity_to_the_base(self) -> None:
         class GetPodLogs(Tool):
-            """Return recent container logs for one Pod."""
+            def __init__(self) -> None:
+                super().__init__(
+                    name="get-pod-logs",
+                    description="Return recent container logs for one Pod.",
+                )
 
             async def invoke(self, namespace: str) -> str:
                 return namespace
@@ -36,31 +41,58 @@ class ToolDeclarationTests(unittest.TestCase):
             tool.description, "Return recent container logs for one Pod."
         )
 
-    def test_an_explicit_name_wins_over_the_derived_one(self) -> None:
-        """MCP tool names are flat and global, so a project must be able to pick."""
+    def test_a_name_is_stated_and_never_derived(self) -> None:
+        """MCP tool names are flat and global, so a project must be able to pick.
+
+        Nothing infers one from the class name: a TypeScript bundler renames
+        classes, so an implementation of this framework there could not agree
+        with this one about what a capability is called.
+        """
 
         class GetPodLogs(Tool):
-            """Return recent container logs for one Pod."""
-
-            name = "get_pod_logs"
+            def __init__(self) -> None:
+                super().__init__(
+                    name="get_pod_logs",
+                    description="Return recent container logs for one Pod.",
+                )
 
             async def invoke(self) -> str:
                 return ""
 
         self.assertEqual(GetPodLogs().name, "get_pod_logs")
 
-    def test_a_tool_without_a_description_is_refused_at_class_creation(self) -> None:
-        with self.assertRaises(DeclarationError):
+    def test_a_tool_without_a_description_is_refused_when_registered(self) -> None:
+        class Undocumented(Tool):
+            def __init__(self) -> None:
+                super().__init__(
+                    name="undocumented",
+                )
 
-            class Undocumented(Tool):
-                async def invoke(self) -> str:
-                    return ""
+            async def invoke(self) -> str:
+                return ""
+
+        class Holder(Role):
+            def __init__(self) -> None:
+                super().__init__(
+                    name="holder",
+                    description="Holds an undocumented tool.",
+                    instructions="Anything.",
+                    tools=[Undocumented()],
+                )
+
+        with self.assertRaises(TypeError) as caught:
+            Undocumented()
+        self.assertIn("description", str(caught.exception))
 
     def test_read_only_defaults_to_false(self) -> None:
         """The safe default: an unclassified tool is treated as one that writes."""
 
         class DeletePod(Tool):
-            """Delete a Pod."""
+            def __init__(self) -> None:
+                super().__init__(
+                    name="delete-pod",
+                    description="Delete a Pod.",
+                )
 
             async def invoke(self) -> str:
                 return ""
@@ -69,7 +101,11 @@ class ToolDeclarationTests(unittest.TestCase):
 
     def test_parameters_come_from_the_signature_and_skip_self(self) -> None:
         class Complex(Tool):
-            """A tool with several parameters."""
+            def __init__(self) -> None:
+                super().__init__(
+                    name="complex",
+                    description="A tool with several parameters.",
+                )
 
             async def invoke(
                 self,
@@ -79,13 +115,18 @@ class ToolDeclarationTests(unittest.TestCase):
             ) -> str:
                 return ""
 
+        built = Complex()
         self.assertEqual(
-            Complex().parameters(), ("namespace", "pod", "previous")
+            built.parameters(), ("namespace", "pod", "previous")
         )
 
     def test_the_base_tool_reports_that_it_was_never_implemented(self) -> None:
         class Forgotten(Tool):
-            """Somebody declared this and stopped."""
+            def __init__(self) -> None:
+                super().__init__(
+                    name="forgotten",
+                    description="Somebody declared this and stopped.",
+                )
 
         with self.assertRaises(NotImplementedError):
             asyncio.run(Forgotten().invoke())
@@ -101,53 +142,66 @@ class RoleCompositionTests(unittest.TestCase):
 
     def test_a_role_collects_declared_tools(self) -> None:
         class Runbook(Tool):
-            """A runbook."""
-
-            read_only = True
+            def __init__(self) -> None:
+                super().__init__(
+                    name="runbook",
+                    description="A runbook.",
+                    read_only=True,
+                )
 
             async def invoke(self) -> str:
                 return "BODY"
 
         class Logs(Tool):
-            """Read logs."""
+            def __init__(self) -> None:
+                super().__init__(
+                    name="logs",
+                    description="Read logs.",
+                )
 
             async def invoke(self) -> str:
                 return ""
 
         class Responder(Role):
-            """Diagnose workloads."""
-
-            instructions = "Look before touching."
-
-            logs = Logs
-            runbook = Runbook
-
+            def __init__(self) -> None:
+                super().__init__(
+                    name="responder",
+                    description="Diagnose workloads.",
+                    instructions="Look before touching.",
+                    tools=[Logs(), Runbook()],
+                )
         role = Responder()
         self.assertEqual(
             sorted(tool.name for tool in role.tools), ["logs", "runbook"]
         )
 
-    def test_two_tools_with_one_name_are_refused_at_class_creation(self) -> None:
+    def test_two_tools_with_one_name_are_refused_when_registered(self) -> None:
         class First(Tool):
-            """First."""
-
-            name = "same"
+            def __init__(self) -> None:
+                super().__init__(
+                    name="same",
+                    description="First.",
+                )
 
         class Second(Tool):
-            """Second."""
+            def __init__(self) -> None:
+                super().__init__(
+                    name="same",
+                    description="Second.",
+                )
 
-            name = "same"
+        class Clashing(Role):
+            def __init__(self) -> None:
+                super().__init__(
+                    name="clashing",
+                    description="A role that grants two tools with one name.",
+                    instructions="Anything.",
+                    tools=[First(), Second()],
+                )
 
-        with self.assertRaises(DeclarationError):
-
-            class Clashing(Role):
-                """A role that grants two tools with one name."""
-
-                instructions = "Anything."
-
-                a = First
-                b = Second
-
+        with self.assertRaises(DuplicateNameError) as caught:
+            ControllerManager().register_role(Clashing)
+        self.assertIn("cannot share a name", str(caught.exception))
     def test_an_imperative_role_rejects_duplicate_tool_names(self) -> None:
         with self.assertRaises(DuplicateNameError):
             Role(
@@ -281,31 +335,41 @@ class RoleSelfDescriptionTests(unittest.TestCase):
         )
 
 
-class ConstructedNotSubclassedTests(unittest.TestCase):
-    """The protocol plane is written with a constructor, and only that.
+class ProtocolPlaneTests(unittest.TestCase):
+    """A prompt and a resource are declared the way everything else is.
 
-    Three kinds are subclassed and two are constructed, and until this test
-    existed the difference was documentation. `class MyRunbook(Resource)` was
-    accepted in silence and produced a class nothing could ever hold — and
-    binding one into a `Role` body was dropped in silence too, because
-    `declarative.collect` filters members by type. A rule the code does not
-    enforce is a rule the next reader re-litigates.
+    They were once refused a subclass outright, on the grounds that they are
+    pointers rather than nodes. The distinction is real and the type still
+    keeps it; the *syntax* difference was not worth it — a business should
+    write one kind of declaration, not one per plane. What each states is
+    checked when it is built, like every other constructor here.
     """
 
-    def test_a_resource_refuses_to_be_subclassed(self) -> None:
-        with self.assertRaises(DeclarationError) as caught:
-            type("MyRunbook", (Resource,), {})
+    def test_a_resource_that_states_nothing_cannot_be_built(self) -> None:
+        """Subclassing is how a resource is declared; stating nothing is not."""
 
-        message = str(caught.exception)
-        self.assertIn("constructed rather than subclassed", message)
-        # The sentence has to say what to write instead, or it only reports.
-        self.assertIn("read-only Tool", message)
+        class Empty(Resource):
+            pass
 
-    def test_a_prompt_refuses_to_be_subclassed(self) -> None:
-        with self.assertRaises(DeclarationError) as caught:
-            type("Deploy", (Prompt,), {})
+        with self.assertRaises(TypeError) as caught:
+            Empty()
+        self.assertIn("opens", str(caught.exception))
 
-        self.assertIn("constructed rather than subclassed", str(caught.exception))
+    def test_a_prompt_is_declared_as_a_class_like_everything_else(self) -> None:
+        """One way to write a declaration, on every plane."""
+
+        class Deploy(Prompt):
+            def __init__(self) -> None:
+                super().__init__(
+                    description="Ship the current build.",
+                    opens="team/ops/deploy",
+                    model_may_open=False,
+                )
+
+        built = Deploy()
+        self.assertEqual(built.opens, "team/ops/deploy")
+        self.assertFalse(built.model_may_open)
+        self.assertIsNone(built.name)
 
     def test_the_guard_does_not_fire_on_the_classes_it_guards(self) -> None:
         """`@dataclass(slots=True)` rebuilds the class object it decorates.

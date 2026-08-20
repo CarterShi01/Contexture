@@ -8,67 +8,80 @@ existed, and one capability cannot end up with two addresses.
 
 from __future__ import annotations
 
+import gc
 import unittest
 
 from contexture.core.errors import (
+    DeclarationError,
     LookupFailure,
     ModelValidationError,
     NodeNotFoundError,
 )
 from contexture.core.model.manager import ControllerManager
+from contexture.core.model.node import ContextNode
 from contexture.core.model.role import Role
 from contexture.core.model.skill import Skill
 from contexture.core.model.tool import Tool
 
 
 class GetPodStatus(Tool):
-    """Return the phase of one Pod."""
-
-    name = "get_pod_status"
-    read_only = True
+    def __init__(self) -> None:
+        super().__init__(
+            name="get_pod_status",
+            description="Return the phase of one Pod.",
+            read_only=True,
+        )
 
     async def invoke(self, pod: str) -> str:
         return pod
 
 
 class Diagnose(Skill):
-    """Work out why a Pod keeps restarting."""
-
-    instructions = "Read the status, then the logs."
+    def __init__(self) -> None:
+        super().__init__(
+            name="diagnose",
+            description="Work out why a Pod keeps restarting.",
+            instructions="Read the status, then the logs.",
+        )
 
 
 class IncidentResponse(Role):
-    """Handle a production incident."""
-
-    instructions = "Establish what is happening before changing anything."
-
-    status = GetPodStatus
-    diagnose = Diagnose
-
+    def __init__(self) -> None:
+        super().__init__(
+            name="incident-response",
+            description="Handle a production incident.",
+            instructions="Establish what is happening before changing anything.",
+            skills=[Diagnose()],
+            tools=[GetPodStatus()],
+        )
 
 class DeploymentOps(Role):
-    """Ship and roll back workloads."""
-
-    instructions = "Prefer rolling forward."
-
-    status = GetPodStatus
+    def __init__(self) -> None:
+        super().__init__(
+            name="deployment-ops",
+            description="Ship and roll back workloads.",
+            instructions="Prefer rolling forward.",
+            tools=[GetPodStatus()],
+        )
 
 
 class Platform(Role):
-    """The Kubernetes platform."""
-
-    instructions = "Route to the branch that owns the question."
-
-    incidents = IncidentResponse
-    deploys = DeploymentOps
-
+    def __init__(self) -> None:
+        super().__init__(
+            name="platform",
+            description="The Kubernetes platform.",
+            instructions="Route to the branch that owns the question.",
+            children=[IncidentResponse(), DeploymentOps()],
+        )
 
 class Standalone(Role):
-    """A root nothing else holds."""
-
-    instructions = "Answer on your own."
-
-    status = GetPodStatus
+    def __init__(self) -> None:
+        super().__init__(
+            name="standalone",
+            description="A root nothing else holds.",
+            instructions="Answer on your own.",
+            tools=[GetPodStatus()],
+        )
 
 
 class Channels:
@@ -80,7 +93,7 @@ class Channels:
 
 def platform_manager(channels: object | None = None) -> ControllerManager:
     manager = ControllerManager(channels=channels)
-    manager.register(Platform)
+    manager.register_role(Platform)
     return manager
 
 
@@ -93,35 +106,74 @@ class RegistrationTests(unittest.TestCase):
         """
 
         manager = ControllerManager()
-        root = manager.register(Platform)
+        root = manager.register_role(Platform)
         self.assertIsInstance(root, Platform)
         self.assertIs(manager.roots[0], root)
 
     def test_an_instance_is_taken_as_it_is(self) -> None:
-        built = Platform()
+        built = Role(name="built", description="Built.", instructions="Hold.")
         manager = ControllerManager()
-        self.assertIs(manager.register(built), built)
+        self.assertIs(manager.register_role(built), built)
+
+    def test_a_class_is_built_here_and_the_node_is_returned(self) -> None:
+        """Registration is the moment a declared root comes into existence."""
+
+        manager = ControllerManager()
+        registered = manager.register_role(Platform)
+        self.assertIsInstance(registered, Platform)
+        self.assertIsNot(registered, Platform)
+        self.assertEqual(registered.path, ("platform",))
 
     def test_registering_something_that_is_not_a_role_is_refused(self) -> None:
         manager = ControllerManager()
         with self.assertRaises(ModelValidationError) as caught:
-            manager.register(GetPodStatus)  # type: ignore[arg-type]
-        self.assertIn("registers roots", str(caught.exception))
+            manager.register_role(GetPodStatus)  # type: ignore[arg-type]
+        self.assertIn("is not a Role", str(caught.exception))
 
     def test_two_roots_may_not_share_a_name(self) -> None:
         manager = ControllerManager()
-        manager.register(Platform)
+        manager.register_role(Platform)
         with self.assertRaises(ModelValidationError) as caught:
-            manager.register(Platform)
+            manager.register_role(Platform)
         self.assertIn("first segment", str(caught.exception))
 
-    def test_register_all_returns_each_root(self) -> None:
+    def test_each_kind_has_its_own_registration_method(self) -> None:
+        """Three methods, because what a root is decides what may hang below.
+
+        Naming the kind at the call site is what makes "this is a standalone
+        tool" something a reader sees, rather than something inferred from the
+        type of an argument — and it is the only shape Go can express, where a
+        typed slice per kind is the alternative to a list of `any`.
+        """
+
         manager = ControllerManager()
-        registered = manager.register_all([IncidentResponse, DeploymentOps])
+        manager.register_role(IncidentResponse)
+        manager.register_skill(Diagnose)
+        manager.register_tool(GetPodStatus)
+        self.assertEqual([held.name for held in manager.roles], ["incident-response"])
+        self.assertEqual([held.name for held in manager.skills], ["diagnose"])
+        self.assertEqual([held.name for held in manager.tools], ["get_pod_status"])
         self.assertEqual(
-            [root.name for root in registered],
-            ["incident-response", "deployment-ops"],
+            [held.name for held in manager.roots],
+            ["incident-response", "diagnose", "get_pod_status"],
         )
+
+    def test_two_roots_of_two_kinds_may_not_share_a_name(self) -> None:
+        """Three lists, one namespace: a root name is a ref's first segment."""
+
+        class Clash(Role):
+            def __init__(self) -> None:
+                super().__init__(
+                    name="get_pod_status",
+                    description="Named like the standalone tool.",
+                    instructions="Anything.",
+                )
+
+        manager = ControllerManager()
+        manager.register_tool(GetPodStatus)
+        with self.assertRaises(ModelValidationError) as caught:
+            manager.register_role(Clash)
+        self.assertIn("a tool and a role", str(caught.exception))
 
 
 class AddressTests(unittest.TestCase):
@@ -161,7 +213,7 @@ class AddressTests(unittest.TestCase):
         self.assertNotEqual(first.path, second.path)
 
     def test_one_object_may_not_be_held_twice(self) -> None:
-        shared = GetPodStatus()
+        shared = Tool(name="get_pod_status", description="Status.")
         left = Role(
             name="left", description="Left.", instructions="Left.", tools=[shared]
         )
@@ -176,7 +228,7 @@ class AddressTests(unittest.TestCase):
         )
         manager = ControllerManager()
         with self.assertRaises(ModelValidationError) as caught:
-            manager.register(root)
+            manager.register_role(root)
         message = str(caught.exception)
         self.assertIn("held twice", message)
         self.assertIn("root/left/get_pod_status", message)
@@ -190,7 +242,7 @@ class AddressTests(unittest.TestCase):
         outer.children.append(inner)
         manager = ControllerManager()
         with self.assertRaises(ModelValidationError) as caught:
-            manager.register(outer)
+            manager.register_role(outer)
         self.assertIn("contains itself", str(caught.exception))
 
 
@@ -203,16 +255,27 @@ class IndependenceTests(unittest.TestCase):
     moment a registry started stamping an address and a handle onto one.
     """
 
-    def test_two_instances_do_not_share_their_members(self) -> None:
-        first, second = IncidentResponse(), IncidentResponse()
+    def test_one_class_registered_twice_becomes_two_independent_nodes(self) -> None:
+        """A class is a declaration, not the node. Each position gets its own.
+
+        Anything a registry stamps onto a node — its address, the handle it may
+        reach outside this process — would otherwise be written onto an object
+        two servers in one process are both serving.
+        """
+
+        first = ControllerManager(channels="left").register_role(IncidentResponse)
+        second = ControllerManager(channels="right").register_role(IncidentResponse)
+        self.assertIsNot(first, second)
         self.assertIsNot(first.skills[0], second.skills[0])
         self.assertIsNot(first.tools[0], second.tools[0])
         self.assertEqual(first.skills[0].name, second.skills[0].name)
+        self.assertEqual(first.tools[0].channels, "left")
+        self.assertEqual(second.tools[0].channels, "right")
 
     def test_a_role_may_be_held_here_and_registered_there(self) -> None:
         manager = ControllerManager()
-        manager.register(Platform)
-        manager.register(IncidentResponse)
+        manager.register_role(Platform)
+        manager.register_role(IncidentResponse)
         held = manager.find(("platform", "incident-response", "diagnose"))
         root = manager.find(("incident-response", "diagnose"))
         self.assertIsNot(held, root)
@@ -228,8 +291,8 @@ class IndependenceTests(unittest.TestCase):
 
         left = ControllerManager(channels=Channels("left"))
         right = ControllerManager(channels=Channels("right"))
-        left.register(Platform)
-        right.register(Platform)
+        left.register_role(Platform)
+        right.register_role(Platform)
         self.assertEqual(
             left.find(("platform", "incident-response")).channels.label, "left"
         )
@@ -237,24 +300,121 @@ class IndependenceTests(unittest.TestCase):
             right.find(("platform", "incident-response")).channels.label, "right"
         )
 
-    def test_a_member_declared_as_an_object_is_that_object(self) -> None:
-        """An author who wrote out an instance meant that one.
+    def test_a_class_where_a_node_belongs_is_refused(self) -> None:
+        """`tools=[GetPodStatus]` is the mistake; the message names the fix.
 
-        A class can be built again; an object with constructor arguments
-        cannot, and rebuilding it from nothing would silently drop them.
+        Left to itself it is quiet and strange: a class carries the base
+        dataclass's slot descriptors, so every unbuilt member reads as having
+        the same name and the uniqueness check fails with a sentence about two
+        members sharing a name that nobody wrote.
         """
 
-        built = GetPodStatus(name="pinned", description="Pinned.")
+        with self.assertRaises(ModelValidationError) as caught:
+            Role(
+                name="mistaken",
+                description="Holds a class.",
+                instructions="Anything.",
+                tools=[GetPodStatus],  # type: ignore[list-item]
+            )
+        message = str(caught.exception)
+        self.assertIn("GetPodStatus()", message)
+        self.assertIn("a class is the factory", message)
 
-        class Pinned(Role):
-            """Holds an object rather than a class."""
+    def test_the_imperative_door_holds_nodes_from_either_source(self) -> None:
+        """A role assembled at run time may mix declared nodes with ad-hoc ones."""
 
-            instructions = "Hold it."
+        role = Role(
+            name="mixed",
+            description="Mixed.",
+            instructions="Hold both.",
+            tools=[GetPodStatus(), Tool(name="pinned", description="P.")],
+        )
+        manager = ControllerManager()
+        manager.register_role(role)
+        self.assertEqual(
+            sorted(tool.name for tool in manager.of_kind("tool")),
+            ["get_pod_status", "pinned"],
+        )
 
-            status = built
 
-        self.assertIs(Pinned().tools[0], built)
-        self.assertIs(Pinned().tools[0], Pinned().tools[0])
+class ConstructionTimeTests(unittest.TestCase):
+    """When a declared graph comes into existence, and where.
+
+    The headline property of this object model: a module full of declarations
+    builds nothing when it is imported. Classes state what a capability is;
+    a `ControllerManager` is the one thing that turns them into nodes, because
+    registration is the only moment a node can be told where it hangs and
+    handed what it may reach.
+    """
+
+    def test_declaring_a_forest_constructs_nothing(self) -> None:
+        gc.collect()
+        before = sum(
+            1 for held in gc.get_objects() if isinstance(held, ContextNode)
+        )
+
+        class Leaf(Tool):
+            def __init__(self) -> None:
+                super().__init__(name="leaf", description="A leaf.")
+
+            async def invoke(self) -> str:
+                return ""
+
+        class Branch(Role):
+            def __init__(self) -> None:
+                super().__init__(
+                    name="branch",
+                    description="A branch.",
+                    instructions="Route.",
+                    tools=[Leaf()],
+                )
+
+        class Trunk(Role):
+            def __init__(self) -> None:
+                super().__init__(
+                    name="trunk",
+                    description="A trunk.",
+                    instructions="Route.",
+                    children=[Branch()],
+                )
+
+        gc.collect()
+        after = sum(
+            1 for held in gc.get_objects() if isinstance(held, ContextNode)
+        )
+        self.assertEqual(before, after)
+
+    def test_registration_is_where_the_nodes_appear(self) -> None:
+        manager = ControllerManager(channels="handle")
+        root = manager.register_role(IncidentResponse)
+        self.assertEqual(len(manager), 3)
+        self.assertEqual(root.path, ("incident-response",))
+        self.assertEqual(root.tools[0].channels, "handle")
+
+    def test_a_shared_base_class_supplies_what_a_subclass_does_not(self) -> None:
+        """Twenty tools of one domain that differ in three fields."""
+
+        class DomainTool(Tool):
+            def __init__(self, **stated: object) -> None:
+                super().__init__(
+                    **{
+                        "description": "A tool in this domain.",
+                        "read_only": True,
+                        **stated,
+                    }
+                )
+
+        class Specific(DomainTool):
+            def __init__(self) -> None:
+                super().__init__(name="specific")
+
+            async def invoke(self) -> str:
+                return ""
+
+        built = Specific()
+        self.assertEqual(built.name, "specific")
+        self.assertEqual(built.description, "A tool in this domain.")
+        self.assertTrue(built.read_only)
 
 
 class ChannelTests(unittest.TestCase):
@@ -286,8 +446,8 @@ class ChannelTests(unittest.TestCase):
     def test_a_root_registered_later_gets_the_same_handle(self) -> None:
         channels = Channels()
         manager = ControllerManager(channels=channels)
-        manager.register(Platform)
-        manager.register(Standalone)
+        manager.register_role(Platform)
+        manager.register_role(Standalone)
         self.assertIs(
             manager.find(("standalone", "get_pod_status")).channels, channels
         )
@@ -352,7 +512,7 @@ class QueryTests(unittest.TestCase):
     def test_address_of_answers_only_for_what_it_registered(self) -> None:
         manager = platform_manager()
         self.assertEqual(manager.address_of(manager.roots[0]), ("platform",))
-        self.assertIsNone(manager.address_of(GetPodStatus()))
+        self.assertIsNone(manager.address_of(GetPodStatus))
 
     def test_walk_is_depth_first_in_declared_order(self) -> None:
         manager = platform_manager()

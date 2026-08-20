@@ -21,20 +21,24 @@ from . import fixtures
 
 
 class CrashLoopRunbook(Tool):
-    """How to diagnose a container that keeps restarting, and what not to do."""
-
-    name = "crash_loop_runbook"
-    read_only = True
+    def __init__(self) -> None:
+        super().__init__(
+            name="crash_loop_runbook",
+            description="How to diagnose a container that keeps restarting, and what not to do.",
+            read_only=True,
+        )
 
     async def invoke(self) -> str:
         return fixtures.CRASH_LOOP_RUNBOOK
 
 
 class RollbackPolicy(Tool):
-    """When a rollback is the right remediation, and what it costs."""
-
-    name = "rollback_policy"
-    read_only = True
+    def __init__(self) -> None:
+        super().__init__(
+            name="rollback_policy",
+            description="When a rollback is the right remediation, and what it costs.",
+            read_only=True,
+        )
 
     async def invoke(self) -> str:
         return fixtures.ROLLBACK_POLICY

@@ -1,5 +1,13 @@
 # ADR 012 — Registration is where a declaration becomes a capability
 
+
+> **Extended by [ADR 013](013-a-constructor-is-the-declaration.md).**
+> The problem this ADR names — that a declaration must become a capability
+> somewhere, and that somewhere is registration — was only half solved here:
+> an object graph was still built at *import* time by `declarative.collect`,
+> beside the one the manager built. ADR 013 removed the class-body reading
+> entirely, so registration is now the *only* place a node comes into
+> existence. Registration also became three methods, one per kind.
 **Status:** accepted, implemented in v0.5.0
 **Date:** 2026-08-20
 

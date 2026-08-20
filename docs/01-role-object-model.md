@@ -316,14 +316,20 @@ a typed Python method:
 
 ```python
 class GetPodLogs(Tool):
-    """Return recent container logs for one Pod."""
-
-    name = "get_pod_logs"
-    read_only = True
+    def __init__(self) -> None:
+        super().__init__(
+            name="get_pod_logs",
+            description="Return recent container logs for one Pod.",
+            read_only=True,
+        )
 
     async def invoke(self, namespace: str, pod: str) -> str:
         ...
 ```
+
+The constructor hands this tool's identity to the base, and `invoke` is the
+behaviour — the one method a business writes. Nothing is inferred from the
+class name or the docstring; see ADR 013.
 
 Nothing here writes a JSON Schema. The schema published in a tool's card is
 derived from `invoke`'s type hints when the graph is projected onto a server,
@@ -707,15 +713,15 @@ into a secure progressive Agent Host without invalidating the early concepts.
 
 | Design concept | Source file |
 |---|---|
-| Context lifecycle | `src/contexture/core/context.py` |
-| Skill | `src/contexture/core/skill.py` |
-| Role | `src/contexture/core/role.py` |
-| Class-syntax declaration | `src/contexture/core/declarative.py` |
-| Tool | `src/contexture/core/tools.py` |
-| Resource | `src/contexture/core/resources.py` |
-| The tree: skeleton, resolution, opening | `src/contexture/tree.py` |
-| The MCP server | `src/contexture/server/` |
-| Complete example | `src/contexture/examples/incident/` |
+| Disclosure lifecycle, shared by every node | `contexture/core/model/node.py` |
+| Role | `contexture/core/model/role.py` |
+| Skill | `contexture/core/model/skill.py` |
+| Tool | `contexture/core/model/tool.py` |
+| Registration: where a node comes into existence | `contexture/core/model/manager.py` |
+| The tree: skeleton, resolution, opening | `contexture/core/disclosure/tree.py` |
+| What each MCP primitive carries | `contexture/core/mcp_interface/` |
+| The MCP server | `contexture/server/` |
+| Complete example | `contexture/demo/` |
 
 ## 24. Official references
 

@@ -177,7 +177,7 @@ class StdioServerTests(unittest.TestCase):
             )
             role_ref = next(
                 card["ref"]
-                for card in platform.structured_content["sub_roles"]
+                for card in platform.structured_content["roles"]
                 if card["name"] == "incident-response"
             )
 
@@ -306,7 +306,7 @@ class StdioServerTests(unittest.TestCase):
             )
             role_ref = next(
                 card["ref"]
-                for card in platform.structured_content["sub_roles"]
+                for card in platform.structured_content["roles"]
                 if card["name"] == "incident-response"
             )
             role = await session.call_tool("contexture_open", {"ref": role_ref})

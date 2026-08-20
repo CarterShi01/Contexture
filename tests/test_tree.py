@@ -24,57 +24,83 @@ PROCEDURE = "Read the status, then the logs, then the events."
 
 
 class GetPodLogs(Tool):
-    """Return the recent container logs for a Pod."""
-
-    name = "get_pod_logs"
-    read_only = True
+    def __init__(self) -> None:
+        super().__init__(
+            name="get_pod_logs",
+            description="Return the recent container logs for a Pod.",
+            read_only=True,
+        )
 
     async def invoke(self, namespace: str, pod: str) -> str:
         return f"{namespace}/{pod}"
 
 
 class DeletePod(Tool):
-    """Delete a Pod so its controller recreates it."""
-
-    name = "delete_pod"
+    def __init__(self) -> None:
+        super().__init__(
+            name="delete_pod",
+            description="Delete a Pod so its controller recreates it.",
+        )
 
     async def invoke(self, namespace: str, pod: str) -> str:
         return "deleted"
 
 
 class CrashLoopRunbook(Tool):
-    """How to diagnose a container that keeps restarting."""
-
-    name = "crash_loop_runbook"
-    read_only = True
+    def __init__(self) -> None:
+        super().__init__(
+            name="crash_loop_runbook",
+            description="How to diagnose a container that keeps restarting.",
+            read_only=True,
+        )
 
     async def invoke(self) -> str:
         return "RUNBOOK-BODY"
 
 
 class Diagnose(Skill):
-    """Find why a Pod restarts repeatedly."""
-
-    name = "diagnose"
-    instructions = PROCEDURE
+    def __init__(self) -> None:
+        super().__init__(
+            name="diagnose",
+            description="Find why a Pod restarts repeatedly.",
+            instructions=PROCEDURE,
+        )
 
 
 class Troubleshooter(Role):
-    """Diagnose unhealthy Pods."""
-
-    instructions = "Inspect before changing anything."
-
-    diagnose = Diagnose
-    logs = GetPodLogs
-    runbook = CrashLoopRunbook
-
-
+    def __init__(self) -> None:
+        super().__init__(
+            name="troubleshooter",
+            description="Diagnose unhealthy Pods.",
+            instructions="Inspect before changing anything.",
+            skills=[Diagnose()],
+            tools=[GetPodLogs(), CrashLoopRunbook()],
+        )
 class Operator(Role):
-    """Repair unhealthy Pods."""
+    def __init__(self) -> None:
+        super().__init__(
+            name="operator",
+            description="Repair unhealthy Pods.",
+            instructions="Ask before destroying anything.",
+            tools=[DeletePod()],
+        )
 
-    instructions = "Ask before destroying anything."
 
-    remove = DeletePod
+def _troubleshooter() -> Role:
+    """A fresh troubleshooter each time, so one test cannot edit another's.
+
+    Built rather than declared because these tests replace its procedures: a
+    declared class is a shared object, and assigning to `Troubleshooter.skills`
+    would change what every other test in this file is addressing.
+    """
+
+    return Role(
+        name="troubleshooter",
+        description="Diagnose unhealthy Pods.",
+        instructions="Inspect before changing anything.",
+        skills=[Diagnose()],
+        tools=[GetPodLogs(), CrashLoopRunbook()],
+    )
 
 
 def _tree() -> ContextTree:
@@ -184,9 +210,9 @@ class CardTests(unittest.TestCase):
         pending = [card["ref"] for card in cards]
         while pending:
             opened = tree.open(pending.pop())
-            for group in ("sub_roles", "skills", "tools"):
+            for group in ("roles", "skills", "tools"):
                 cards.extend(opened[group])
-            pending.extend(card["ref"] for card in opened["sub_roles"])
+            pending.extend(card["ref"] for card in opened["roles"])
 
         self.assertGreater(len(cards), 6)
         for card in cards:
@@ -211,7 +237,7 @@ class OpenTests(unittest.TestCase):
         opened = _tree().open("team")
 
         self.assertEqual(
-            [card["ref"] for card in opened["sub_roles"]],
+            [card["ref"] for card in opened["roles"]],
             ["team/troubleshooter", "team/operator"],
         )
         self.assertNotIn("get_pod_logs", json.dumps(opened))
@@ -276,8 +302,11 @@ class NameTests(unittest.TestCase):
 
         class Weird(Tool):
             """A tool whose name would split its own ref."""
-
-            name = "get/logs"
+            def __init__(self) -> None:
+                        super().__init__(
+                                    name="get/logs",
+                                    description="A tool whose name would split its own ref.",
+                        )
 
             async def invoke(self) -> str:
                 return "x"
@@ -294,8 +323,12 @@ class DepthTests(unittest.TestCase):
     def _tower(self) -> Role:
         class Deep(Skill):
             """A skill four levels down."""
-
-            instructions = "PROCEDURE-AT-DEPTH"
+            def __init__(self) -> None:
+                        super().__init__(
+                                    name="deep",
+                                    description="A skill four levels down.",
+                                    instructions="PROCEDURE-AT-DEPTH",
+                        )
 
         role = Role(
             name="l4",
@@ -351,7 +384,7 @@ class DepthTests(unittest.TestCase):
             with self.subTest(ref=ref):
                 opened = tree.open(ref)
                 self.assertEqual(
-                    [card["ref"] for card in opened["sub_roles"]], expected
+                    [card["ref"] for card in opened["roles"]], expected
                 )
 
     def test_a_procedure_four_levels_down_arrives_only_when_opened(self) -> None:
@@ -447,8 +480,8 @@ class ResolutionTests(unittest.TestCase):
 
 class ConstructionTests(unittest.TestCase):
     def test_one_root_or_many_are_both_accepted(self) -> None:
-        single = ContextTree.of(Troubleshooter())
-        several = ContextTree.of([Troubleshooter(), Operator()])
+        single = ContextTree.of(Troubleshooter)
+        several = ContextTree.of([Troubleshooter, Operator])
 
         self.assertEqual(len(single.roots), 1)
         self.assertEqual(len(several.roots), 2)
@@ -459,7 +492,7 @@ class ConstructionTests(unittest.TestCase):
 
     def test_two_roots_may_not_share_a_name(self) -> None:
         with self.assertRaises(ModelValidationError):
-            ContextTree.of([Troubleshooter(), Troubleshooter()])
+            ContextTree.of([Troubleshooter, Troubleshooter])
 
     def test_a_cycle_is_rejected_when_the_forest_is_built(self) -> None:
         """A cycle is only visible once the whole forest is in hand."""
@@ -491,19 +524,26 @@ class ReferenceTests(unittest.TestCase):
 
     @staticmethod
     def _with_uses(*refs: str) -> ContextTree:
-        troubleshooter = Troubleshooter()
-        # Appended rather than assigned: the declared members are what the
-        # other tests address, and a reference to one of them is the case this
-        # helper exists to build.
-        troubleshooter.skills = [
-            *troubleshooter.skills,
-            Skill(
-                name="triage",
-                description="Decide whether a Pod is worth repairing.",
-                instructions="Read the logs, then decide.",
-                uses=refs,
-            ),
-        ]
+        # The declared members are what the other tests address; the one built
+        # here is the reference this helper exists to make, and its `uses` is
+        # different on every call. Classes and instances sit in one list on
+        # purpose: whichever way a member arrives, the manager is what turns it
+        # into a node.
+        troubleshooter = Role(
+            name="troubleshooter",
+            description="Diagnose unhealthy Pods.",
+            instructions="Inspect before changing anything.",
+            skills=[
+                Diagnose(),
+                Skill(
+                    name="triage",
+                    description="Decide whether a Pod is worth repairing.",
+                    instructions="Read the logs, then decide.",
+                    uses=refs,
+                ),
+            ],
+            tools=[GetPodLogs(), CrashLoopRunbook()],
+        )
         team = Role(
             name="team",
             description="An engineering team.",
@@ -572,7 +612,7 @@ class ReferenceTests(unittest.TestCase):
     def test_two_procedures_may_name_the_same_capability(self) -> None:
         """Reference is not exclusive, because it creates no address."""
 
-        troubleshooter = Troubleshooter()
+        troubleshooter = _troubleshooter()
         troubleshooter.skills = [
             Skill(
                 name=name,
@@ -598,7 +638,7 @@ class ReferenceTests(unittest.TestCase):
     def test_a_reference_cycle_is_allowed_and_terminates(self) -> None:
         """`diagnose -> remediate -> diagnose` is a real workflow shape."""
 
-        troubleshooter = Troubleshooter()
+        troubleshooter = _troubleshooter()
         troubleshooter.skills = [
             Skill(
                 name="triage",
@@ -635,7 +675,7 @@ class ReferenceTests(unittest.TestCase):
         is legal, so an enumerator that followed references would not return.
         """
 
-        troubleshooter = Troubleshooter()
+        troubleshooter = _troubleshooter()
         troubleshooter.skills = [
             Skill(
                 name="a",
@@ -725,7 +765,7 @@ class ReferenceValidationTests(unittest.TestCase):
         them.
         """
 
-        troubleshooter = Troubleshooter()
+        troubleshooter = _troubleshooter()
         troubleshooter.skills = [
             Skill(
                 name="triage",

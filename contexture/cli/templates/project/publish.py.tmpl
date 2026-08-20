@@ -19,11 +19,18 @@ from __future__ import annotations
 
 from contexture import Resource
 
-PUBLISHED = (
-    Resource(
-        opens="$role_ref/health_runbook",
-        uri="$resource_scheme://runbooks/health",
-        mime_type="text/markdown",
-        description="How to interpret a reachability check, and what not to conclude.",
-    ),
-)
+
+class HealthRunbookDocument(Resource):
+    def __init__(self) -> None:
+        super().__init__(
+            opens="$role_ref/health_runbook",
+            uri="$resource_scheme://runbooks/health",
+            mime_type="text/markdown",
+            description=(
+                "How to interpret a reachability check, and what not to "
+                "conclude."
+            ),
+        )
+
+
+PUBLISHED = (HealthRunbookDocument,)

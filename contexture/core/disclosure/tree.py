@@ -35,7 +35,7 @@ a consequence of an earlier call.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Iterable, Iterator
+from typing import Any, Callable, Iterable, Iterator
 
 from ..model.node import CompileLevel, ContextNode
 from ..errors import LookupFailure, ModelValidationError, NodeNotFoundError
@@ -73,7 +73,7 @@ class ContextTree:
     SDK; nothing here imports it.
     """
 
-    roots: tuple[Role, ...]
+    roots: tuple[ContextNode, ...]
     schema_of: Callable[[Tool], JsonObject] = field(default=_no_schema)
 
     #: The registry these roots are registered in. An application that built
@@ -86,16 +86,26 @@ class ContextTree:
     @classmethod
     def of(
         cls,
-        roots: Role | Iterable[Role] | ControllerManager,
+        roots: Any,
         *,
         schema_of: Callable[[Tool], JsonObject] = _no_schema,
     ) -> ContextTree:
-        """Accept a manager, one root, or many, and return the tree either way."""
+        """Accept a manager, one root, or many, and return the tree either way.
+
+        A root arrives as a **class** in the ordinary case, and a class is only
+        ever turned into a node by a `ControllerManager` — so one is built here
+        and the tree is made from what it registered. That keeps a single
+        answer to "when does a node come into existence" whether a caller went
+        through `ContextureApp`, through a test, or through `contexture list`.
+        """
 
         if isinstance(roots, ControllerManager):
             return cls(roots=roots.roots, schema_of=schema_of, manager=roots)
-        collected = (roots,) if isinstance(roots, Role) else tuple(roots)
-        return cls(roots=collected, schema_of=schema_of)
+        given = (roots,) if _is_one_root(roots) else tuple(roots)
+        registry = ControllerManager()
+        for root in given:
+            register_root(registry, root)
+        return cls(roots=registry.roots, schema_of=schema_of, manager=registry)
 
     def __post_init__(self) -> None:
         if not self.roots:
@@ -107,7 +117,7 @@ class ContextTree:
             # roots with the same name. None of that is repeated here.
             registry = ControllerManager()
             for root in self.roots:
-                registry.register(root)
+                register_root(registry, root)
             object.__setattr__(self, "manager", registry)
         elif self.manager.roots != self.roots:
             raise ModelValidationError(
@@ -140,7 +150,7 @@ class ContextTree:
         number of roots, not the size of the forest.
         """
 
-        return {"roles": [_card(root, root.name) for root in self.roots]}
+        return self._by_kind(self.roots, lambda node: node.name)
 
     def roles_with_refs(self) -> Iterator[tuple[str, Role]]:
         """Walk the whole role axis depth-first, yielding each role's reference.
@@ -164,7 +174,9 @@ class ContextTree:
         answer for something whose only job is routing.
         """
 
-        queue: list[tuple[str, Role]] = [(root.name, root) for root in self.roots]
+        queue: list[tuple[str, Role]] = [
+            (root.name, root) for root in self.roots if isinstance(root, Role)
+        ]
         while queue:
             ref, role = queue.pop(0)
             yield ref, role
@@ -329,14 +341,34 @@ class ContextTree:
         return _card(node, ref)
 
     def _members(self, role: Role, ref: str) -> CompiledContext:
-        def at(name: str) -> str:
-            return f"{ref}{SEPARATOR}{name}"
+        return self._by_kind(
+            list(role.members()), lambda node: f"{ref}{SEPARATOR}{node.name}"
+        )
 
-        return {
-            "sub_roles": [_card(child, at(child.name)) for child in role.children],
-            "skills": [_card(skill, at(skill.name)) for skill in role.skills],
-            "tools": [self._tool_card(tool, at(tool.name)) for tool in role.tools],
-        }
+    def _by_kind(
+        self,
+        nodes: Iterable[ContextNode],
+        ref_of: Callable[[ContextNode], str],
+    ) -> CompiledContext:
+        """Render one sibling set, grouped by kind.
+
+        The **one** payload shape in this package: what `discover` answers with
+        and what `open` puts under a role are the same three keys, because they
+        are the same question asked at two depths. One shape is one golden
+        fixture per depth instead of two, which is what keeps three
+        implementations saying the same thing.
+        """
+
+        grouped: CompiledContext = {"roles": [], "skills": [], "tools": []}
+        for node in nodes:
+            ref = ref_of(node)
+            if isinstance(node, Tool):
+                grouped["tools"].append(self._tool_card(node, ref))
+            elif isinstance(node, Skill):
+                grouped["skills"].append(_card(node, ref))
+            else:
+                grouped["roles"].append(_card(node, ref))
+        return grouped
 
     def _tool_card(self, tool: Tool, ref: str) -> CompiledContext:
         # read_only is a host classification, reported so a host can act on it
@@ -456,4 +488,25 @@ def _card(node: ContextNode, ref: str) -> CompiledContext:
     return {**node.compile(CompileLevel.ROUTE), "ref": ref}
 
 
-__all__ = ["ContextTree", "SEPARATOR"]
+__all__ = ["ContextTree", "SEPARATOR", "register_root"]
+
+
+def _is_one_root(given: Any) -> bool:
+    """Whether this is a single root rather than a collection of them."""
+
+    kinds = (Role, Skill, Tool)
+    return isinstance(given, kinds) or (
+        isinstance(given, type) and issubclass(given, kinds)
+    )
+
+
+def register_root(registry: ControllerManager, root: Any) -> None:
+    """Send one root to the registration method that matches its kind."""
+
+    built = root() if isinstance(root, type) else root
+    if isinstance(built, Tool):
+        registry.register_tool(built)
+    elif isinstance(built, Skill):
+        registry.register_skill(built)
+    else:
+        registry.register_role(built)

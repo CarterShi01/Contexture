@@ -1,5 +1,12 @@
 # ADR 008 — Who may open a node
 
+
+> **Partly superseded by [ADR 013](013-a-constructor-is-the-declaration.md).**
+> Every reference below to `declarative.collect`, `_materialize`, or an object
+> graph built at import time describes machinery that no longer exists: a class
+> body is not read, and nothing is constructed until a `ControllerManager`
+> registers a root. The decision this ADR records — who may open a node, and
+> why a reference overlay may contain cycles — is unchanged.
 **Status:** accepted, implemented in v0.3.0
 **Date:** 2026-08-20
 
