@@ -363,7 +363,7 @@ class ControllerManager:
 
     # ---- sealing ---------------------------------------------------------
 
-    def sealed(self, *, schema_of: Any = None) -> Any:
+    def sealed(self, *, bind: Any = None) -> Any:
         """Close this registry and return the view an agent is disclosed.
 
         Registration is additive and mutable; disclosure is neither. Sealing is
@@ -384,9 +384,9 @@ class ControllerManager:
         # the dependency runs that way round and only the return trip is local.
         from .tree import ContextTree
 
-        if schema_of is None:
+        if bind is None:
             return ContextTree(manager=self)
-        return ContextTree(manager=self, schema_source=schema_of)
+        return ContextTree(manager=self, bind=bind)
 
     def __len__(self) -> int:
         return len(self._by_path)

@@ -23,9 +23,10 @@ kernel's (ADR 014), so the names of the calls that navigate belong to the
 kernel too, and so do the words it says when one of them is refused.
 
 **What is *not* here.** Nothing about a wire: no JSON-RPC, no JSON Schema
-derivation, no argument validation, no transport. Two seams carry those in from
-`server` — `schema_of` on the tree, and `execute` here — and neither is ever
-inspected by this module.
+derivation, no argument validation, no transport. One seam carries all of them
+in from `server` — the `Binding` the tree holds for each tool — and this module
+never inspects it. It was two seams until ADR 016, which is how a card's schema
+and the check applied to a call could have come from two derivations.
 
 The bootstrap text a host loads before calling anything is not here either. It
 teaches the same four calls, but what fits in one host's instructions field is a
@@ -35,7 +36,7 @@ fact about that host's release, so it stays in `contexture.server.instructions`.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
+from typing import Any, Callable
 
 from ..constants import (
     DISCOVER_TOOL,
@@ -45,7 +46,6 @@ from ..constants import (
 )
 from ..errors import ContextureError, LookupFailure, NodeNotFoundError
 from ..types import CompiledContext
-from .tool import Tool
 from .tree import ContextTree
 
 
@@ -223,22 +223,6 @@ def taken_by_a_person(ref: str) -> str:
 # ------------------------------------------------------------ what is done
 
 
-async def _plain_invoke(
-    tool: Tool,
-    arguments: dict[str, Any] | None,
-    context: Any,
-) -> Any:
-    """Run a tool with no validation and nothing injected.
-
-    What a caller gets when it did not supply an executor: a test, or anything
-    driving the API without a server. `server` supplies one backed by the SDK,
-    which derives a model from `invoke`'s hints and rejects arguments that do
-    not fit before the body ever runs.
-    """
-
-    return await tool.invoke(**(arguments or {}))
-
-
 @dataclass(slots=True, frozen=True)
 class SystemAPI:
     """The four calls, bound to one tree.
@@ -251,14 +235,6 @@ class SystemAPI:
     """
 
     tree: ContextTree
-
-    #: How a tool is actually run. `Any` for the third argument, and the
-    #: framework never looks inside it: it is whatever per-request handle the
-    #: layer above needs threaded through to the SDK, the same way `channels`
-    #: is whatever the application needs threaded through to a capability.
-    execute: Callable[[Tool, dict[str, Any] | None, Any], Awaitable[Any]] = (
-        _plain_invoke
-    )
 
     #: Refs a person has claimed, and a model may therefore not open.
     #:
@@ -301,6 +277,23 @@ class SystemAPI:
         """
 
         return self._resolved(lambda: self.tree.open(ref))
+
+    async def read_for_a_host(self, ref: str) -> Any:
+        """Read one document, as the host that was given its address.
+
+        A host reads a resource with no arguments and no model in the loop, so
+        there is no door to check here — that a published address names a
+        read-only, argument-free tool is settled when the server is built,
+        which is the moment whoever wrote the declaration can still fix it.
+
+        It goes through the kernel all the same, rather than reaching for the
+        tool directly. That is what puts this path on the same footing as the
+        other two: the same lookup failure sentences, the same validated call,
+        and a caller's identity in reach of the capability's own code.
+        """
+
+        self._resolved(lambda: self.tree.tool(ref))
+        return await self.tree.binding_of(ref).call(None, None)
 
     async def invoke_read_only(
         self,
@@ -346,7 +339,7 @@ class SystemAPI:
         tool = self._resolved(lambda: self.tree.tool(ref))
         if tool.read_only is not read_only:
             raise Refused(wrong_door(ref, is_read_only=tool.read_only))
-        return await self.execute(tool, arguments, context)
+        return await self.tree.binding_of(ref).call(arguments, context)
 
     @staticmethod
     def _resolved(lookup: Callable[[], Any]) -> Any:

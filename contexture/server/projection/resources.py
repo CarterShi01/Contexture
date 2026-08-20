@@ -17,8 +17,8 @@ from mcp.server.mcpserver.resources import FunctionResource
 
 from ...core.errors import ModelValidationError
 from ..assembly import Assembly
-from ...core.model.tree import ContextTree
-from . import published_name
+from ...core.model.system_api import SystemAPI
+from . import published_name, translated
 
 
 class Resources:
@@ -76,11 +76,11 @@ class Resources:
         self._assembly = assembly
 
     def project(self, surface: MCPServer) -> None:
-        tree = self._assembly.tree
+        api = self._assembly.api
         for entry in self._assembly.resources:
             surface.add_resource(
                 FunctionResource.from_function(
-                    _reader(tree, entry.opens),
+                    _reader(api, entry.opens),
                     uri=entry.uri,
                     name=published_name(entry),
                     description=entry.description,
@@ -89,16 +89,22 @@ class Resources:
             )
 
 
-def _reader(tree: ContextTree, ref: str) -> Callable[[], Awaitable[Any]]:
+def _reader(api: SystemAPI, ref: str) -> Callable[[], Awaitable[Any]]:
     """Build the function a host calls when it reads this resource.
 
     Resolved per call rather than captured, for the same reason a command's
     text is assembled per call: one node reached two ways must not be able to
     answer two different things.
+
+    Through the kernel, like the other two doors. Until ADR 016 this reached
+    the tool directly, which left one of the three paths into a capability
+    without argument validation and without a caller's identity in reach of the
+    code that runs.
     """
 
     async def read() -> Any:
-        return await tree.tool(ref).invoke()
+        with translated():
+            return await api.read_for_a_host(ref)
 
     return read
 

@@ -20,7 +20,7 @@ from contexture.server import (
     Auth,
     ContextureOptions,
     ContextureServer,
-    Dispatch,
+    TypeHintBinding,
 )
 
 #: Two callers who differ in exactly one scope, so a refusal can only be about
@@ -98,10 +98,7 @@ class Ops(Role):
 def build(port: int, *, secured: bool) -> tuple[ContextureServer, ContextureOptions]:
     manager = ControllerManager()
     manager.register_role(Ops)
-    dispatch = Dispatch()
-    assembly = Assembly.of(
-        manager.sealed(schema_of=dispatch.schema), execute=dispatch.execute
-    )
+    assembly = Assembly.of(manager.sealed(bind=TypeHintBinding))
     server = ContextureServer(assembly, name="http-fixture")
     options = ContextureOptions(
         transport="streamable-http",

@@ -13,10 +13,30 @@ tests that used to read `app.tree` want.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Sequence
 
 from contexture.core.model.manager import ControllerManager, register_root
-from contexture.server import Assembly, ContextureServer, Dispatch
+from contexture.server import Assembly, ContextureServer, TypeHintBinding
+
+
+@dataclass(frozen=True, slots=True)
+class Marked:
+    """A binding whose schema says which tool it was derived for.
+
+    For the tests asking whether a schema travelled from the binding to the
+    card, rather than what a real derivation produces — those live in
+    `test_binding.py` and use the SDK-backed one.
+    """
+
+    tool: Any
+
+    @property
+    def schema(self) -> dict[str, Any]:
+        return {"tool": self.tool.name}
+
+    async def call(self, arguments: Any, context: Any = None) -> Any:
+        return await self.tool.invoke(**(arguments or {}))
 
 
 def assemble(
@@ -24,24 +44,18 @@ def assemble(
     *,
     published: Sequence[Any] = (),
     channels: Any = None,
-    dispatch: Dispatch | None = None,
+    bind: Any = TypeHintBinding,
 ) -> Assembly:
     """Seal one graph. `roots` is one root or many, class or instance.
 
-    `dispatch` is passed in only by the tests that hold it afterwards — the
-    ones asking what its cache does. Everywhere else it is an implementation
-    detail of sealing.
+    `bind` is named only by the tests asking what a binding does. Everywhere
+    else it is an implementation detail of sealing.
     """
 
     manager = ControllerManager(channels=channels)
     for root in _each(roots):
         register_root(manager, root)
-    dispatch = Dispatch() if dispatch is None else dispatch
-    return Assembly.of(
-        manager.sealed(schema_of=dispatch.schema),
-        execute=dispatch.execute,
-        published=published,
-    )
+    return Assembly.of(manager.sealed(bind=bind), published=published)
 
 
 def serve(
@@ -49,16 +63,14 @@ def serve(
     *,
     published: Sequence[Any] = (),
     channels: Any = None,
-    dispatch: Dispatch | None = None,
+    bind: Any = TypeHintBinding,
     name: str = "test",
     **kwargs: Any,
 ) -> ContextureServer:
     """The same, wrapped in the server that would put it on a wire."""
 
     return ContextureServer(
-        assemble(
-            roots, published=published, channels=channels, dispatch=dispatch
-        ),
+        assemble(roots, published=published, channels=channels, bind=bind),
         name=name,
         **kwargs,
     )

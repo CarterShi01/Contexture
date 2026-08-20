@@ -20,7 +20,7 @@ from contexture.server import (
     Assembly,
     ContextureOptions,
     ContextureServer,
-    Dispatch,
+    TypeHintBinding,
 )
 from .role import KubernetesPlatform
 
@@ -97,9 +97,8 @@ def build() -> ContextureServer:
     manager = ControllerManager()
     manager.register_role(KubernetesPlatform)
 
-    dispatch = Dispatch()
-    tree = manager.sealed(schema_of=dispatch.schema)
-    assembly = Assembly.of(tree, execute=dispatch.execute, published=PUBLISHED)
+    tree = manager.sealed(bind=TypeHintBinding)
+    assembly = Assembly.of(tree, published=PUBLISHED)
 
     return ContextureServer(assembly, name="contexture-demo")
 

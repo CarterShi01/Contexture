@@ -25,7 +25,7 @@ from contexture.core.model.skill import Skill
 from contexture.core.model.tool import Tool
 from mcp.server.mcpserver import Context, MCPServer
 from contexture.server import instructions
-from contexture.server.dispatch import Dispatch
+from contexture.server.binding import TypeHintBinding
 from contexture.server.projection import Gateway, Prompts, Resources
 from contexture.core.model.tree import SEPARATOR, ContextTree
 from contexture.server import (
@@ -355,6 +355,41 @@ class ContentTests(unittest.TestCase):
 
         self.assertIn("RUNBOOK-BODY", "".join(str(e.content) for e in contents))
 
+    def test_a_host_read_goes_through_the_same_binding_a_model_call_does(
+        self,
+    ) -> None:
+        """Three doors, one way of running a capability.
+
+        Until ADR 016 this path reached the tool directly, which left the
+        host's door without argument validation and without the caller in
+        reach of the code that runs. The other two doors had both.
+        """
+
+        through: list[str] = []
+
+        class Recording(TypeHintBinding):
+            async def call(self, arguments, context=None):
+                through.append(self.tool.name)
+                return await super().call(arguments, context)
+
+        server = serve(
+            Responder,
+            published=(
+                Resource(
+                    opens="responder/runbook",
+                    uri="contexture://runbooks/crash-loop",
+                    mime_type="text/markdown",
+                    description="What a host may take up on its own.",
+                ),
+            ),
+            bind=Recording,
+        ).build()
+
+        asyncio.run(server.read_resource("contexture://runbooks/crash-loop"))
+        _call(server, INVOKE_READ_ONLY_TOOL, {"ref": "responder/runbook"})
+
+        self.assertEqual(through, ["runbook", "runbook"])
+
     def test_publishing_something_that_takes_arguments_is_refused(self) -> None:
         """A host reads with no arguments, so what it names must answer with none."""
 
@@ -554,8 +589,9 @@ class StatelessnessTests(unittest.TestCase):
     def test_a_used_server_owes_a_new_one_the_same_answers(self) -> None:
         """Two hosts connecting to one declaration are owed the same server.
 
-        They share an app, and so share the `Dispatch` whose schema cache the
-        first connection warms. The second must not be able to tell.
+        They share one sealed tree, and so share the bindings derived when it
+        was sealed. The second connection must not be able to tell that the
+        first one happened.
         """
 
         server = serve(Responder)
@@ -569,19 +605,31 @@ class StatelessnessTests(unittest.TestCase):
         )
         self.assertEqual(self._surface(second), self.cold)
 
-    def test_the_schema_cache_is_a_cache_and_not_a_state(self) -> None:
-        """`Dispatch` memoizes derivation; dropping it must change nothing."""
+    def test_a_binding_is_derived_once_when_the_tree_is_sealed(self) -> None:
+        """Per tool, at seal time — not per call, and not per connection.
 
-        dispatch = Dispatch()
-        server = serve(Responder, dispatch=dispatch)
+        This is what replaced a process-wide cache keyed by `id(tool)`. An
+        address is stable and unique, so the derivation can simply be stored
+        against it and never has to be invalidated or re-keyed.
+        """
+
+        derived: list[str] = []
+
+        class Counting(TypeHintBinding):
+            def __post_init__(self) -> None:
+                derived.append(self.tool.name)
+                super().__post_init__()
+
+        server = serve(Responder, bind=Counting)
+        once = list(derived)
+        self.assertEqual(sorted(once), sorted(set(once)))
+
         surface = server.build()
         self._exercise(surface)
+        self._exercise(server.build())
 
-        warm = self._surface(surface)
-        dispatch._derived.clear()
-
-        self.assertEqual(self._surface(surface), warm)
-        self.assertEqual(warm, self.cold)
+        self.assertEqual(derived, once)
+        self.assertEqual(self._surface(surface), self.cold)
 
 
 #: Claude Code truncates server instructions at this many bytes.
@@ -927,7 +975,7 @@ class CommandPlaneTests(unittest.IsolatedAsyncioTestCase):
                 instructions="Route to the branch that owns the outcome.",
                 children=[assets, publishing],
             ),
-            schema_of=Dispatch().schema,
+            bind=TypeHintBinding,
         )
 
     def _server(

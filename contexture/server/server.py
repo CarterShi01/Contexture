@@ -6,9 +6,8 @@ A project builds its graph, seals it, and serves it::
         manager = ControllerManager(channels=channels)
         manager.register_role(KubernetesPlatform)
 
-        dispatch = Dispatch()
-        tree     = manager.sealed(schema_of=dispatch.schema)
-        assembly = Assembly.of(tree, execute=dispatch.execute, published=PUBLISHED)
+        tree     = manager.sealed(bind=TypeHintBinding)
+        assembly = Assembly.of(tree, published=PUBLISHED)
 
         server = ContextureServer(assembly, name="oc-goal")
         server.start(ContextureOptions(transport="stdio"))

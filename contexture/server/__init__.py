@@ -16,7 +16,8 @@ rather than one:
                     bound to it, and what is published against it
     server          the container: one sealed assembly, built and served
     options         how to serve it — transport, address, who may knock
-    dispatch        the two seams `core` opens: a tool's schema, and running it
+    binding         the one seam `core` opens: a tool's schema, and running it
+                    with its arguments checked and its caller in reach
     projection/     hanging that assembly on the SDK's three primitives, one
                     module per primitive. Moves when the SDK does.
     identity        who is calling: the socket a business plugs its token
@@ -70,7 +71,7 @@ _EXPORTS = {
     "OPEN_TOOL": "..core.constants",
     "PREAMBLE": ".messages",
     "unresolved": "..core.model.system_api",
-    "Dispatch": ".dispatch",
+    "TypeHintBinding": ".binding",
     "Assembly": ".assembly",
     "Gateway": ".projection",
     "Prompts": ".projection",

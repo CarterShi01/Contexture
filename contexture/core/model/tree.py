@@ -46,6 +46,7 @@ from typing import Any, Callable, Iterator
 from ..constants import SEPARATOR
 from ..errors import LookupFailure, ModelValidationError, NodeNotFoundError
 from ..types import CompiledContext, JsonObject
+from .binding import Binding, PlainBinding
 from .manager import ControllerManager, register_root
 from .node import ContextNode, CompileLevel, group_cards
 from .role import Role
@@ -53,17 +54,6 @@ from .skill import Skill
 from .tool import Tool
 
 __all__ = ["ContextTree", "SEPARATOR", "register_root"]
-
-
-def _no_schema(tool: Tool) -> JsonObject:
-    """Stand in when nobody supplied a schema source.
-
-    A tree built without one is a tree nobody is serving — a test, or a caller
-    that only wants to navigate. Returning an empty schema is more useful there
-    than requiring every such caller to pass a function it does not need.
-    """
-
-    return {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,9 +69,10 @@ class ContextTree:
 
         tree = manager.sealed(schema_of=...)
 
-    `schema_of` is how a tool's input schema arrives without this module
-    knowing what JSON Schema is. The server layer passes one backed by the MCP
-    SDK; nothing here imports it.
+    `bind` is how a tool's schema and the way to run it arrive without this
+    module knowing what JSON Schema is. The server layer passes one backed by
+    the MCP SDK; nothing here imports it. One binding is derived per tool when
+    the view is sealed, and stored against the address that opens it.
 
     It satisfies `Disclosure`, which is how a node reaches the two things it
     cannot work out for itself: the address that opens it, and the schema an
@@ -93,17 +84,24 @@ class ContextTree:
     #: many, and the one that can be registered into is the manager's.
     manager: ControllerManager
 
-    #: Where a tool's input schema comes from. Named apart from the `schema_of`
-    #: method so that the thing supplying schemas and the question asked of
-    #: this view do not collide.
-    schema_source: Callable[[Tool], JsonObject] = field(default=_no_schema)
+    #: How one tool becomes the two facts a server needs about it. Named apart
+    #: from `binding_of` so that the thing producing bindings and the question
+    #: asked of this view do not collide.
+    bind: Callable[[Tool], Binding] = field(default=PlainBinding)
+
+    #: One binding per tool, keyed by the address that opens it. Derived once,
+    #: here, rather than on every card: an address is stable and unique, which
+    #: is exactly what a cache keyed by object identity was not.
+    _bindings: dict[str, Binding] = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
 
     @classmethod
     def of(
         cls,
         roots: Any,
         *,
-        schema_of: Callable[[Tool], JsonObject] = _no_schema,
+        bind: Callable[[Tool], Binding] = PlainBinding,
     ) -> ContextTree:
         """Accept a manager, one root, or many, and return the sealed view.
 
@@ -115,12 +113,12 @@ class ContextTree:
         """
 
         if isinstance(roots, ControllerManager):
-            return roots.sealed(schema_of=schema_of)
+            return roots.sealed(bind=bind)
         given = (roots,) if _is_one_root(roots) else tuple(roots)
         registry = ControllerManager()
         for root in given:
             register_root(registry, root)
-        return registry.sealed(schema_of=schema_of)
+        return registry.sealed(bind=bind)
 
     def __post_init__(self) -> None:
         if not self.roots:
@@ -137,6 +135,7 @@ class ContextTree:
         # earliest moment either question has an answer.
         self._reject_ambiguous_names()
         self._reject_unresolvable_uses()
+        self._derive_bindings()
 
     @property
     def roots(self) -> tuple[ContextNode, ...]:
@@ -186,7 +185,29 @@ class ContextTree:
         return self.find(ref).card(self)
 
     def schema_of(self, tool: ContextNode) -> JsonObject:
-        return self.schema_source(tool)  # type: ignore[arg-type]
+        return self.binding_of(self.ref_of(tool)).schema
+
+    def binding_of(self, ref: str) -> Binding:
+        """How the tool at `ref` is described and run.
+
+        Present for every registered tool, because every one of them was bound
+        when this view was sealed. A ref naming anything else is a caller bug
+        rather than a lookup failure — `tool()` is what turns a wrong ref into
+        a sentence an agent can act on, and it runs first on every path here.
+        """
+
+        return self._bindings[ref]
+
+    def _derive_bindings(self) -> None:
+        """Bind every tool in the forest, once, while sealing.
+
+        Frozen, so this writes through `object.__setattr__` — the dictionary is
+        filled here and never again, which is what "sealed" means for it too.
+        """
+
+        for node in self.manager.of_kind(Tool.kind):
+            assert isinstance(node, Tool)  # `of_kind` is keyed by `Tool.kind`
+            self._bindings[self.ref_of(node)] = self.bind(node)
 
     # ---- 2. the skeleton -------------------------------------------------
 

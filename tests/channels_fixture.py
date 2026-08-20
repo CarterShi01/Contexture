@@ -31,7 +31,7 @@ from contexture.server import (
     Assembly,
     ContextureOptions,
     ContextureServer,
-    Dispatch,
+    TypeHintBinding,
 )
 
 
@@ -204,11 +204,8 @@ def build(*, channels: object | None = None) -> ContextureServer:
     )
     manager.register_role(Operations)
 
-    dispatch = Dispatch()
     assembly = Assembly.of(
-        manager.sealed(schema_of=dispatch.schema),
-        execute=dispatch.execute,
-        published=PUBLISHED,
+        manager.sealed(bind=TypeHintBinding), published=PUBLISHED
     )
     return ContextureServer(assembly, name="channels-fixture")
 

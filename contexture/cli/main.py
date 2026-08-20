@@ -81,7 +81,7 @@ def _assembled(serving: Serving):
     """
 
     from ..core.model.manager import ControllerManager, register_root
-    from ..server import Assembly, Dispatch
+    from ..server import Assembly, TypeHintBinding
 
     project = serving.project
     # `load_roots` is what puts the project on `sys.path`, so it runs before
@@ -93,11 +93,8 @@ def _assembled(serving: Serving):
     for root in roots:
         register_root(manager, root)
 
-    dispatch = Dispatch()
-    tree = manager.sealed(schema_of=dispatch.schema)
     return Assembly.of(
-        tree,
-        execute=dispatch.execute,
+        manager.sealed(bind=TypeHintBinding),
         published=load_published(serving.publish, project=project),
     )
 
@@ -105,10 +102,10 @@ def _assembled(serving: Serving):
 def command_inspect(args: argparse.Namespace) -> int:
     """Print what an agent would receive, step by step.
 
-    The tree is sealed with a real `Dispatch` rather than left bare, which is
+    The tree is sealed with the real binding rather than left bare, which is
     the whole point of the command: a tool schema on a card comes from the same
-    object the server validates calls with, and the instructions come from the
-    same builder. What is printed here is what is served there, or this command
+    derivation the server validates calls with, and the instructions come from
+    the same builder. What is printed here is what is served there, or this command
     is worth nothing.
     """
 

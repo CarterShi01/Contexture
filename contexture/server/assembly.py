@@ -6,9 +6,8 @@ line between the two phases, given a name and made frozen::
     manager = ControllerManager(channels=channels)
     manager.register_role(KubernetesPlatform)
 
-    dispatch = Dispatch()
-    tree     = manager.sealed(schema_of=dispatch.schema)
-    assembly = Assembly.of(tree, execute=dispatch.execute, published=PUBLISHED)
+    tree     = manager.sealed(bind=TypeHintBinding)
+    assembly = Assembly.of(tree, published=PUBLISHED)
 
 Past that third line nothing can change, which is what keeps the surface legal
 under a protocol that forbids a server to vary its answers as a consequence of
@@ -72,14 +71,9 @@ class Assembly:
         cls,
         tree: ContextTree,
         *,
-        execute: Any = None,
         published: Sequence[Any] = (),
     ) -> "Assembly":
         """Seal one tree together with what is published against it.
-
-        `execute` is how a business tool actually runs — the seam `server`
-        fills with its SDK-validated path, and which defaults to a direct call
-        so that the object model stays exercisable with no wire in the room.
 
         `published` is stated as classes, like everything else a business
         declares; already-built values are accepted too, and both arrive here
@@ -92,11 +86,7 @@ class Assembly:
 
         prompts = tuple(entry for entry in entries if isinstance(entry, Prompt))
         resources = tuple(entry for entry in entries if isinstance(entry, Resource))
-        api = SystemAPI(
-            tree=tree,
-            reserved=_reserved(prompts),
-            **({"execute": execute} if execute is not None else {}),
-        )
+        api = SystemAPI(tree=tree, reserved=_reserved(prompts))
         return cls(tree=tree, api=api, prompts=prompts, resources=resources)
 
     @property

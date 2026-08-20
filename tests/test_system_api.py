@@ -16,6 +16,7 @@ The trace below is the one `docs/verification/hosts.md` records a host taking.
 from __future__ import annotations
 
 import unittest
+from dataclasses import dataclass
 
 from contexture.core.constants import (
     DISCOVER_TOOL,
@@ -52,13 +53,27 @@ PROCEDURE = "Do not recommend restarting or deleting the Pod"
 POD = {"namespace": fixtures.NAMESPACE, "pod": fixtures.POD}
 
 
-def _api(**kwargs: object) -> SystemAPI:
-    """The demo, bound to a schema source that says where a schema came from."""
+def _api(*, bind: object = None, **kwargs: object) -> SystemAPI:
+    """The demo, bound so that a card's schema says where it came from."""
 
     tree = ContextTree.of(
-        KubernetesPlatform, schema_of=lambda tool: {"derived_for": tool.name}
+        KubernetesPlatform, bind=_Derived if bind is None else bind
     )
     return SystemAPI(tree=tree, **kwargs)  # type: ignore[arg-type]
+
+
+@dataclass(frozen=True, slots=True)
+class _Derived:
+    """A binding whose schema names the tool it was derived for."""
+
+    tool: object
+
+    @property
+    def schema(self) -> dict[str, object]:
+        return {"derived_for": self.tool.name}  # type: ignore[attr-defined]
+
+    async def call(self, arguments: object, context: object = None) -> object:
+        return await self.tool.invoke(**(arguments or {}))  # type: ignore[attr-defined]
 
 
 class TraceTests(unittest.IsolatedAsyncioTestCase):
@@ -177,12 +192,20 @@ class DoorTests(unittest.IsolatedAsyncioTestCase):
 
         ran: list[str] = []
 
-        async def execute(tool: Tool, arguments: object, context: object) -> str:
-            ran.append(tool.name)
-            return "ran"
+        @dataclass(frozen=True, slots=True)
+        class Recording:
+            tool: Tool
+
+            @property
+            def schema(self) -> dict[str, object]:
+                return {}
+
+            async def call(self, arguments: object, context: object = None) -> str:
+                ran.append(self.tool.name)
+                return "ran"
 
         with self.assertRaises(Refused):
-            await _api(execute=execute).invoke_read_only(WRITE, {})
+            await _api(bind=Recording).invoke_read_only(WRITE, {})
 
         self.assertEqual(ran, [])
 

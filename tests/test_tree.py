@@ -20,6 +20,13 @@ from contexture.core.model.skill import Skill
 from contexture.core.model.tool import Tool
 from contexture.core.model.tree import ContextTree
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from serving import Marked  # noqa: E402
+
 PROCEDURE = "Read the status, then the logs, then the events."
 
 
@@ -110,7 +117,7 @@ def _tree() -> ContextTree:
         instructions="Route to the right specialist.",
         children=[Troubleshooter(), Operator()],
     )
-    return ContextTree.of(team, schema_of=lambda tool: {"tool": tool.name})
+    return ContextTree.of(team, bind=Marked)
 
 
 class SkeletonTests(unittest.TestCase):
@@ -550,7 +557,7 @@ class ReferenceTests(unittest.TestCase):
             instructions="Route to the right specialist.",
             children=[troubleshooter, Operator()],
         )
-        return ContextTree.of(team, schema_of=lambda tool: {"tool": tool.name})
+        return ContextTree.of(team, bind=Marked)
 
     def test_every_addressable_node_is_enumerated_not_only_roles(self) -> None:
         """What completion offers and what `uses` is checked against.
