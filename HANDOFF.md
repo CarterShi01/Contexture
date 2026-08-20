@@ -211,7 +211,7 @@ modules still cannot run without the SDK, but they are no longer where the
 behaviour lives: what is left in `test_stdio_server.py` is the set of claims
 that genuinely need a wire.
 
-## 0d. v0.7.0: the server is an object
+## 0d. v0.5.1: the server is an object
 
 [ADR 015](docs/adr/015-the-server-is-an-object.md) has the reasoning.
 

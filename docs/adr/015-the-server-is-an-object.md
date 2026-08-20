@@ -1,6 +1,6 @@
 # ADR 015 — server 是一个对象
 
-**Status:** accepted
+**Status:** accepted, implemented in v0.5.1
 **Date:** 2026-08-21
 
 **不取代任何既有 ADR。** ADR 014 把导航收进内核之后,`core` 已经是一个干净的对象
