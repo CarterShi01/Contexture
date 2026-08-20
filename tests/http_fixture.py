@@ -1,0 +1,116 @@
+"""The server `test_http_server.py` launches, in its own process.
+
+Not a test module — the discovery pattern is `test*.py`, which is why this is
+named the way it is. It exists as a file rather than as a string passed to
+`python -c` so that what is being served can be read like ordinary code, and
+so that it is exactly the shape the README tells a developer to write.
+
+Two tools and one verifier, which is the smallest arrangement that can show
+the whole claim: identity arrives from the wire, reaches a capability's own
+code, and the capability — not the framework — decides what to do about it.
+"""
+
+from __future__ import annotations
+
+import sys
+
+from contexture import Principal, Role, Tool, current_principal
+from contexture.server import Auth, ContextureApp, ContextureOptions
+
+#: Two callers who differ in exactly one scope, so a refusal can only be about
+#: that scope and never about which of them was authenticated.
+CALLERS = {
+    "reader": Principal(
+        subject="alice",
+        client_id="claude-code",
+        issuer="https://idp.example",
+        scopes={"ctx.read"},
+        claims={"tid": "acme"},
+    ),
+    "writer": Principal(
+        subject="bob",
+        client_id="codex",
+        issuer="https://idp.example",
+        scopes={"ctx.read", "k8s.write"},
+        claims={"tid": "acme"},
+    ),
+}
+
+
+class Verifier:
+    """What a business writes. Note the absence of any MCP import."""
+
+    async def verify(self, token: str) -> Principal | None:
+        return CALLERS.get(token)
+
+
+class WhoAmI(Tool):
+    """Report the caller this server sees."""
+
+    name = "whoami"
+    read_only = True
+
+    async def invoke(self) -> str:
+        who = current_principal()
+        if who is None:
+            return "anonymous"
+        return (
+            f"{who.subject}|{who.client_id}|{who.issuer}|"
+            f"{','.join(sorted(who.scopes))}|{who.claims.get('tid')}"
+        )
+
+
+class RollBack(Tool):
+    """Reverse a release, for a caller allowed to."""
+
+    name = "roll_back"
+    read_only = False
+
+    async def invoke(self, deployment: str) -> str:
+        who = current_principal()
+        if who is None:
+            raise PermissionError("roll_back needs an authenticated caller.")
+        if "k8s.write" not in who.scopes:
+            raise PermissionError(f"{who.subject} lacks k8s.write.")
+        return f"rolled back {deployment} for {who.subject}"
+
+
+class Ops(Role):
+    """Operate a platform."""
+
+    instructions = "Read before you write."
+
+    whoami = WhoAmI
+    roll_back = RollBack
+
+
+def build(port: int, *, secured: bool) -> tuple[ContextureApp, ContextureOptions]:
+    app = ContextureApp(
+        roots=Ops(name="ops", description="Operate a platform."), name="http-fixture"
+    )
+    options = ContextureOptions(
+        transport="streamable-http",
+        host="127.0.0.1",
+        port=port,
+        auth=(
+            Auth(
+                verifier=Verifier(),
+                issuer="https://idp.example",
+                resource=f"http://127.0.0.1:{port}/mcp",
+            )
+            if secured
+            else None
+        ),
+    )
+    return app, options
+
+
+def main() -> None:
+    port = int(sys.argv[1])
+    secured = sys.argv[2] == "secured"
+    app, options = build(port, secured=secured)
+    app.run(options)
+
+
+if __name__ == "__main__":
+    main()

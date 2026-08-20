@@ -416,6 +416,32 @@ def command_inspect(args: argparse.Namespace) -> int:
     return 1 if traced.failures else 0
 
 
+def serve_options(args: argparse.Namespace) -> "ContextureOptions":
+    """Turn the transport flags into the object that validates them.
+
+    Every check lives on `ContextureOptions` rather than here, so that a
+    project embedding a graph in its own process is held to the same rules as
+    one served from this command. A command line that validated separately
+    would be a second opinion, and the two would drift.
+
+    Authentication is deliberately not a flag. A verifier is an object with a
+    method, not a string: a deployment that needs one writes a few lines that
+    build `ContextureOptions(auth=Auth(...))` and calls `app.run(options)`.
+    """
+
+    from .server import ContextureOptions
+
+    return ContextureOptions(
+        transport=args.transport,
+        host=args.host,
+        port=args.port,
+        path=args.path,
+        allowed_hosts=tuple(args.allow_host),
+        allowed_origins=tuple(args.allow_origin),
+        allow_anonymous=args.allow_anonymous,
+    )
+
+
 def command_demo(args: argparse.Namespace) -> int:
     """Serve the bundled reference application, to prove an install works."""
 
@@ -426,7 +452,7 @@ def command_demo(args: argparse.Namespace) -> int:
         surface=load_surface([DEMO_SURFACE]),
         name="contexture-demo",
     )
-    app.run(transport=args.transport)
+    app.run(serve_options(args))
     return 0
 
 
@@ -442,7 +468,7 @@ def command_serve(args: argparse.Namespace) -> int:
         surface=load_surface(exposed),
         name=name or "contexture",
     )
-    app.run(transport=args.transport)
+    app.run(serve_options(args))
     return 0
 
 
@@ -451,6 +477,62 @@ def _display_path(path: Path) -> str:
         return str(path.relative_to(Path.cwd()))
     except ValueError:
         return str(path)
+
+
+def add_transport_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add the flags every serving command shares.
+
+    Defined once and added twice rather than written twice, so `serve` and
+    `demo` cannot end up offering different ways to reach the same server.
+
+    Each defaults to `None`, never to the value it eventually takes, which is
+    what lets `--transport stdio --port 9000` be reported as a contradiction
+    rather than accepted and ignored. The defaults themselves live on
+    `ContextureOptions`.
+    """
+
+    parser.add_argument(
+        "--transport",
+        default="stdio",
+        choices=("stdio", "streamable-http"),
+        help="transport to serve on (default: stdio)",
+    )
+    parser.add_argument(
+        "--host",
+        default=None,
+        help="interface to bind (default: 127.0.0.1, this machine only)",
+    )
+    parser.add_argument(
+        "--port", type=int, default=None, help="port to bind (default: 8000)"
+    )
+    parser.add_argument(
+        "--path", default=None, help="path the MCP endpoint lives at (default: /mcp)"
+    )
+    parser.add_argument(
+        "--allow-host",
+        action="append",
+        default=[],
+        metavar="HOST",
+        help=(
+            "a Host header this server answers, repeatable. Required once "
+            "--host is not loopback"
+        ),
+    )
+    parser.add_argument(
+        "--allow-origin",
+        action="append",
+        default=[],
+        metavar="ORIGIN",
+        help="an Origin header this server answers, repeatable",
+    )
+    parser.add_argument(
+        "--allow-anonymous",
+        action="store_true",
+        help=(
+            "serve a non-loopback address with no authentication — everything "
+            "the tools can reach becomes reachable by anyone who can route here"
+        ),
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -541,23 +623,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     serve = subcommands.add_parser("serve", help="serve the project over MCP")
     serve.add_argument("target", nargs="?", help="package.module:RoleClass")
-    serve.add_argument(
-        "--transport",
-        default="stdio",
-        choices=("stdio", "streamable-http"),
-        help="transport to serve on (default: stdio)",
-    )
+    add_transport_arguments(serve)
     serve.set_defaults(func=command_serve)
 
     demo = subcommands.add_parser(
         "demo", help="serve the bundled reference application"
     )
-    demo.add_argument(
-        "--transport",
-        default="stdio",
-        choices=("stdio", "streamable-http"),
-        help="transport to serve on (default: stdio)",
-    )
+    add_transport_arguments(demo)
     demo.set_defaults(func=command_demo)
 
     return parser

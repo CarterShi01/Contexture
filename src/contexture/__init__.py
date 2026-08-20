@@ -29,9 +29,12 @@ from .core import (
     DuplicateNameError,
     ModelValidationError,
     NodeNotFoundError,
+    Principal,
     Role,
     Skill,
     Tool,
+    bound,
+    current_principal,
 )
 
 __all__ = [
@@ -42,8 +45,11 @@ __all__ = [
     "DuplicateNameError",
     "ModelValidationError",
     "NodeNotFoundError",
+    "Principal",
     "Role",
     "Skill",
     "Tool",
     "__version__",
+    "bound",
+    "current_principal",
 ]

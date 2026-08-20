@@ -37,6 +37,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Iterable, Sequence
 
+from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.prompts import Prompt as SDKPrompt
@@ -48,6 +49,8 @@ from ..core.errors import ContextureError, ModelValidationError, NodeNotFoundErr
 from ..core.mcp_interface.prompt import Prompt
 from ..core.mcp_interface.resource import Resource
 from ..core.model.tool import Tool
+from ..core.principal import bound
+from .identity import principal_of
 from ..core.types import CompiledContext, JsonObject
 from ..core.disclosure.tree import SEPARATOR, ContextTree
 from ..core.mcp_interface.tool import (
@@ -515,7 +518,19 @@ async def _invoke(
         # read-only approval, so the mismatch is refused instead.
         raise ToolError(messages.wrong_door(ref, is_read_only=tool.read_only))
 
-    return await dispatch.run(tool, arguments, context)
+    # The one place in the package where a caller's identity is put where a
+    # capability can read it, and it is here because this is the one place
+    # business code runs. Discovering and opening do not reach a declaration's
+    # own code, so binding around them would widen the scope of a global for
+    # nobody's benefit.
+    #
+    # The translation goes through `AccessToken` rather than a side table kept
+    # by the verifier, so a deployment that installs an SDK-native verifier
+    # instead of `Auth` still gets a working `current_principal()`. Unsecured
+    # transports bind `None`, which is the honest answer and the one every
+    # capability that cares must already handle.
+    with bound(principal_of(get_access_token())):
+        return await dispatch.run(tool, arguments, context)
 
 
 class _translated:

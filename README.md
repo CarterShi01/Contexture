@@ -215,6 +215,35 @@ ContextureApp(roots=KubernetesPlatform()).run(transport="stdio")
 
 Nothing above imports `mcp`, writes JSON-RPC, or names an agent runtime.
 
+### Over the network
+
+The same graph, served over Streamable HTTP. Both protocol eras are answered by
+one process: the 2026-07-28 revision, which has no handshake, and the older
+revisions that still negotiate one.
+
+```bash
+uv run contexture serve --transport streamable-http --port 8080
+```
+
+Beyond loopback, two things have to be typed rather than defaulted, because the
+SDK stops protecting an address it does not recognise as local and nothing
+would say so:
+
+```python
+app.run(ContextureOptions(
+    transport="streamable-http",
+    host="0.0.0.0",
+    port=8080,
+    allowed_origins=["https://acme.example"],
+    auth=Auth(verifier=OktaVerifier(), issuer=..., resource=...),
+))
+```
+
+Sessions are not offered. There is no protocol session since 2026-07-28, this
+server keeps no per-connection state, and a ref resolves the same way for
+everyone — so any replica can answer any request, and nothing behind a load
+balancer needs to be sticky.
+
 ## Layers
 
 ```text
@@ -316,6 +345,48 @@ A model can pick the wrong door. Picking it gets the call **refused rather than
 executed**, because the host made its decision from the hint on the entry point.
 That is the same protection as never letting the classification be an argument,
 relocated to where the host can still act on it.
+
+### Identity is given to you; the decision is not
+
+Over HTTP a caller arrives with a bearer token, and Contexture does exactly
+three things with it: answers `401` with the pointer a client needs to go and
+get a real one, publishes the protected-resource metadata that pointer leads
+to, and hands whatever your verifier made of it to your code.
+
+```python
+from contexture import Tool, current_principal
+
+class RollBackDeployment(Tool):
+    read_only = False
+
+    async def invoke(self, namespace: str, deployment: str) -> str:
+        who = current_principal()
+        if who is None or "k8s.write" not in who.scopes:
+            raise PermissionError(f"{who and who.subject} may not roll back.")
+        ...
+```
+
+The verifier is yours too — one method, and no `mcp` import in sight:
+
+```python
+class OktaVerifier:
+    async def verify(self, token: str) -> Principal | None:
+        ...   # your IdP's library, your audience check
+```
+
+**No verifier ships with this package**, and it will not issue tokens. A
+built-in verifier arrives with defaults, defaults get copied into production,
+and a wrong default in OAuth is a vulnerability rather than a nuisance.
+
+There is no `required_scopes` on a tool and no visibility filtering, for the
+same reason: which caller may do what is a question about your system, and a
+framework that answered it would be answering for you. The consequence is worth
+stating outright — **a caller who cannot run a capability can still see its
+card.** Disclosure controls knowledge; it has never controlled permission, and
+this is that sentence applied to callers rather than to agents.
+
+Over stdio `current_principal()` is always `None`. Nobody authenticated, the
+host launched the process, and the operating system already decided who that is.
 
 ## Quick start
 
@@ -434,6 +505,11 @@ inspector — and `scripts/`, the playbooks for driving a real host against it.
   — why the role skeleton stopped being delivered whole: the argument for it
   was about one level of siblings and got applied to all of them, which is
   free at six roles and does not fit in a context window at eleven thousand.
+- [`docs/adr/011-identity-is-the-frameworks-permission-is-not.md`](docs/adr/011-identity-is-the-frameworks-permission-is-not.md)
+  — why serving is stated as an options object rather than passed through as
+  keyword arguments, why the framework carries a caller's identity but ships no
+  verifier and no policy vocabulary, and what that leaves visible to a caller
+  who may not act.
 - [`docs/atlas/index.html`](docs/atlas/index.html) — an offline visual atlas;
   open it directly in a browser. After editing it, run
   `npm install jsdom@22 && node docs/atlas/check.mjs` to confirm every diagram

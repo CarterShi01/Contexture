@@ -11,7 +11,8 @@ Three directories live here, because they answer three different questions:
     disclosure       where it sits, and how much of it arrives at a time
     mcp_interface    what this server exposes on each of MCP's primitives
 
-`errors`, `types` and `constants` sit directly here as shared ground: all three
+`errors`, `types`, `constants` and `principal` sit directly here as shared
+ground: all three
 directories may stand on them, and they stand on nothing. That is what lets the
 three stay independent of *each other* without each growing its own copy of an
 exception hierarchy.
@@ -35,6 +36,9 @@ _EXPORTS = {
     "DuplicateNameError": ".errors",
     "ModelValidationError": ".errors",
     "NodeNotFoundError": ".errors",
+    "Principal": ".principal",
+    "bound": ".principal",
+    "current_principal": ".principal",
     "CompileLevel": ".model",
     "ContextNode": ".model",
     "Role": ".model",

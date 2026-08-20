@@ -1,7 +1,10 @@
 # ADR 002 — A per-call context object, and options instead of `**kwargs`
 
-**Status:** proposed — Decision A's premise was removed by the gateway; see the
-revision note below before implementing any of it
+**Status:** Decision B accepted and implemented in v0.5.0, as
+[ADR 011](011-identity-is-the-frameworks-permission-is-not.md). Decision A
+remains proposed — its premise was removed by the gateway, and ADR 011 removed
+the one use it had a caller for; see the revision note below before
+implementing any of it
 **Date:** 2026-08-19
 **Revised:** 2026-08-19, after [ADR 006](006-errors-carry-facts-and-the-contract-is-one-module.md)
 

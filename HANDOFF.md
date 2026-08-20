@@ -166,13 +166,13 @@ an argument its own schema rejected — and the two ways to reach a tool
 disagreed about how to call it. Opening one now answers with the same
 `input_schema` its card carries.
 
-**Decision B — `ContextureOptions` — is untouched and still open.** The silent
-failure it exists for is confirmed against the installed SDK: the stdio branch
-is `anyio.run(self.run_stdio_async)` and takes no kwargs at all, so
-`app.run("stdio", port=9000)` discards `port` without a word. The other two
-claims — that `stateless_http` is not a knob this framework may offer, and that
-`host` should default to loopback — are opinions an options object can hold and
-a `**kwargs` passthrough cannot.
+**Decision B — `ContextureOptions` — is done**, in v0.5.0 and
+[ADR 011](docs/adr/011-identity-is-the-frameworks-permission-is-not.md). All
+three claims held: the stdio branch really does discard kwargs, `stateless_http`
+is pinned rather than offered, and `host` defaults to loopback. Two checks were
+added that the ADR had not anticipated — a non-loopback bind must state its
+allowed hosts or origins, because the SDK silently stops protecting one, and it
+must state either `auth` or `allow_anonymous`.
 
 ### 4.2 Two roles may still declare the same tool name
 

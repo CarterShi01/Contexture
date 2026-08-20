@@ -9,9 +9,12 @@ this package builds, rather than reading a file compiled for it in advance.
 `core.mcp_interface`, one module per MCP primitive. This package is **how**:
 the SDK calls, the dispatch, and every sentence said to whoever is reading.
 
-Three responsibilities share it, and they change at three different rates, so
-they are three modules rather than one:
+Four responsibilities share it, and they change at four different rates, so
+they are four modules rather than one:
 
+    identity        who is calling: the socket a business plugs its token
+                    verifier into, and the protocol facts around it. Moves
+                    when the authorization specification does.
     messages        everything said *to* somebody: the bootstrap text, the
                     sentence a failed lookup becomes, what a person reads at
                     the top of a command. Moves when the way an agent is
@@ -37,9 +40,18 @@ from typing import Any
 #: Exported name -> the submodule that defines it.
 _EXPORTS = {
     "ContextureApp": ".app",
+    "ContextureOptions": ".app",
+    "DEFAULT_HOST": ".app",
+    "DEFAULT_PATH": ".app",
+    "DEFAULT_PORT": ".app",
+    "LOOPBACK": ".app",
+    "ServeError": ".app",
     "Transport": ".app",
     "configure_logging": ".app",
-    # The five entry points are declared one layer down, in
+    "Auth": ".identity",
+    "TokenVerifier": ".identity",
+    "principal_of": ".identity",
+    # The entry points are declared one layer down, in
     # `core.mcp_interface`, beside what this server puts on the other two
     # primitives. They are forwarded here because `contexture.server` is where
     # a caller looks for what is on the wire — but they are defined there, and
@@ -51,7 +63,6 @@ _EXPORTS = {
     "INVOKE_READ_ONLY_TOOL": "..core.mcp_interface.tool",
     "INVOKE_TOOL": "..core.mcp_interface.tool",
     "OPEN_TOOL": "..core.mcp_interface.tool",
-    "READ_TOOL": "..core.mcp_interface.tool",
     "PREAMBLE": ".messages",
     "unresolved": ".messages",
     "Dispatch": ".binding",
