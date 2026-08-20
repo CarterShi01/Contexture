@@ -21,6 +21,7 @@ from pathlib import Path
 try:
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
+    from mcp_types import PromptReference
 except ImportError:  # pragma: no cover - the SDK is a hard dependency
     ClientSession = None  # type: ignore[assignment]
 
@@ -372,3 +373,104 @@ class StdioHygieneTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+@unittest.skipIf(ClientSession is None, "the MCP SDK is not installed")
+class StdioCommandPlaneTests(unittest.TestCase):
+    """The person's plane, over real stdio rather than in process.
+
+    `prompts/list`, `prompts/get` and `completion/complete` are three separate
+    protocol methods with their own capability declaration. Exercising them
+    through the SDK client is the only way to find out whether the server
+    actually declares the capability, rather than whether a Python object
+    happens to hold the right attributes.
+    """
+
+    def test_the_generic_entrance_is_offered_and_takes_a_reference(self) -> None:
+        """The demo marks nothing, so `goto` is the whole prompt surface.
+
+        That is the design working, not a gap: the default plane is the
+        model's, so a declaration that says nothing about people gets exactly
+        one entrance and no menu to maintain.
+        """
+
+        async def work(session):
+            return await session.list_prompts()
+
+        listed = _run(work)
+
+        self.assertEqual([prompt.name for prompt in listed.prompts], ["goto"])
+        (argument,) = listed.prompts[0].arguments or []
+        self.assertEqual(argument.name, "ref")
+        self.assertTrue(argument.required)
+
+    def test_a_person_reaches_depth_three_without_spending_a_model_turn(self) -> None:
+        """What the whole plane is for.
+
+        The same node `hosts.md` records a host reaching in three navigation
+        calls, reached here in one request that no model participated in.
+        """
+
+        async def work(session):
+            return await session.get_prompt(
+                "goto",
+                {"ref": "kubernetes-platform/incident-response/diagnose-crash-loop-backoff"},
+            )
+
+        result = _run(work)
+
+        (message,) = result.messages
+        self.assertEqual(message.role, "user")
+        text = message.content.text
+        # The skill's procedure, which reaches an agent only when it is opened.
+        self.assertIn("get_pod_status", text)
+        # Signposts: the level above is counted, and its members are not named.
+        self.assertIn("kubernetes-platform: 2 sub-role(s) here", text)
+        self.assertIn("not disclosed", text)
+        self.assertNotIn("deployment-ops", text)
+
+    def test_completion_ranks_and_answers_from_any_part_of_a_path(self) -> None:
+        """A person who does not know the tree can still find a node in it."""
+
+        async def work(session):
+            return await session.complete(
+                ref=PromptReference(type="ref/prompt", name="goto"),
+                argument={"name": "ref", "value": "crash"},
+            )
+
+        result = _run(work)
+
+        self.assertIn(
+            "kubernetes-platform/incident-response/crash-loop-runbook",
+            result.completion.values,
+        )
+        self.assertEqual(result.completion.total, len(result.completion.values))
+        self.assertFalse(result.completion.has_more)
+
+    def test_completion_reaches_every_kind_not_only_roles(self) -> None:
+        """A person aims at a skill or a tool at least as often as at a role."""
+
+        async def work(session):
+            return await session.complete(
+                ref=PromptReference(type="ref/prompt", name="goto"),
+                argument={"name": "ref", "value": ""},
+            )
+
+        values = _run(work).completion.values
+
+        self.assertIn("kubernetes-platform", values)
+        self.assertIn(
+            "kubernetes-platform/incident-response/diagnose-crash-loop-backoff", values
+        )
+        self.assertIn("kubernetes-platform/incident-response/get_pod_status", values)
+
+    def test_completion_declines_a_prompt_that_is_not_ours(self) -> None:
+        """Answering for somebody else's prompt would put our refs under it."""
+
+        async def work(session):
+            return await session.complete(
+                ref=PromptReference(type="ref/prompt", name="something-else"),
+                argument={"name": "ref", "value": "crash"},
+            )
+
+        self.assertEqual(_run(work).completion.values, [])

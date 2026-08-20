@@ -135,6 +135,41 @@ class SkeletonTests(unittest.TestCase):
         self.assertNotIn("get_pod_logs", rendered)
 
 
+    def test_the_skeleton_is_never_truncated_however_many_roots_there_are(
+        self,
+    ) -> None:
+        """The one call that must always answer in full, and why.
+
+        Every other budget in this project cuts and then names the call that
+        restores what was cut. The roster's own truncation line names *this*
+        call — "for the complete list" — so a cap here would turn that sentence
+        into a lie with nothing left to point at.
+
+        It also runs straight into ADR 004: the roots are one sibling set, and
+        a choice made among a subset of the alternatives is a guess rather than
+        a choice. Capping the entrance would buy characters by reintroducing
+        the exact failure the whole disclosure model exists to remove.
+
+        So this is a floor, not an oversight. Anyone tempted to add a budget
+        here has to change the roster's promise first.
+        """
+
+        roots = [
+            Role(
+                name=f"root-{index}",
+                description="A responsibility boundary with a realistic sentence "
+                "attached, long enough that forty of them are not free.",
+                instructions="Route to the sub-role that owns the failure.",
+            )
+            for index in range(40)
+        ]
+
+        skeleton = ContextTree.of(roots).skeleton()
+
+        self.assertEqual(len(skeleton["roles"]), 40)
+        self.assertTrue(all("ref" in card for card in skeleton["roles"]))
+
+
 class CardTests(unittest.TestCase):
     def test_every_card_anywhere_carries_the_ref_that_opens_it(self) -> None:
         """A card without a ref is a dead end: it can be seen, not reached.

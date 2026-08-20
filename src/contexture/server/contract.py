@@ -31,6 +31,15 @@ READ_TOOL = "contexture_read"
 INVOKE_READ_ONLY_TOOL = "contexture_invoke_read_only"
 INVOKE_TOOL = "contexture_invoke"
 
+#: The one command every server offers, whatever the declaration marked.
+GOTO_PROMPT = "goto"
+
+#: The argument it takes.
+GOTO_ARGUMENT = "ref"
+
+#: What `completion/complete` may return in one response, per the protocol.
+COMPLETION_LIMIT = 100
+
 
 @dataclass(slots=True, frozen=True, kw_only=True)
 class GatewayTool:
@@ -192,6 +201,39 @@ def unresolved(failure: NodeNotFoundError) -> str:
     return f"{ref!r} could not be resolved."
 
 
+#: What a person reads in the menu beside `goto`.
+#:
+#: It is the only entrance to the nodes nobody marked, and it earns its place
+#: on a value the usual test for a command does not cover. Consistent
+#: execution and guardrails belong to a declared command; saved typing is
+#: weak, and a person who knows the ref can simply say it. What nothing else
+#: offers is **seeing what the server holds without spending a model turn** —
+#: and unlike a repository, this tree belongs to somebody else and the person
+#: may never have laid eyes on it.
+GOTO_DESCRIPTION = (
+    "Open any capability this server holds, by reference. The reference "
+    "completes as you type, so the whole tree can be browsed here without "
+    "asking the agent to go and look."
+)
+
+#: What a person reads about the argument.
+GOTO_ARGUMENT_DESCRIPTION = (
+    "A reference such as payments/ledger/settlement. Completes on any part of "
+    "the path."
+)
+
+
+def truncated_completion(shown: int, total: int) -> str:
+    """Say that a completion list was cut, in the one place it can be said.
+
+    The protocol carries `total` and `hasMore` beside the values for exactly
+    this, and a host is free to ignore both. Saying it in a value keeps the
+    fact where a person will actually see it.
+    """
+
+    return f"... {total - shown} more match; keep typing to narrow."
+
+
 #: How a command's text opens. The node's own payload follows it.
 COMMAND_PREAMBLE = "You are at {ref}, opened by name at a person's request."
 
@@ -275,8 +317,13 @@ def wrong_door(ref: str, *, is_read_only: bool) -> str:
 
 __all__ = [
     "COMMAND_CLOSING",
+    "COMPLETION_LIMIT",
     "COMMAND_PREAMBLE",
     "DISCOVER_TOOL",
+    "GOTO_ARGUMENT",
+    "GOTO_ARGUMENT_DESCRIPTION",
+    "GOTO_DESCRIPTION",
+    "GOTO_PROMPT",
     "GATEWAY",
     "GATEWAY_TOOLS",
     "GatewayTool",
@@ -287,6 +334,7 @@ __all__ = [
     "command_description",
     "command_taken_by_a_person",
     "signpost",
+    "truncated_completion",
     "PREAMBLE",
     "READ_TOOL",
     "REF_RULE",

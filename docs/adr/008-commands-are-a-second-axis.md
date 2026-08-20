@@ -137,19 +137,24 @@ person who knows it can simply say it, which costs one `open`. The honest
 saving is **two calls to one**, plus completion so the person need not
 reproduce the ref exactly. Completion is the value; round trips are not.
 
-### One defect the measurements surfaced
+### A defect the measurements appeared to surface, and did not
 
 `ContextTree.skeleton()` — what `contexture_discover` returns — has no budget
-and no truncation:
+and no truncation, while every other budget in the project cuts and names the
+call that restores what was cut. That reads like an oversight, and an earlier
+draft of this ADR recorded it as one and scheduled a fix.
 
-```python
-return {"roles": [_card(root, root.name) for root in self.roots]}
-```
+It is a floor, not an oversight, and implementing the fix is what showed it.
+The roster's own truncation line reads *"call `contexture_discover` for the
+**complete list**"*, so capping `discover` turns that sentence into a lie with
+nothing left to point at. And the roots are one sibling set, which puts a cap
+straight into ADR 004: *a choice made among a subset of the alternatives is a
+guess rather than a choice*. Capping the entrance would buy characters by
+reintroducing the exact failure the disclosure model exists to remove.
 
-`instructions.build()` cuts at `ROSTER_BUDGET` and points at `discover` as the
-complete answer, but `discover` itself is uncapped. Invisible on a two-headed
-demo; on a wide multi-headed forest it is the fixed cost of entering the
-server, paid every time. Independent of everything else here.
+**`contexture_discover` is the one call that must always answer in full,
+because it is what every other truncation recovers to.** Pinned by a test, so
+that anyone tempted to add a budget has to change the roster's promise first.
 
 ## Decision
 
@@ -351,10 +356,18 @@ ordinary navigation.
 the completion handler, `signpost()`, and the refusal for a person-only node
 opened by a model.
 
-**Phase 3 — the generic entrance and the old defect.** `goto` with completion,
-and `skeleton()` truncation. `goto` is a convenience, not the headline; the
-`skeleton()` cap is unrelated to the rest and is fixed here because this is
-when it was found.
+**Phase 3 — the generic entrance.** `goto` with completion.
+
+`goto` earns its place on a value the criterion in decision 3 does not cover.
+Consistent execution and guardrails belong to a declared command; saved typing
+is the weak leg, and a person who knows a ref can simply say it and spend one
+`open`. What nothing else in the design offers is **seeing what the server
+holds without spending a model turn** — and unlike a repository, this tree
+belongs to somebody else and the person may never have laid eyes on it. That is
+browsing, which is what MCP's completion API is for.
+
+`skeleton()` truncation was also planned for this phase and is **not done**,
+because attempting it showed it was never a defect. See above.
 
 ## Open questions
 

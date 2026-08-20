@@ -37,7 +37,7 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.prompts import Prompt as SDKPrompt
 from mcp.server.mcpserver.tools import Tool as SDKTool
-from mcp_types import ToolAnnotations
+from mcp_types import Completion, ToolAnnotations
 
 from ..core.errors import ContextureError, NodeNotFoundError
 from ..core.context import Opener
@@ -203,6 +203,47 @@ def _project_commands(server: MCPServer, *, tree: ContextTree) -> None:
             )
         )
 
+    async def goto(ref: str) -> str:
+        return await _open_by_name(tree, ref)
+
+    server.add_prompt(
+        SDKPrompt.from_function(
+            goto,
+            name=contract.GOTO_PROMPT,
+            description=contract.GOTO_DESCRIPTION,
+        )
+    )
+
+    @server.completion()
+    async def complete(
+        ref: Any,
+        argument: Any,
+        context: Any,
+    ) -> Completion | None:
+        """Offer the tree's addresses while a person types one.
+
+        Answers for `goto` and nothing else. A declared command takes no
+        argument — the node it opens was fixed when it was registered — so
+        there is nothing there to complete, and answering anyway would put
+        this server's refs under somebody else's prompt.
+        """
+
+        if getattr(ref, "name", None) != contract.GOTO_PROMPT:
+            return None
+        if argument.name != contract.GOTO_ARGUMENT:
+            return None
+
+        matches, total = tree.matching_refs(
+            argument.value, limit=contract.COMPLETION_LIMIT
+        )
+        values = list(matches)
+        if total > len(values):
+            # The protocol carries `total` and `has_more`, and a host may show
+            # neither. One value spent saying so is cheaper than a person
+            # believing they have seen everything.
+            values[-1] = contract.truncated_completion(len(values), total)
+        return Completion(values=values, total=total, has_more=total > len(matches))
+
 
 def _command(tree: ContextTree, ref: str) -> Callable[[], Awaitable[str]]:
     """Build the one prompt that opens `ref`.
@@ -218,14 +259,7 @@ def _command(tree: ContextTree, ref: str) -> Callable[[], Awaitable[str]]:
     """
 
     async def command() -> str:
-        payload = tree.open(ref)
-        sections = [
-            contract.COMMAND_PREAMBLE.format(ref=ref),
-            contract.signpost(tree.signpost(ref)),
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            contract.COMMAND_CLOSING,
-        ]
-        return "\n\n".join(section for section in sections if section)
+        return await _open_by_name(tree, ref)
 
     return command
 
@@ -281,6 +315,32 @@ def _without_titles(schema: JsonObject) -> JsonObject:
         else:
             cleaned[key] = value
     return cleaned
+
+
+async def _open_by_name(tree: ContextTree, ref: str) -> str:
+    """Render one node for a person who named it rather than navigated to it.
+
+    Shared by `goto` and by every declared command, which is what makes them
+    the same door with two ways of addressing it: a command carries the ref in
+    its registration, `goto` carries it in an argument, and a person gets the
+    same answer either way.
+
+    No `opened_by` check. That field says which *plane* may reach a node, and
+    both callers here are the person's plane; a node marked for a model alone
+    is still a node a person may look at, and refusing would mean the tree held
+    capabilities its owner could not read.
+    """
+
+    with _translated(contract.GOTO_PROMPT):
+        payload = tree.open(ref)
+        levels = tree.signpost(ref)
+    sections = [
+        contract.COMMAND_PREAMBLE.format(ref=ref),
+        contract.signpost(levels),
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        contract.COMMAND_CLOSING,
+    ]
+    return "\n\n".join(section for section in sections if section)
 
 
 async def _invoke(

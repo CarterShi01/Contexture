@@ -831,18 +831,31 @@ class CommandPlaneTests(unittest.IsolatedAsyncioTestCase):
         return server
 
     async def test_only_a_marked_node_reaches_the_prompt_plane(self) -> None:
-        """The command surface is authored, not derived from the forest."""
+        """The command surface is authored, not derived from the forest.
+
+        Four nodes here and one command, because one node was marked. The
+        generic entrance stands beside it and is not derived from the forest
+        either — it is one prompt whatever the tree holds.
+        """
 
         prompts = await self._server(self._tree()).list_prompts()
 
-        self.assertEqual([prompt.name for prompt in prompts], ["compose-and-ship"])
+        self.assertEqual(
+            sorted(prompt.name for prompt in prompts),
+            ["compose-and-ship", "goto"],
+        )
 
-    async def test_an_unmarked_forest_offers_no_commands(self) -> None:
-        """The default is the model's plane alone, and it stays that way."""
+    async def test_an_unmarked_forest_offers_only_the_generic_entrance(self) -> None:
+        """The default is the model's plane alone, and it stays that way.
+
+        A declaration that says nothing about people gets no menu to maintain
+        — which is the whole reason the default is inverted from the
+        convention elsewhere.
+        """
 
         prompts = await self._server(self._tree(skill=("model",))).list_prompts()
 
-        self.assertEqual(prompts, [])
+        self.assertEqual([prompt.name for prompt in prompts], ["goto"])
 
     async def test_a_command_answers_with_what_open_would_have_said(self) -> None:
         """Two doors, one answer.
@@ -937,5 +950,5 @@ class CommandPlaneTests(unittest.IsolatedAsyncioTestCase):
             OPEN_TOOL, {"ref": "oc/publishing/compose-and-ship"}
         )
 
-        self.assertEqual([prompt.name for prompt in prompts], ["compose-and-ship"])
+        self.assertIn("compose-and-ship", [prompt.name for prompt in prompts])
         self.assertIsNotNone(opened)

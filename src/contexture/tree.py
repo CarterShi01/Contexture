@@ -195,6 +195,40 @@ class ContextTree:
             if Opener.PERSON in node.opened_by:
                 yield ref, node
 
+    def matching_refs(self, value: str, *, limit: int) -> tuple[tuple[str, ...], int]:
+        """Rank addressable refs against what a person has typed so far.
+
+        Returns `(matches, total)` — the first `limit` in relevance order, and
+        how many matched altogether.
+
+        **This cuts by relevance, where the roster cuts in whole sibling
+        groups, and the difference is deliberate.** The roster's rule exists
+        because a model shown three of a role's eight sub-roles takes three for
+        the whole choice. This is read by a person watching a menu narrow as
+        they type, who will simply keep typing. Same protocol, different
+        consumer, so the same cut would be the wrong one.
+        """
+
+        wanted = value.strip().lower()
+        scored: list[tuple[int, int, str]] = []
+        for ref, _ in self.nodes_with_refs():
+            lowered = ref.lower()
+            if not wanted:
+                rank = 0
+            elif lowered.startswith(wanted):
+                rank = 0
+            elif lowered.rsplit(SEPARATOR, 1)[-1].startswith(wanted):
+                rank = 1
+            elif any(part.startswith(wanted) for part in lowered.split(SEPARATOR)):
+                rank = 2
+            elif wanted in lowered:
+                rank = 3
+            else:
+                continue
+            scored.append((rank, len(ref), ref))
+        scored.sort()
+        return tuple(ref for _, _, ref in scored[:limit]), len(scored)
+
     def signpost(self, ref: str) -> tuple[tuple[str, int], ...]:
         """Name the path above a node, with how many sub-roles each level holds.
 
