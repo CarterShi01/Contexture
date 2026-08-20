@@ -92,6 +92,57 @@ What a consumer notices:
 
 ---
 
+## 0c. v0.6.0: navigation is part of the kernel
+
+[ADR 014](docs/adr/014-navigation-is-part-of-the-kernel.md) has the reasoning.
+What a consumer notices:
+
+| Gone | Replaced by |
+| --- | --- |
+| `contexture.core.disclosure` (package) | `contexture.core.model.tree` |
+| `core.mcp_interface.tool.GATEWAY` / `GATEWAY_TOOLS` | `core.model.system_api.GATEWAY` / `GATEWAY_TOOLS` |
+| `GatewayTool` | `SystemTool` (in `core.model.system_api`) |
+| `server.messages.unresolved` / `wrong_door` / `command_taken_by_a_person` | `core.model.system_api.unresolved` / `wrong_door` / `taken_by_a_person` |
+| `ContextTree(roots=..., schema_of=...)` | `ContextTree.of(...)` or `manager.sealed(schema_of=...)`; `roots` is a property |
+| `register_root` imported from `tree` | from `core.model.manager` (still re-exported by `tree`) |
+| `Role.compile("active")` returning four keys | it now carries `ref` and its members' cards |
+| `_compile_active(self)` | `_compile_active(self, view)` — only relevant to a subclass that overrode it |
+
+`contexture.server` still forwards the entry-point names, so a caller that asks
+`contexture.server` what is on the wire is unaffected.
+
+**What this buys, and what it retires.** `tests/test_system_api.py` runs the
+whole agent trace — discover, open a root, open a specialism, open a skill,
+three read-only invokes — plus both wrong-door refusals, wrong refs, signposts,
+reserved nodes and statelessness, **importing no `mcp`**. The five SDK-backed
+modules still cannot run without the SDK, but they are no longer where the
+behaviour lives: what is left in `test_stdio_server.py` is the set of claims
+that genuinely need a wire.
+
+## 0d. `tests/channels_fixture.py` never made it through v0.5.0
+
+**Found while verifying v0.6.0, and it predates it.** The fixture still declares
+its capabilities in the class-body style ADR 013 deleted:
+
+```python
+class NotifySquad(Tool):
+    name = "notify_squad"        # a class attribute, not a constructor
+    read_only = False
+```
+
+So `import tests.channels_fixture` raises `TypeError: Role.__init__() missing 3
+required keyword-only arguments`, and `test_channels.py` cannot run **even with
+the SDK installed**. It was invisible because the module fails to import for the
+SDK's absence first, on every machine that has looked at it so far.
+
+Six declarations to migrate: `NotifySquad`, `WhereAmI`, `Runbook`, `Escalate`,
+`Escalation`, `Operations`. Its `manager.register(...)` calls were already
+corrected to `register_role` in the v0.6.0 commit; the constructors were not,
+because they cannot be verified from a machine without the SDK.
+
+**Done when:** `python run_tests.py` on a machine with the SDK reports no error
+from `test_channels`.
+
 ## 1. Reserve the distribution name on PyPI
 
 `contexture` is taken on PyPI by an unrelated 2014 project ("Magic Automatic
