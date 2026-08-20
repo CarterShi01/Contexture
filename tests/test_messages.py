@@ -16,7 +16,7 @@ from contexture.core.errors import LookupFailure, NodeNotFoundError
 from contexture.core.mcp_interface import tool as gateway
 from contexture.server import messages
 
-SOURCE_ROOT = Path(__file__).resolve().parent.parent / "src"
+SOURCE_ROOT = Path(__file__).resolve().parent.parent
 
 
 class SurfaceVocabularyTests(unittest.TestCase):

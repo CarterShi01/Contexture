@@ -27,7 +27,7 @@ import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from contexture.cli import DEMO_TARGET, main  # noqa: E402  (after sys.path)
 

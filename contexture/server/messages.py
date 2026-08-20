@@ -7,7 +7,7 @@ when a reference does not resolve.
 
 Collecting it here is not tidiness. **The best version of several of these
 sentences cannot be written anywhere else.** When a lookup fails inside
-`contexture.tree`, the useful half of the reply is "call `contexture_open` on
+`core.disclosure`, the useful half of the reply is "call `contexture_open` on
 the role you came from to see what it holds" — and the tree does not know the
 gateway tool names, and must not. So the failure travels as facts and is
 rendered here, where the vocabulary is.
@@ -50,8 +50,8 @@ COMPLETION_LIMIT = 100
 #: The self-contained opening. Keep this under 512 characters.
 PREAMBLE = f"""\
 Everything this server offers is behind {OPEN_TOOL}. Start from the roles
-below: open the one that fits the task to see its skills, tools, resources
-and sub-roles, then open the skill you chose for its procedure. Each call
+below: open the one that fits the task to see its skills, tools and
+sub-roles, then open the skill you chose for its procedure. Each call
 reveals one level; keep opening down the branch that fits.
 Run a tool with {INVOKE_READ_ONLY_TOOL} or {INVOKE_TOOL}, whichever its
 card says, passing the ref and arguments from that card.

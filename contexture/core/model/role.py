@@ -50,7 +50,7 @@ class Role(ContextNode):
     surface as a consequence of an earlier call, and an `append` here does
     exactly that. It also skips the uniqueness, cycle, and
     separator checks, which all run at construction. Build the graph you mean to serve, then leave it alone;
-    `tests/test_projection.py` holds the statelessness this depends on.
+    `tests/test_binding.py` holds the statelessness this depends on.
     """
 
     #: How this role behaves once opened, and how it uses what it holds.
@@ -176,7 +176,7 @@ class Role(ContextNode):
 
         A role does not list its members here. It cannot list them completely:
         a member is only reachable through a reference, references belong to
-        `contexture.tree`, and `core` must not know they exist. A half-listed
+        `core.disclosure`, and `core.model` must not know they exist. A half-listed
         member is worse than an unlisted one — it can be seen and not opened.
         """
 

@@ -126,7 +126,7 @@ rule out.
 
 An agent is free to skip the traversal: a ref that was guessed rather than read
 still runs, and nothing here is an authorization boundary. What it cannot do is
-skip ahead and still know what to do. The surface carries five tools and no
+skip ahead and still know what to do. The surface carries four tools and no
 Kubernetes, so the tool names, their schemas, the procedure, the ordering, and
 the "do not restart first" constraint all arrive inside payloads that opening
 delivers. Disclosure controls knowledge, not access.

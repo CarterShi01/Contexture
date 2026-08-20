@@ -35,9 +35,6 @@ from .core.model.role import Role
 #: Templates ship as package data beside this module.
 TEMPLATES = Path(__file__).parent / "templates"
 
-#: The directory a project template carries as a stand-in for its own package.
-PLACEHOLDER_PACKAGE = "module"
-
 #: The table `serve` and `list` read, and the marker they find a project by.
 CONFIG_TABLE = "contexture"
 
@@ -66,7 +63,6 @@ class Names:
     """
 
     project_name: str
-    package_name: str
     role_class: str
     role_description: str
     resource_scheme: str
@@ -79,16 +75,18 @@ class Names:
             raise UsageError(
                 f"{raw!r} contains no letters or digits to build a name from."
             )
-        package = slug.replace("-", "_")
-        if package[0].isdigit():
+        if slug[0].isdigit():
+            # The project directory is never imported, so its name is free.
+            # The role *class* built from it is not: `9lives` would derive
+            # `9livesAssistant`, which is not an identifier and fails at the
+            # `class` statement rather than here.
             raise UsageError(
-                f"{raw!r} starts with a digit, so it cannot become a Python "
-                "package name. Try a leading letter."
+                f"{raw!r} starts with a digit, so the role class derived from "
+                "it would not be a Python identifier. Try a leading letter."
             )
         words = [part for part in slug.split("-") if part]
         return cls(
             project_name=slug,
-            package_name=package,
             role_class="".join(word.capitalize() for word in words) + "Assistant",
             role_description=(
                 f"Answer requests about {slug.replace('-', ' ')}."
@@ -102,7 +100,6 @@ class Names:
     def as_variables(self) -> dict[str, str]:
         return {
             "project_name": self.project_name,
-            "package_name": self.package_name,
             "role_class": self.role_class,
             "role_description": self.role_description,
             "resource_scheme": self.resource_scheme,
@@ -157,10 +154,6 @@ def new_project(
         raise UsageError(f"{root} already exists; refusing to write into it.")
 
     shutil.copytree(source, root, ignore=shutil.ignore_patterns("__pycache__"))
-
-    placeholder = root / PLACEHOLDER_PACKAGE
-    if placeholder.is_dir():
-        placeholder.rename(root / names.package_name)
 
     variables = names.as_variables()
     for path in sorted(root.rglob("*.tmpl")):
@@ -237,12 +230,17 @@ class ProjectConfig:
         )
 
 
-def resolve_target(target: str) -> Role:
+def resolve_target(target: str, *, project: Path | None = None) -> Role:
     """Turn `package.module:RoleClass` into a built Role.
 
     Naming the class is required rather than inferred. A module that declares a
     dozen roles has no obvious root, and guessing wrong would swap what the
     server offers without failing.
+
+    `project` is where the declaration is expected to live. Passing it turns a
+    name the project shares with something already installed into a sentence
+    rather than a server quietly built from somebody else's module — see
+    `_require_declared_here`.
     """
 
     module_name, separator, attribute = target.partition(":")
@@ -257,6 +255,7 @@ def resolve_target(target: str) -> Role:
             f"Cannot import {module_name!r} ({exc}). Run this from inside the "
             "project, or check `roots` in pyproject.toml."
         ) from exc
+    _require_declared_here(module, module_name, project)
     try:
         declared = getattr(module, attribute)
     except AttributeError:
@@ -272,18 +271,63 @@ def resolve_target(target: str) -> Role:
     )
 
 
+def _require_declared_here(
+    module: object,
+    module_name: str,
+    project: Path | None,
+) -> None:
+    """Refuse a module that resolved to something outside the project.
+
+    A project directory goes on the end of `sys.path`, so a top-level name it
+    shares with an installed distribution resolves to the *installed* one. That
+    is the safe half of appending — nothing of Python's own is shadowed — but
+    the failure it leaves is the quiet kind: a server built from somebody
+    else's module, with no error anywhere. Naming it is one comparison.
+    """
+
+    if project is None:
+        return
+    origin = getattr(module, "__file__", None)
+    if origin is None:
+        return
+    resolved = Path(origin).resolve()
+    if resolved.is_relative_to(project.resolve()):
+        return
+    raise UsageError(
+        f"{module_name!r} resolved to {resolved}, which is outside this "
+        f"project ({project}). Something already installed answers to that "
+        "name, so the project's own module is unreachable. Rename it, or name "
+        "a module this project does not share with a dependency."
+    )
+
+
 def load_roots(targets: Sequence[str], *, project: Path | None) -> list[Role]:
+    # Appended, never inserted at the front. A project directory holds whatever
+    # its author put there, and a file called `types.py` or `logging.py` beside
+    # `pyproject.toml` would shadow the standard library for the whole process
+    # — the SDK included — if this directory outranked it. Appending gives the
+    # standard library and every installed distribution priority, and
+    # `_require_declared_here` turns the one failure that trade introduces into
+    # a sentence.
     if project is not None and str(project) not in sys.path:
-        sys.path.insert(0, str(project))
-    return [resolve_target(target) for target in targets]
+        sys.path.append(str(project))
+    return [resolve_target(target, project=project) for target in targets]
 
 
-def load_surface(targets: Sequence[str]) -> list[object]:
+def load_surface(
+    targets: Sequence[str],
+    *,
+    project: Path | None = None,
+) -> list[object]:
     """Resolve each `package.module:NAME` naming a prompt or a resource.
 
     A target may name one entry or a sequence of them, because a project that
     declares eight commands should not have to list eight lines here as well.
     `sys.path` is already set by `load_roots`, which runs first.
+
+    `project` is checked the same way `resolve_target` checks it, and is left
+    out for a target that is deliberately not in a project — the bundled demo
+    lives inside this package.
     """
 
     entries: list[object] = []
@@ -300,6 +344,7 @@ def load_surface(targets: Sequence[str]) -> list[object]:
                 f"Cannot import {module_name!r} ({exc}). Check `surface` in "
                 "pyproject.toml."
             ) from exc
+        _require_declared_here(module, module_name, project)
         try:
             declared = getattr(module, attribute)
         except AttributeError:
@@ -385,7 +430,7 @@ def command_inspect(args: argparse.Namespace) -> int:
     roots = load_roots(targets, project=project)
     app = ContextureApp(
         roots=roots,
-        surface=load_surface(exposed),
+        surface=load_surface(exposed, project=project),
         name=name or "contexture",
     )
 
@@ -465,7 +510,7 @@ def command_serve(args: argparse.Namespace) -> int:
     roots = load_roots(targets, project=project)
     app = ContextureApp(
         roots=roots,
-        surface=load_surface(exposed),
+        surface=load_surface(exposed, project=project),
         name=name or "contexture",
     )
     app.run(serve_options(args))

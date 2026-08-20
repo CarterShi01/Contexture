@@ -9,7 +9,7 @@ particular agent runtime. Claude Code and Codex run this same command.
 
 from __future__ import annotations
 
-from contexture.core.mcp_interface import Resource
+from contexture import Resource
 from contexture.server import ContextureApp
 from .role import KubernetesPlatform
 

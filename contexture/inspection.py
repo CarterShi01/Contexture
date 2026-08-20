@@ -26,6 +26,16 @@ content is often the largest single thing an agent receives, so its cost
 belongs in the accounting, while reading it runs business code that may want
 credentials nobody supplied.
 
+**This module is public, and is not on the `contexture` facade.** Both halves
+are deliberate. `contexture inspect` is a thin front end over it, and the names
+in `__all__` are meant to be imported: a project that wants its context budget
+watched in CI asserts against `as_json(trace(...))` rather than parsing the
+printed form. It stays off the facade because that facade exports what a
+business developer *declares* with, and this is read at development time — it
+sits above `server` and belongs to no layer inside `core` (ADR 010). Importing
+it costs no SDK: it reaches `server.messages` and `server.instructions` for the
+text and the budget, and never for the wire.
+
 Cost is reported as characters, UTF-8 bytes, and an *estimated* token count.
 The estimate is one token per wide character plus a quarter token per
 everything else — enough to tell 300 tokens from 3,000, and not a tokenizer.

@@ -1,0 +1,56 @@
+# $project_name
+
+A Contexture MCP server. It declares one role, one skill, one tool, and one
+resource, and serves them to any agent runtime that speaks MCP.
+
+## Run it
+
+```bash
+uv sync
+uv run contexture serve      # serves MCP over stdio; blocks
+```
+
+## See what it would serve
+
+```bash
+uv run contexture list
+```
+
+## Connect a host
+
+The same command for each — the host launches this server itself.
+
+```bash
+# Claude Code writes to local scope unless a scope is named.
+claude mcp add --scope project $project_name -- uv run contexture serve
+codex  mcp add                 $project_name -- uv run contexture serve
+```
+
+## Where to write your own
+
+There are three kinds of node and no fourth. A **Role** is a boundary, a
+**Skill** is a procedure the model performs, a **Tool** is work the framework
+runs. Content is a Tool as well — read-only, taking no arguments — so the file
+it sits in is organisation and not a fourth kind.
+
+```text
+$project_name/
+├── pyproject.toml      the one hand-written list: which roots, and what is
+│                       published. It names the doors, never the rooms.
+├── assistant/          one role and what it owns — you *subclass* these
+│   ├── role.py         the responsibility boundary            Role
+│   ├── skills.py       procedures, disclosed when asked for   Skill
+│   ├── tools.py        capabilities, as typed Python methods  Tool
+│   └── documents.py    content — a read-only Tool, no arguments
+└── surface.py          the ways in for a person or a host — you *construct*
+                        these: Resource(opens=…) and Prompt(opens=…) name a
+                        node the role tree already holds
+```
+
+Each root role is a top-level package here, the way a Django app is. This
+directory goes on the end of `sys.path` when the server starts, so a module
+name it shares with something already installed resolves to the installed one
+— `contexture serve` says so rather than serving somebody else's module.
+
+Add a second role by copying `assistant/` to a sibling directory, then either
+list it in `roots` or declare it as a child of an existing role.

@@ -51,7 +51,7 @@ _EXPORTS = {
     "Auth": ".identity",
     "TokenVerifier": ".identity",
     "principal_of": ".identity",
-    # The entry points are declared one layer down, in
+    # The four entry points are declared one layer down, in
     # `core.mcp_interface`, beside what this server puts on the other two
     # primitives. They are forwarded here because `contexture.server` is where
     # a caller looks for what is on the wire — but they are defined there, and

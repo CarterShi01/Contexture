@@ -1,6 +1,6 @@
 """Tests for the gateway surface.
 
-The surface is five tools whatever the declaration holds, business
+The surface is four tools whatever the declaration holds, business
 capabilities never appear on it, and the read-only classification survives as
 which entry point was used rather than as an argument a model could fill in.
 """

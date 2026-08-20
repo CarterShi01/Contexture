@@ -32,7 +32,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
-from ..errors import ModelValidationError
+from ..errors import DeclarationError, ModelValidationError
 
 
 @dataclass(slots=True, kw_only=True)
@@ -81,6 +81,15 @@ class Prompt:
     model_may_open: bool = True
 
     kind: ClassVar[str] = "prompt"
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        # Never fires for `Prompt` itself; see the note in `resource.py`.
+        raise DeclarationError(
+            f"{cls.__name__} subclasses Prompt, which is constructed rather "
+            "than subclassed: Prompt(opens=..., description=...). A prompt "
+            "holds no procedure — what it opens is a node the tree already "
+            "owns. Subclassing one produces a class the tree can never hold."
+        )
 
     def __post_init__(self) -> None:
         if not self.opens.strip():

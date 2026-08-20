@@ -163,6 +163,25 @@ def collect(
             "appear on a routing card."
         )
 
+    # Anything this filter does not recognise is passed over in silence, and
+    # that silence is load-bearing rather than lazy. A `Tool` subclass is
+    # collected with `member_types=()`, so *every* class attribute it carries
+    # falls through here — which is what lets a business layer hang its own
+    # contract on a tool: one-creator's Goal domain declares `target`,
+    # `patch_fields`, `writes` and `precondition` beside the `invoke` whose
+    # signature they constrain. Rejecting the unrecognised would take that
+    # pattern with it.
+    #
+    # The cost is that a `Prompt` or a `Resource` bound into a Role body is
+    # dropped without a word, and catching *that* was considered and refused
+    # twice. Naming those types here would mean `core.model` importing
+    # `core.mcp_interface`, or a sentinel class in the shared ground standing
+    # in for the import — the coupling ADR 009 exists to prevent, smuggled in
+    # for the sake of a better error message. A concept that helps a developer
+    # neither *define* a capability nor the framework *run* one is a spare
+    # part. The mistake that actually happened in the wild was `class
+    # MyThing(Resource)`, and that one now fails at import; see
+    # `mcp_interface/resource.py`.
     members: dict[str, DeclaredMember] = {}
     for attribute, value, owner in _walk_declarations(cls, ignore):
         if isinstance(value, member_types) or _is_member_class(value, member_types):

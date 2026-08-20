@@ -17,7 +17,7 @@ A roster is included here rather than left for the first
 `contexture_discover` call. It is static, it is small — a role card is a name,
 a sentence and a path — and putting it here answers the question a host asks
 before it has called anything: *what is this server for?* Without it, a gateway
-server presents five tools whose names all begin with `contexture_` and no
+server presents four tools whose names all begin with `contexture_` and no
 sign that any of them lead to Kubernetes. With it, the first call can be the
 one that opens the right role.
 

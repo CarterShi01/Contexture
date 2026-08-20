@@ -16,6 +16,7 @@ from contexture.core.errors import (
     ModelValidationError,
     NodeNotFoundError,
 )
+from contexture.core.mcp_interface import Prompt, Resource
 from contexture.core.model.role import Role
 from contexture.core.model.skill import Skill
 from contexture.core.model.tool import Tool
@@ -256,9 +257,9 @@ class RoleSelfDescriptionTests(unittest.TestCase):
     def test_an_opened_role_describes_itself_and_not_its_members(self) -> None:
         """Listing members here would list them without references.
 
-        `core` cannot know what a reference looks like, so a member listed at
-        this level could be seen and never opened. `contexture.tree` lists them
-        instead, where the reference exists.
+        `core.model` cannot know what a reference looks like, so a member listed
+        at this level could be seen and never opened. `core.disclosure` lists
+        them instead, where the reference exists.
         """
 
         role = Role(
@@ -278,3 +279,58 @@ class RoleSelfDescriptionTests(unittest.TestCase):
             set(compiled),
             {"kind", "name", "description", "instructions"},
         )
+
+
+class ConstructedNotSubclassedTests(unittest.TestCase):
+    """The protocol plane is written with a constructor, and only that.
+
+    Three kinds are subclassed and two are constructed, and until this test
+    existed the difference was documentation. `class MyRunbook(Resource)` was
+    accepted in silence and produced a class nothing could ever hold — and
+    binding one into a `Role` body was dropped in silence too, because
+    `declarative.collect` filters members by type. A rule the code does not
+    enforce is a rule the next reader re-litigates.
+    """
+
+    def test_a_resource_refuses_to_be_subclassed(self) -> None:
+        with self.assertRaises(DeclarationError) as caught:
+            type("MyRunbook", (Resource,), {})
+
+        message = str(caught.exception)
+        self.assertIn("constructed rather than subclassed", message)
+        # The sentence has to say what to write instead, or it only reports.
+        self.assertIn("read-only Tool", message)
+
+    def test_a_prompt_refuses_to_be_subclassed(self) -> None:
+        with self.assertRaises(DeclarationError) as caught:
+            type("Deploy", (Prompt,), {})
+
+        self.assertIn("constructed rather than subclassed", str(caught.exception))
+
+    def test_the_guard_does_not_fire_on_the_classes_it_guards(self) -> None:
+        """`@dataclass(slots=True)` rebuilds the class object it decorates.
+
+        The rebuilt class is created with `(object,)` for bases, so it is
+        `object.__init_subclass__` that runs and not the one defined in the
+        body — which is the only reason a guard can live inside the class it
+        guards. It is the same rebuild that forces `Role` and its siblings to
+        name their class explicitly in `super()`, and it is invisible from the
+        code that would trip over it. Both classes still import and still
+        construct, which is what this asserts.
+        """
+
+        resource = Resource(opens="platform/runbook", uri="x://r", description="A.")
+        prompt = Prompt(opens="platform/deploy", description="B.")
+
+        self.assertEqual(resource.kind, "resource")
+        self.assertEqual(prompt.kind, "prompt")
+
+    def test_both_are_reachable_from_the_one_import_a_declaration_uses(self) -> None:
+        """A reader should not have to learn a layer name to publish a document."""
+
+        import contexture
+
+        self.assertIs(contexture.Resource, Resource)
+        self.assertIs(contexture.Prompt, Prompt)
+        self.assertIn("Resource", contexture.__all__)
+        self.assertIn("Prompt", contexture.__all__)

@@ -25,7 +25,7 @@ try:
 except ImportError:  # pragma: no cover - the SDK is a hard dependency
     ClientSession = None  # type: ignore[assignment]
 
-SOURCE_ROOT = Path(__file__).resolve().parent.parent / "src"
+SOURCE_ROOT = Path(__file__).resolve().parent.parent
 DEMO_MODULE = "contexture.examples.incident.server"
 
 #: Anything the demo prints outside the protocol would corrupt the stream, so

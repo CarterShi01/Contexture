@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
-from ..errors import ModelValidationError
+from ..errors import DeclarationError, ModelValidationError
 
 
 @dataclass(slots=True, kw_only=True)
@@ -66,6 +66,20 @@ class Resource:
     mime_type: str | None = None
 
     kind: ClassVar[str] = "resource"
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        # Never fires for `Resource` itself. `@dataclass(slots=True)` rebuilds
+        # the class object, and the rebuilt one is created with `(object,)` as
+        # its bases — so it is `object.__init_subclass__` that runs, not this.
+        # The same rebuild is why `Role` and its siblings name their class
+        # explicitly in `super()`; see `docs/02-framework-layers.md` §4.5.
+        raise DeclarationError(
+            f"{cls.__name__} subclasses Resource, which is constructed rather "
+            "than subclassed: Resource(opens=..., uri=...). A resource holds "
+            "no content — the content is a read-only Tool taking no arguments, "
+            "and the resource gives that tool a second address. Subclassing "
+            "one produces a class the tree can never hold."
+        )
 
     def __post_init__(self) -> None:
         if not self.opens.strip():

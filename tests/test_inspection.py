@@ -4,7 +4,7 @@ This command has exactly one claim: what it prints is what the server sends.
 A debugging tool that renders its own idea of the payload is worse than none,
 because it is trusted. `HonestyTests` is therefore the centre of this file —
 every payload is compared against what the real gateway answers with, called
-through the SDK the same way `test_projection` calls it.
+through the SDK the same way `test_binding` calls it.
 
 The rest covers what the command is for: the three host limits that fail
 silently, the refusal an agent reads when a ref is wrong, and the sweep that

@@ -28,9 +28,10 @@ Everything in this repository follows from two sentences.
 **The framework model — how a developer *uses* it.**
 
 > Contexture provides the abstractions, the lifecycle, the inversion of control,
-> and the MCP runtime. Business developers extend those abstractions to define
-> capabilities; the framework turns them into a native, progressively disclosed
-> MCP server.
+> and the MCP runtime. A business developer **subclasses** three node kinds to
+> define capabilities, and **constructs** a short, hand-written list of the ways
+> a person or a host may enter them; the framework turns both into a native,
+> progressively disclosed MCP server.
 
 The first answers *what is running*. The second answers *what do I write*.
 
@@ -50,16 +51,63 @@ A concept that does neither is a spare part, however well made.
 ## The programming model: Object-Oriented Programming
 
 The programming model is **Object-Oriented Programming (OOP)**. Not a decorator
-registry, not a manifest, not a DSL. The framework ships an object model; the
-business layer extends it by subclassing. There is no registration call, no
-manifest to keep in step with the code, and no decorator that can drift away
-from the class it decorates:
+registry, not a DSL. The framework ships an object model; the business layer
+extends it by subclassing. There is no registration call, and no decorator that
+can drift away from the class it decorates:
 
 ```python
 class GetPodLogs(Tool):            # a capability you own
 class DiagnoseCrashLoop(Skill):    # a procedure you own
 class IncidentResponder(Role):     # the boundary that holds them
 ```
+
+### Three planes, three verbs
+
+Subclassing is not the only thing you do, and saying it is, is how a reader
+reaches `Prompt` and `Resource` and finds the rule does not hold. There are
+three planes, and the verb differs because what each produces differs:
+
+| What you are doing | Mechanism | You write | Fails at |
+| --- | --- | --- | --- |
+| Define a capability | subclass `Tool`, implement `invoke` | a class | import |
+| Define procedural knowledge | subclass `Skill`, write `instructions` | a class | import |
+| Define a responsibility boundary | subclass `Role`, bind members | a class | import |
+| Define content | subclass `Tool`, `read_only`, no arguments | a class | import |
+| Open a door for a **person** | construct `Prompt(opens=…)` | a value | server start |
+| Publish an address for a **host** | construct `Resource(opens=…, uri=…)` | a value | server start |
+| Decide what the server exposes | nothing — the gateway is four fixed tools | — | — |
+
+One sentence carries all of it:
+
+> **Anything a model can reach is a node you subclass. Anything only a person
+> or a host can reach is a pointer you construct.**
+
+There are exactly **three** node kinds and there is no fourth. Content is not
+one of them: it is a read-only `Tool` taking no arguments, and the file it sits
+in is organisation rather than a kind. `Prompt` and `Resource` are not nodes at
+all — each holds a reference *string* naming a node the tree already owns,
+which is what keeps one capability from becoming two declarations that can
+disagree.
+
+### Two ends written by hand, everything between them discovered
+
+The verbs differ because the counts do:
+
+| Boundary | Who writes it | Grows with your domain? |
+| --- | --- | --- |
+| `roots` in `pyproject.toml` — the way in | by hand | **no** |
+| the published prompts and resources — the ways out | by hand | **no** |
+| the forest of roles, skills and tools | subclassed | yes |
+
+A role holds other roles in `children`, so one line of `roots` reaches a forest
+of any size: **the manifest names the doors, never the rooms.** The published
+list obeys the same rule for the same reason — a menu that grows itself is a
+second copy of the tool list, and that plane stops meaning anything the moment
+it does.
+
+So there *is* one place a name has to be kept in step with the code, and this
+is it. It is two lines, it is checked when the server is built, and everything
+below a root is found by traversal rather than listed.
 
 Four OOP mechanisms carry weight here, and each does a job the alternatives
 cannot.
@@ -70,8 +118,11 @@ at class-creation time, so a malformed declaration fails on import rather than
 on the first request that happens to touch it.
 
 **Encapsulation keeps the disclosure decision local.** Every node decides for
-itself what its routing card says and what its opened form says. Nothing central
-holds a table of node kinds, so adding a kind does not edit a renderer.
+itself what its routing card says and what its opened form says, so changing
+what a Role discloses is an edit to `Role` and to nothing else. What that buys
+is locality, not extensibility: the three kinds are a closed set — `ContextTree`
+names them one at a time — and a fourth would be quietly ignored rather than
+served.
 
 **Polymorphism is what makes progressive disclosure uniform.** Role, Skill and
 Tool have nothing else in common, yet discovery calls `node.compile(level)` on
@@ -247,8 +298,8 @@ balancer needs to be sticky.
 ## Layers
 
 ```text
-your application            declares roles, skills and tools
-        │  inherits / composes
+your application            subclasses Role/Skill/Tool, constructs Prompt/Resource
+        │  one import: `from contexture import ...`
 core.model                  the object model — no I/O, no wire, no SDK
         │  compile
 core.disclosure             the multi-headed tree, disclosed lazily
@@ -397,6 +448,7 @@ uvx contexture-mcp new my-context     # scaffold a project
 cd my-context
 uv sync
 uv run contexture list                # what it would serve
+uv run contexture inspect --all --summary   # what an agent receives, and what it costs
 uv run contexture serve               # serve it over stdio
 ```
 
@@ -408,11 +460,12 @@ ships the runner:
 my-context/
 ├── pyproject.toml       dependencies, and one [tool.contexture] table
 └── my_context/
-    ├── assistant/       one role and everything it owns
+    ├── assistant/       one role and what it owns — you *subclass* these
     │   ├── role.py      the responsibility boundary
     │   ├── skills.py    procedures — disclosed only when asked for
-    │   └── tools.py     capabilities, and content, as typed Python methods
-    └── surface.py       what the prompt and resource primitives carry
+    │   ├── tools.py     capabilities, as typed Python methods
+    │   └── documents.py content — a read-only tool taking no arguments
+    └── surface.py       the ways in for a person or a host — you *construct* these
 ```
 
 It is a project, not a package: no build system, never installed into the
@@ -445,7 +498,7 @@ what it costs, without an agent in the room. It is the same
 `contexture inspect` that ships in the package; see
 [`tools/README.md`](tools/README.md).
 
-See [`src/contexture/examples/incident/`](src/contexture/examples/incident/) for
+See [`contexture/examples/incident/`](contexture/examples/incident/) for
 that reference application — a deterministic Kubernetes incident that forces the
 whole traversal — and [`docs/verification/hosts.md`](docs/verification/hosts.md)
 for a recorded run against both hosts.
@@ -453,7 +506,7 @@ for a recorded run against both hosts.
 ## Project layout
 
 ```text
-src/contexture/
+contexture/
 ├── core/
 │   ├── model/       what a capability is: node, role, skill, tool, declarative
 │   ├── disclosure/  where it hangs, and how much arrives per call
@@ -485,7 +538,7 @@ inspector — and `scripts/`, the playbooks for driving a real host against it.
   — why the client half ADR 001 left alone was removed instead, and what that
   gave up.
 - [`docs/adr/004-progressive-disclosure-as-a-lazy-role-tree.md`](docs/adr/004-progressive-disclosure-as-a-lazy-role-tree.md)
-  — why capabilities left the MCP surface for a five-tool gateway, why
+  — why capabilities left the MCP surface for a fixed gateway, why
   disclosure splits by kind rather than depth, and why the class design that
   holds it is one class rather than the seven the first draft proposed.
 - [`docs/adr/005-remove-the-target-adapters.md`](docs/adr/005-remove-the-target-adapters.md)
@@ -537,9 +590,11 @@ will.
 | Context budget | not its problem | a first-class constraint |
 | Wire format, schema, transport | owns it | never touches it |
 
-The entire dependency is five imports inside `contexture/server/` and four SDK
-calls: the constructor, `add_tool`, `run`, and `Tool.from_function` for schema
-derivation off the wire. `ContextureApp`
+The entire dependency is seven imports inside `contexture/server/` and nine SDK
+entry points: the constructor and `run`; `add_tool`, `add_prompt`,
+`add_resource` and `completion` for registration; and `Tool.from_function`,
+`Prompt.from_function` and `FunctionResource.from_function` for deriving what
+each one carries off the wire. `ContextureApp`
 composes an `MCPServer` rather than subclassing one, so an SDK upgrade cannot
 reach into the object model, and `tests/test_layering.py` fails if any other
 layer imports `mcp`.
@@ -553,8 +608,11 @@ All three primitives are used, and split the way the protocol splits them — by
 the tool primitive. A `Prompt` is not a Skill wearing a protocol's clothes: it
 names a node a *person* triggers, and declaring one is worth it only where
 going wrong is expensive. What each primitive carries is declared in
-[`core/mcp_interface/`](src/contexture/core/mcp_interface/README.md), which
-imports no SDK — that is `server`'s job.
+[`core/mcp_interface/`](contexture/core/mcp_interface/README.md), which
+imports no SDK — that is `server`'s job. You do not need that path to write
+one: `Prompt` and `Resource` sit on the `contexture` facade beside the three
+node kinds, because which plane a thing belongs to is a modelling decision and
+not a question about this package's directories.
 
 ### Not the agent runtime — Claude Code and Codex stay in charge
 
@@ -621,8 +679,8 @@ Two things follow, and they are the whole of the contract:
   an `append` to `role.tools` on a live server varies the surface as a
   consequence of an earlier call, which the 2026-07-28 revision forbids.
 
-Contexture holds up its own end: the five gateway tools answer purely out of
-the declaration, and `StatelessnessTests` in `tests/test_projection.py` compares
+Contexture holds up its own end: the four gateway tools answer purely out of
+the declaration, and `StatelessnessTests` in `tests/test_binding.py` compares
 a server that has served every call it will ever see against one that has served
 none.
 

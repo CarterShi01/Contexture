@@ -11,7 +11,7 @@ the user asked. The only way a tool becomes deferrable is for it not to be on
 the surface at all — its name, description and schema travel inside a payload
 instead, and arrive when the role holding it is opened.
 
-What is on the surface is five tools, whatever the declaration contains::
+What is on the surface is four tools, whatever the declaration contains::
 
     contexture_discover              the root roles, one level
     contexture_open                  one node's detail, plus its members' cards
@@ -121,7 +121,7 @@ def project(
     dispatch: Dispatch,
     surface: Sequence[Prompt | Resource] = (),
 ) -> None:
-    """Register the five gateway tools against `tree`.
+    """Register the four gateway tools against `tree`.
 
     `dispatch` is the same object whose `schema` method the tree was built
     with, so a card's schema and the validation a call is checked against
@@ -184,9 +184,9 @@ def project(
         INVOKE_TOOL: contexture_invoke,
     }
 
-    # Registered from the contract rather than five call sites, so "the surface
+    # Registered from the contract rather than four call sites, so "the surface
     # is exactly these four, described exactly this way" is a fact about one
-    # tuple instead of an agreement between ten places.
+    # tuple instead of an agreement between eight places.
     for entry in GATEWAY:
         server.add_tool(
             implementations[entry.name],
@@ -479,10 +479,10 @@ async def _open_by_name(tree: ContextTree, ref: str) -> str:
     its registration, `goto` carries it in an argument, and a person gets the
     same answer either way.
 
-    No `opened_by` check. That field says which *plane* may reach a node, and
-    both callers here are the person's plane; a node marked for a model alone
-    is still a node a person may look at, and refusing would mean the tree held
-    capabilities its owner could not read.
+    No plane check. `Prompt.model_may_open` reserves a node *from a model*,
+    and nothing reserves one from a person: both callers here are the person's
+    plane, and refusing would mean the tree held capabilities its owner could
+    not read.
     """
 
     with _translated(messages.GOTO_PROMPT):

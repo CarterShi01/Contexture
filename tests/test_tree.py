@@ -372,7 +372,7 @@ class ResolutionTests(unittest.TestCase):
 
     It does not write the sentence an agent reads: that needs the gateway tool
     names, which live a layer up. These assert the facts are complete enough
-    for that sentence to be written — see `test_contract` for the rendering.
+    for that sentence to be written — see `test_messages` for the rendering.
     """
 
     def test_an_unknown_member_reports_what_the_role_does_hold(self) -> None:

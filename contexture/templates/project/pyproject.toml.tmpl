@@ -15,7 +15,9 @@ package = false
 # The name a connecting host sees.
 name = "$project_name"
 # Every root this server offers. A root is a role nothing else contains.
-roots = ["$package_name.assistant:$role_class"]
+# Each one is a top-level package in this directory, so a second role is a
+# sibling of `assistant/` rather than something nested inside it.
+roots = ["assistant:$role_class"]
 # What this server puts on the prompt and resource primitives.
 # Optional: a declaration reaches an agent through the gateway either way.
-surface = ["$package_name.surface:SURFACE"]
+surface = ["surface:SURFACE"]

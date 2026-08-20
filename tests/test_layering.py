@@ -12,9 +12,10 @@ import ast
 import subprocess
 import sys
 import unittest
+from fnmatch import fnmatch
 from pathlib import Path
 
-SOURCE_ROOT = Path(__file__).resolve().parent.parent / "src"
+SOURCE_ROOT = Path(__file__).resolve().parent.parent
 PACKAGE = SOURCE_ROOT / "contexture"
 
 #: Directories whose children are layers in their own right, rather than one
@@ -63,11 +64,11 @@ ALLOWED: dict[str, set[str]] = {
         "core.mcp_interface",
     },
     # Reference applications sit above everything and are imported by nothing.
-    # They reach the object model through the public facade rather than by
-    # layer; the two they may name outright are the ones a real project also
-    # names — `server` to build an app, `core.mcp_interface` to declare what it
-    # exposes. See LayeringTests.test_examples_use_only_the_public_facade.
-    "examples": {"core.mcp_interface", "server"},
+    # They reach everything a declaration writes with through the public
+    # facade — `Role`, `Skill`, `Tool`, `Prompt` and `Resource` all arrive from
+    # `contexture` — so the one layer left to name is `server`, to build an
+    # app. See LayeringTests.test_examples_use_only_the_public_facade.
+    "examples": {"server"},
     # Replaying the disclosure for a developer to read sits above the server
     # and below the command line. It reaches `server` for the text an agent is
     # given and the budget it has to fit, and never for the wire.
@@ -333,12 +334,13 @@ class LayeringTests(unittest.TestCase):
         files make about themselves.
         """
 
-        # `core.mcp_interface` is public API too: it is what a project
-        # declares its prompt and resource surface with, and naming it
-        # keeps working in a copied directory because it is absolute.
+        # Two names, and no layer path among them. `Prompt` and `Resource`
+        # are on the facade beside the three node kinds, so publishing a
+        # document no longer costs a reader a directory name they would have
+        # to decode — and an example that reached for one would be teaching
+        # the decoding.
         allowed = {
             "contexture",
-            "contexture.core.mcp_interface",
             "contexture.server",
         }
         for path in _source_modules(PACKAGE / "examples"):
@@ -449,3 +451,85 @@ def _modules_loaded_by(statement: str) -> set[str]:
         check=True,
     )
     return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+
+class PackagingBoundaryTests(unittest.TestCase):
+    """What ships is stated by inclusion, so nothing new can ship by accident.
+
+    This used to be a directory. `src/` held the package and everything else
+    sat outside it, so the wheel could be described as "src, and nothing else"
+    — a rule a reader had to know and a tool never checked. The directory is
+    gone and the rule it expressed is one line of configuration, which is the
+    trade this file exists to make everywhere else: a convention replaced by
+    something that fails.
+
+    Inclusion rather than exclusion is the load-bearing half. An exclude list
+    has to be extended every time a directory is added, and the day somebody
+    forgets is the day a case study or a doc tree ships inside the wheel.
+
+    A complete check would build a wheel and read its manifest, which needs a
+    build backend and a network. What is asserted here is the configuration
+    that produces one.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        try:
+            import tomllib
+        except ModuleNotFoundError:  # Python 3.10
+            import tomli as tomllib  # type: ignore[no-redef]
+        with (SOURCE_ROOT / "pyproject.toml").open("rb") as handle:
+            cls.pyproject = tomllib.load(handle)
+        cls.setuptools = cls.pyproject["tool"]["setuptools"]
+
+    def test_the_wheel_is_declared_by_inclusion_never_by_exclusion(self) -> None:
+        found = self.setuptools["packages"]["find"]
+
+        self.assertIn("include", found)
+        self.assertNotIn("exclude", found)
+        # `where` is what a src layout uses. Naming the package directly is
+        # what replaced it, and keeping both would be two answers to one
+        # question.
+        self.assertNotIn("where", found)
+
+    def test_no_other_top_level_directory_could_be_swept_in(self) -> None:
+        """Adding `docs/` or a case study must not be able to ship it."""
+
+        patterns = self.setuptools["packages"]["find"]["include"]
+        siblings = [
+            entry.name
+            for entry in SOURCE_ROOT.iterdir()
+            if entry.is_dir()
+            and not entry.name.startswith(".")
+            and entry.name != "node_modules"
+        ]
+        self.assertIn("contexture", siblings)
+
+        for name in siblings:
+            matched = any(fnmatch(name, pattern) for pattern in patterns)
+            with self.subTest(directory=name):
+                self.assertEqual(matched, name == "contexture")
+
+    def test_every_template_file_is_covered_by_package_data(self) -> None:
+        """A template that does not ship is a `contexture new` that cannot run.
+
+        The templates are the one part of this package that is data rather
+        than code, so they are the one part a `packages.find` rule cannot
+        carry on its own.
+        """
+
+        patterns = self.setuptools["package-data"]["contexture"]
+        covered = {
+            path.resolve()
+            for pattern in patterns
+            for path in PACKAGE.glob(pattern)
+            if path.is_file()
+        }
+        on_disk = {
+            path.resolve()
+            for path in (PACKAGE / "templates").rglob("*")
+            if path.is_file() and "__pycache__" not in path.parts
+        }
+
+        self.assertTrue(on_disk, "the template tree is empty")
+        self.assertEqual(on_disk - covered, set())
