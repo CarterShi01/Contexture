@@ -48,11 +48,12 @@ what Go has instead of a list of `any`.
 
 from __future__ import annotations
 
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Callable, Iterator, Sequence
+from typing import Any, AsyncIterator, Iterator, Sequence
 
 from ..errors import LookupFailure, ModelValidationError, NodeNotFoundError
+from .channels import Channels
 from .node import ContextNode
 from .role import Role
 from .skill import Skill
@@ -66,26 +67,12 @@ class ControllerManager:
     #: The handle the application built before registering anything. Whatever
     #: it is, the framework never inspects it — it only makes sure every
     #: registered controller can reach the same one.
+    #:
+    #: A plain value is stamped and left alone. A `Channels` subclass is
+    #: stamped *and* opened before the first request and closed after the last
+    #: — see `provisioned`. Which of the two it is is the only thing this
+    #: layer ever asks about it.
     channels: Any = None
-
-    #: How to open that handle, for anything that cannot simply be
-    #: constructed: a pool that must be awaited into existence, a session that
-    #: shakes hands, a client that has to be closed again afterwards.
-    #:
-    #: A **factory** returning an async context manager, never a context
-    #: manager itself. One is consumed by being entered, so a server run twice
-    #: would meet an `AttributeError` raised from inside `contextlib` — a long
-    #: way from the mistake that caused it.
-    #:
-    #: The framework enters exactly one. Composing several is the
-    #: application's own job, in its own factory, where `async with a, b`
-    #: already unwinds them in the right order::
-    #:
-    #:     @asynccontextmanager
-    #:     async def open_channels():
-    #:         async with gateway_session(URL) as gw, create_pool(DSN) as db:
-    #:             yield Channels(gateway=gw, db=db)
-    provision: Callable[[], AbstractAsyncContextManager[Any]] | None = None
 
     #: What was registered at the top, one list per kind. Three rather than
     #: one, because which kind a root is decides what may hang beneath it, and
@@ -105,33 +92,6 @@ class ControllerManager:
     _parent_of: dict[int, ContextNode | None] = field(default_factory=dict, repr=False)
     _by_kind: dict[str, list[ContextNode]] = field(default_factory=dict, repr=False)
 
-    def __post_init__(self) -> None:
-        if self.channels is not None and self.provision is not None:
-            raise ModelValidationError(
-                "This manager was given both channels and a way to open them. "
-                "Keep the one that matches the handle: `channels` for a value "
-                "that is simply constructed, `provision` for one that has to "
-                "be opened and closed again."
-            )
-        if self.provision is None:
-            return
-        # Refused here rather than at startup, because the two mistakes look
-        # identical in a source file and only one of them is survivable: a
-        # context manager is spent by being entered, so a server run a second
-        # time would fail from inside `contextlib` with nothing pointing back
-        # to this line.
-        if hasattr(self.provision, "__aenter__"):
-            raise ModelValidationError(
-                "`provision` was given a context manager, not a factory. Pass "
-                "the function itself — `provision=open_channels`, not "
-                "`provision=open_channels()` — because a context manager is "
-                "consumed by being entered and a server may be run twice."
-            )
-        if not callable(self.provision):
-            raise ModelValidationError(
-                f"`provision` must be callable; {self.provision!r} is not."
-            )
-
     # ---- lifecycle -------------------------------------------------------
 
     @asynccontextmanager
@@ -149,32 +109,22 @@ class ControllerManager:
         inside a request would be out of reach of a test, of `inspection`, and
         of a resource read.
 
-        On the way out the handle is cleared rather than left behind. A call
-        arriving after shutdown then sees `None`, which fails legibly, instead
-        of a closed session, which fails somewhere deep inside somebody else's
-        client library.
+        **Stamped and opened are the same object.** A `Channels` subclass is
+        registered before it is opened and keeps its identity through both, so
+        nothing is restamped on the way in and nothing is cleared on the way
+        out. What a call arriving after shutdown meets is therefore whatever
+        that object's own `close` left behind — which is why `Channels.close`
+        says to clear its references there.
         """
 
-        if self.provision is None:
-            # Nothing to open. Yielding what is already there saves a caller
-            # from having to ask which kind of manager it is holding.
+        if not isinstance(self.channels, Channels):
+            # A handle with no lifecycle. Yielding what is already there saves
+            # a caller from having to ask which kind it is holding.
             yield self.channels
             return
 
-        opener = self.provision()
-        if not hasattr(opener, "__aenter__"):
-            raise ModelValidationError(
-                f"`provision` returned {opener!r}, which is not an async "
-                "context manager. It has to be a factory returning one: a "
-                "function decorated with `@asynccontextmanager`, or a class "
-                "with `__aenter__` and `__aexit__`."
-            )
-        async with opener as opened:
-            self.rebind_channels(opened)
-            try:
-                yield opened
-            finally:
-                self.rebind_channels(None)
+        async with self.channels.lifespan() as opened:
+            yield opened
 
     # ---- registration ----------------------------------------------------
 

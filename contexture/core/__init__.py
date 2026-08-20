@@ -43,6 +43,7 @@ _EXPORTS = {
     "Principal": ".principal",
     "bound": ".principal",
     "current_principal": ".principal",
+    "Channels": ".model",
     "CompileLevel": ".model",
     "ContextNode": ".model",
     "ControllerManager": ".model",

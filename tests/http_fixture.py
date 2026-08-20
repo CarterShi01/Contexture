@@ -14,8 +14,14 @@ from __future__ import annotations
 
 import sys
 
-from contexture import Principal, Role, Tool, current_principal
-from contexture.server import Auth, ContextureApp, ContextureOptions
+from contexture import ControllerManager, Principal, Role, Tool, current_principal
+from contexture.server import (
+    Assembly,
+    Auth,
+    ContextureOptions,
+    ContextureServer,
+    Dispatch,
+)
 
 #: Two callers who differ in exactly one scope, so a refusal can only be about
 #: that scope and never about which of them was authenticated.
@@ -89,8 +95,14 @@ class Ops(Role):
         )
 
 
-def build(port: int, *, secured: bool) -> tuple[ContextureApp, ContextureOptions]:
-    app = ContextureApp(roots=Ops(), name="http-fixture")
+def build(port: int, *, secured: bool) -> tuple[ContextureServer, ContextureOptions]:
+    manager = ControllerManager()
+    manager.register_role(Ops)
+    dispatch = Dispatch()
+    assembly = Assembly.of(
+        manager.sealed(schema_of=dispatch.schema), execute=dispatch.execute
+    )
+    server = ContextureServer(assembly, name="http-fixture")
     options = ContextureOptions(
         transport="streamable-http",
         host="127.0.0.1",
@@ -105,14 +117,14 @@ def build(port: int, *, secured: bool) -> tuple[ContextureApp, ContextureOptions
             else None
         ),
     )
-    return app, options
+    return server, options
 
 
 def main() -> None:
     port = int(sys.argv[1])
     secured = sys.argv[2] == "secured"
-    app, options = build(port, secured=secured)
-    app.run(options)
+    server, options = build(port, secured=secured)
+    server.start(options)
 
 
 if __name__ == "__main__":

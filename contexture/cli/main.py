@@ -6,8 +6,10 @@
     contexture serve               # serve it over MCP
     contexture demo                # serve the bundled reference application
 
-`ContextureApp` remains the escape hatch for embedding a graph in a process
-this command does not own.
+Every command that serves builds its graph the same way a business `main()`
+does — register, seal, serve — through `_assembled` below. Two doors, one
+flow: a project that would rather not write an entry point gets these
+commands, and one that writes its own follows the same five steps by hand.
 """
 
 from __future__ import annotations
@@ -63,18 +65,40 @@ def command_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def _assembled(roots, published, *, project: Path | None = None):
+    """Register, seal, and hand back the assembly — `main()`'s three steps.
+
+    Imported here, not at module scope: `new` and `list` must work in an
+    environment that has no SDK, and only the commands calling this need one.
+    """
+
+    from ..core.model.manager import ControllerManager, register_root
+    from ..server import Assembly, Dispatch
+
+    manager = ControllerManager()
+    for root in roots:
+        register_root(manager, root)
+
+    dispatch = Dispatch()
+    tree = manager.sealed(schema_of=dispatch.schema)
+    return Assembly.of(
+        tree,
+        execute=dispatch.execute,
+        published=load_published(published, project=project),
+    )
+
+
 def command_inspect(args: argparse.Namespace) -> int:
     """Print what an agent would receive, step by step.
 
-    The tree is built through `ContextureApp` rather than `ContextTree.of`,
-    which is the whole point of the command: a tool schema on a card comes from
-    the same `Dispatch` the server validates calls with, and the instructions
-    come from the same builder. What is printed here is what is served there,
-    or this command is worth nothing.
+    The tree is sealed with a real `Dispatch` rather than left bare, which is
+    the whole point of the command: a tool schema on a card comes from the same
+    object the server validates calls with, and the instructions come from the
+    same builder. What is printed here is what is served there, or this command
+    is worth nothing.
     """
 
     from .. import inspection
-    from ..server import ContextureApp
     from ..server import instructions as instructions_module
 
     targets, project, name, exposed = _targets_and_project(
@@ -89,25 +113,22 @@ def command_inspect(args: argparse.Namespace) -> int:
             "project, or name one with --target, to read your own.",
             file=sys.stderr,
         )
-    roots = load_roots(targets, project=project)
-    app = ContextureApp(
-        roots=roots,
-        publish=load_published(exposed, project=project),
-        name=name or "contexture",
+    assembly = _assembled(
+        load_roots(targets, project=project), exposed, project=project
     )
 
     instructions = instructions_module.build(
-        app.tree,
+        assembly.tree,
         budget=(
             args.roster_budget
             if args.roster_budget is not None
             else instructions_module.ROSTER_BUDGET
         ),
     )
-    refs = list(inspection.every_ref(app.tree)) if args.all else list(args.refs)
+    refs = list(inspection.every_ref(assembly.tree)) if args.all else list(args.refs)
 
     traced = inspection.trace(
-        app.tree,
+        assembly.tree,
         refs,
         instructions=instructions,
         discover=not args.no_discover,
@@ -152,30 +173,21 @@ def serve_options(args: argparse.Namespace) -> "ContextureOptions":
 def command_demo(args: argparse.Namespace) -> int:
     """Serve the bundled reference application, to prove an install works."""
 
-    from ..server import ContextureApp
+    from ..server import ContextureServer
 
-    app = ContextureApp(
-        roots=resolve_target(DEMO_TARGET),
-        publish=load_published([DEMO_PUBLISH]),
-        name="contexture-demo",
-    )
-    app.run(serve_options(args))
+    assembly = _assembled([resolve_target(DEMO_TARGET)], [DEMO_PUBLISH])
+    ContextureServer(assembly, name="contexture-demo").start(serve_options(args))
     return 0
 
 
 def command_serve(args: argparse.Namespace) -> int:
-    # Imported here, not at module scope: `new` and `list` must work in an
-    # environment that has no SDK, and only this command needs one.
-    from ..server import ContextureApp
+    from ..server import ContextureServer
 
     targets, project, name, exposed = _targets_and_project(args.target)
-    roots = load_roots(targets, project=project)
-    app = ContextureApp(
-        roots=roots,
-        publish=load_published(exposed, project=project),
-        name=name or "contexture",
+    assembly = _assembled(
+        load_roots(targets, project=project), exposed, project=project
     )
-    app.run(serve_options(args))
+    ContextureServer(assembly, name=name or "contexture").start(serve_options(args))
     return 0
 
 

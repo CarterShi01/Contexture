@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from contexture import NodeNotFoundError
+from contexture import ContextureError
 from contexture import Tool
 from . import fixtures
 
@@ -47,11 +47,16 @@ def _require_known_pod(namespace: str, pod: str) -> None:
     A demo that answers plausibly for a Pod it has never heard of teaches an
     agent that this server guesses. It is better to fail in a way that names
     what does exist.
+
+    `ContextureError` rather than `NodeNotFoundError`: nothing here failed to
+    *resolve* — the tool was found and ran. What it could not find is a Pod,
+    which is this demo's own domain and not the tree's, and a lookup error
+    carries facts about a ref rather than a sentence about a cluster.
     """
 
     if namespace == fixtures.NAMESPACE and pod == fixtures.POD:
         return
-    raise NodeNotFoundError(
+    raise ContextureError(
         f"No pod {pod!r} in namespace {namespace!r}. This demo serves a single "
         f"fixed incident: pod {fixtures.POD!r} in namespace "
         f"{fixtures.NAMESPACE!r}."
@@ -127,7 +132,7 @@ class RolloutStatus:
 def _require_known_deployment(namespace: str, deployment: str) -> None:
     if namespace == fixtures.NAMESPACE and deployment == fixtures.DEPLOYMENT:
         return
-    raise NodeNotFoundError(
+    raise ContextureError(
         f"No deployment {deployment!r} in namespace {namespace!r}. This demo "
         f"serves a single fixed incident: deployment {fixtures.DEPLOYMENT!r} "
         f"in namespace {fixtures.NAMESPACE!r}."

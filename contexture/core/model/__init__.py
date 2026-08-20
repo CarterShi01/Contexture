@@ -23,6 +23,7 @@ a declaration is imported: a class is a zero-argument factory, and a
 # here: a project that only declares context should not load the forest and the
 # four entry points to do it, and every caller that wants them is a caller that
 # is about to serve something.
+from .channels import Channels
 from .manager import ControllerManager, register_root
 from .node import CompileLevel, ContextNode, Disclosure
 from .role import Role
@@ -30,6 +31,7 @@ from .skill import Skill
 from .tool import Tool
 
 __all__ = [
+    "Channels",
     "CompileLevel",
     "ContextNode",
     "ControllerManager",

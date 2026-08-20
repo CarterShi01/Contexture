@@ -5,12 +5,23 @@
 
 Nothing in this file mentions JSON-RPC, JSON Schema, stdio framing, or any
 particular agent runtime. Claude Code and Codex run this same command.
+
+**Importing this module builds nothing.** Every object below is created inside
+`main`, which is the smallest possible instance of the shape a real
+application's entry point has: connections, registry, seal, server, options. A
+deployment with credentials to read and flags to parse fills in the two steps
+this demo has nothing to put in.
 """
 
 from __future__ import annotations
 
-from contexture import Prompt, Resource
-from contexture.server import ContextureApp
+from contexture import ControllerManager, Prompt, Resource
+from contexture.server import (
+    Assembly,
+    ContextureOptions,
+    ContextureServer,
+    Dispatch,
+)
 from .role import KubernetesPlatform
 
 #: What this demo publishes on MCP's resource primitive.
@@ -74,17 +85,29 @@ PUBLISHED = (
     RollBackARelease,
 )
 
-app = ContextureApp(
-    roots=KubernetesPlatform,
-    publish=PUBLISHED,
-    name="contexture-demo",
-)
+
+def build() -> ContextureServer:
+    """Everything between a declaration and a server, in five named objects.
+
+    Split out from `main` so that a test — and `contexture demo` — can hold the
+    server without also serving it. The order is the point, and it is the same
+    order a real `main` follows: register, seal, serve.
+    """
+
+    manager = ControllerManager()
+    manager.register_role(KubernetesPlatform)
+
+    dispatch = Dispatch()
+    tree = manager.sealed(schema_of=dispatch.schema)
+    assembly = Assembly.of(tree, execute=dispatch.execute, published=PUBLISHED)
+
+    return ContextureServer(assembly, name="contexture-demo")
 
 
 def main() -> None:
     """Serve the demo over stdio until the host disconnects."""
 
-    app.run(transport="stdio")
+    build().start(ContextureOptions(transport="stdio"))
 
 
 if __name__ == "__main__":

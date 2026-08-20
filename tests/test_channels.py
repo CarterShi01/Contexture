@@ -23,7 +23,7 @@ import unittest
 from pathlib import Path
 
 from contexture import ControllerManager
-from contexture.server import ContextureApp
+from contexture import Channels
 
 # The suite is discovered with the project root as its top level, so a test
 # module is imported under its bare name and a sibling fixture is not a
@@ -72,13 +72,24 @@ def _text(result) -> str:
     )
 
 
+def _registry(server) -> ControllerManager:
+    """The registry behind what a server serves.
+
+    Reached rather than held: `ContextureServer` takes a sealed assembly, and
+    a registry is a fact about the phase before that. `ContextTree` keeps a
+    reference to the one it was sealed over — there is no second copy.
+    """
+
+    return server.assembly.tree.registry
+
+
 class HandOffTests(unittest.TestCase):
     """The mechanism, in process."""
 
     def test_a_capability_reaches_what_the_application_built(self) -> None:
         app = fixture.build()
-        tool = app.manager.find(("operations", "escalation", "notify_squad"))
-        self.assertIs(tool.channels, app.manager.channels)
+        tool = _registry(app).find(("operations", "escalation", "notify_squad"))
+        self.assertIs(tool.channels, _registry(app).channels)
 
         answer = asyncio.run(tool.invoke(squad="payments"))
         self.assertEqual(answer, "https://gateway.internal:notify:payments#1")
@@ -87,7 +98,7 @@ class HandOffTests(unittest.TestCase):
         """The other thing a shared instance cannot work out for itself."""
 
         app = fixture.build()
-        tool = app.manager.find(("operations", "escalation", "where_am_i"))
+        tool = _registry(app).find(("operations", "escalation", "where_am_i"))
         self.assertEqual(
             asyncio.run(tool.invoke()),
             "operations/escalation/where_am_i -> https://gateway.internal",
@@ -95,59 +106,82 @@ class HandOffTests(unittest.TestCase):
 
     def test_two_apps_in_one_process_keep_their_own_connections(self) -> None:
         left, right = fixture.build(), fixture.build()
-        left.manager.channels.gateway.endpoint = "https://left.internal"
-        right.manager.channels.gateway.endpoint = "https://right.internal"
+        _registry(left).channels.gateway.endpoint = "https://left.internal"
+        _registry(right).channels.gateway.endpoint = "https://right.internal"
 
-        left_tool = left.manager.find(("operations", "escalation", "where_am_i"))
-        right_tool = right.manager.find(("operations", "escalation", "where_am_i"))
+        left_tool = _registry(left).find(("operations", "escalation", "where_am_i"))
+        right_tool = _registry(right).find(("operations", "escalation", "where_am_i"))
 
         self.assertIn("left.internal", asyncio.run(left_tool.invoke()))
         self.assertIn("right.internal", asyncio.run(right_tool.invoke()))
 
-    def test_channels_may_be_handed_over_without_holding_a_registry(self) -> None:
-        """The short door, for an application that never wanted one."""
+    def test_a_served_graph_carries_the_handle_the_application_built(self) -> None:
+        """One door now: the registry is where a handle is handed over.
 
-        channels = fixture.Channels(
+        `ContextureServer` takes a sealed assembly and has no `channels`
+        parameter of its own, so there is no second place for this answer to
+        come from and no way for two of them to disagree.
+        """
+
+        channels = fixture.Downstream(
             gateway=fixture.Gateway(endpoint="https://short.internal"),
             catalogue={"runbook": "-"},
         )
-        app = ContextureApp(roots=fixture.Operations(), channels=channels)
-        tool = app.manager.find(("operations", "escalation", "notify_squad"))
-        self.assertIs(tool.channels, channels)
+        server = fixture.build(channels=channels)
+        registry = server.assembly.tree.registry
+        tool = registry.find(("operations", "escalation", "notify_squad"))
 
-    def test_a_manager_and_channels_together_are_refused(self) -> None:
-        manager = ControllerManager(channels=object())
-        manager.register_role(fixture.Operations)
-        with self.assertRaises(Exception) as caught:
-            ContextureApp(roots=manager, channels=object())
-        self.assertIn("two answers", str(caught.exception))
+        self.assertIs(tool.channels, channels)
+        self.assertFalse(hasattr(server, "channels"))
 
     def test_nothing_outside_the_process_is_the_ordinary_case(self) -> None:
-        app = ContextureApp(roots=fixture.Operations())
+        manager = ControllerManager()
+        manager.register_role(fixture.Operations)
         self.assertIsNone(
-            app.manager.find(("operations", "escalation", "notify_squad")).channels
+            manager.find(("operations", "escalation", "notify_squad")).channels
         )
 
 
 class LifecycleTests(unittest.TestCase):
     """Opening a handle that cannot simply be constructed, and closing it."""
 
-    @staticmethod
-    def _manager(marks: list[str], *, fail: bool = False) -> ControllerManager:
+    class Marked(Channels):
+        """A handle whose every step is observable, and composable.
+
+        Two resources rather than one, because the property worth pinning is
+        the one `Channels.enter` exists for: they close in reverse, and the
+        first is closed if the second fails to open.
+        """
+
+        def __init__(self, marks: list[str], *, fail: bool = False) -> None:
+            self.marks = marks
+            self.fail = fail
+            self.gateway = None
+
         @asynccontextmanager
-        async def open_channels():
-            marks.append("open")
-            if fail:
+        async def _resource(self, name: str, *, boom: bool = False):
+            self.marks.append(f"open {name}")
+            if boom:
                 raise RuntimeError("gateway unreachable")
             try:
-                yield fixture.Channels(
+                yield fixture.Downstream(
                     gateway=fixture.Gateway(endpoint="https://opened.internal"),
                     catalogue={"runbook": "-"},
                 )
             finally:
-                marks.append("close")
+                self.marks.append(f"close {name}")
 
-        manager = ControllerManager(provision=open_channels)
+        async def open(self) -> None:
+            first = await self.enter(self._resource("a"))
+            await self.enter(self._resource("b", boom=self.fail))
+            self.gateway = first.gateway
+
+        async def close(self) -> None:
+            self.marks.append("close()")
+            self.gateway = None
+
+    def _manager(self, marks: list[str], *, fail: bool = False) -> ControllerManager:
+        manager = ControllerManager(channels=self.Marked(marks, fail=fail))
         manager.register_role(fixture.Operations)
         return manager
 
@@ -155,19 +189,39 @@ class LifecycleTests(unittest.TestCase):
         marks: list[str] = []
         manager = self._manager(marks)
         tool = manager.find(("operations", "escalation", "notify_squad"))
-        self.assertIsNone(tool.channels)
+
+        # Stamped from the start, and the same object throughout: what changes
+        # between here and inside `provisioned` is what it *holds*.
+        self.assertIs(tool.channels, manager.channels)
+        self.assertIsNone(tool.channels.gateway)
 
         async def serve() -> str:
             async with manager.provisioned():
                 marks.append("serving")
-                return await tool.invoke(squad="payments")
+                return tool.channels.gateway.endpoint
 
-        answer = asyncio.run(serve())
-        self.assertIn("https://opened.internal", answer)
-        self.assertEqual(marks, ["open", "serving", "close"])
-        # Cleared rather than left behind: a late call sees None, which fails
-        # legibly, instead of a session somebody already closed.
-        self.assertIsNone(tool.channels)
+        self.assertEqual(asyncio.run(serve()), "https://opened.internal")
+        self.assertEqual(
+            marks,
+            ["open a", "open b", "serving", "close()", "close b", "close a"],
+        )
+        # Cleared by the handle's own `close`, which is where it belongs: the
+        # framework never learns what this object holds, so it cannot clear it.
+        self.assertIsNone(tool.channels.gateway)
+
+    def test_what_was_entered_is_unwound_in_reverse(self) -> None:
+        """`async with a, b` semantics, recovered without a factory."""
+
+        marks: list[str] = []
+
+        async def serve() -> None:
+            async with self._manager(marks).provisioned():
+                pass
+
+        asyncio.run(serve())
+        self.assertEqual(
+            marks, ["open a", "open b", "close()", "close b", "close a"]
+        )
 
     def test_the_handle_is_closed_even_when_serving_raises(self) -> None:
         marks: list[str] = []
@@ -179,8 +233,9 @@ class LifecycleTests(unittest.TestCase):
 
         with self.assertRaises(RuntimeError):
             asyncio.run(serve())
-        self.assertEqual(marks, ["open", "close"])
-        self.assertIsNone(manager.channels)
+        self.assertEqual(
+            marks, ["open a", "open b", "close()", "close b", "close a"]
+        )
 
     def test_a_handle_that_cannot_be_opened_stops_the_server_starting(self) -> None:
         marks: list[str] = []
@@ -192,11 +247,20 @@ class LifecycleTests(unittest.TestCase):
 
         with self.assertRaises(RuntimeError) as caught:
             asyncio.run(serve())
+
         self.assertIn("gateway unreachable", str(caught.exception))
         self.assertNotIn("serving", marks)
+        # And the half that *did* open is closed on the way out, which is the
+        # bug a hand-written `open`/`close` pair invites and this does not.
+        self.assertEqual(marks, ["open a", "open b", "close a"])
 
     def test_it_may_be_opened_again(self) -> None:
-        """A factory, not a context manager, so a second run still works."""
+        """A fresh exit stack per serving, so a second run still works.
+
+        This used to be a run-time refusal — "pass a factory, never a context
+        manager, because one is consumed by being entered" — because no type
+        could say it. The type says it now.
+        """
 
         marks: list[str] = []
         manager = self._manager(marks)
@@ -207,37 +271,18 @@ class LifecycleTests(unittest.TestCase):
                     pass
 
         asyncio.run(twice())
-        self.assertEqual(marks, ["open", "close", "open", "close"])
+        self.assertEqual(marks.count("open a"), 2)
+        self.assertEqual(marks.count("close a"), 2)
 
-    def test_a_context_manager_instead_of_a_factory_is_refused(self) -> None:
-        """And refused where it was written, not on the second run."""
+    def test_enter_outside_open_is_refused(self) -> None:
+        """Anything entered outside a serving would never be closed."""
 
-        @asynccontextmanager
-        async def open_channels():
-            yield object()
+        with self.assertRaises(RuntimeError) as caught:
+            asyncio.run(self.Marked([]).enter(object()))
 
-        with self.assertRaises(Exception) as caught:
-            ControllerManager(provision=open_channels())  # type: ignore[arg-type]
-        self.assertIn("not a factory", str(caught.exception))
+        self.assertIn("outside open()", str(caught.exception))
 
-    def test_something_that_opens_nothing_is_refused(self) -> None:
-        manager = ControllerManager(provision=lambda: object())
-        manager.register_role(fixture.Operations)
-
-        async def serve() -> None:
-            async with manager.provisioned():
-                pass
-
-        with self.assertRaises(Exception) as caught:
-            asyncio.run(serve())
-        self.assertIn("not an async context manager", str(caught.exception))
-
-    def test_a_value_and_a_way_to_open_one_together_are_refused(self) -> None:
-        with self.assertRaises(Exception) as caught:
-            ControllerManager(channels=object(), provision=lambda: None)
-        self.assertIn("both channels and a way to open them", str(caught.exception))
-
-    def test_a_manager_with_nothing_to_open_still_answers(self) -> None:
+    def test_a_handle_with_no_lifecycle_still_answers(self) -> None:
         """One shape for both kinds, so a caller need not ask which it holds."""
 
         channels = object()

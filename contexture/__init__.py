@@ -23,6 +23,7 @@ pays for only that.
 
 from .core.constants import PACKAGE_VERSION as __version__
 from .core import (
+    Channels,
     CompileLevel,
     ContextNode,
     ControllerManager,
@@ -52,6 +53,7 @@ from .core import (
 from .core.mcp_interface import Prompt, Resource
 
 __all__ = [
+    "Channels",
     "CompileLevel",
     "ContextNode",
     "ControllerManager",

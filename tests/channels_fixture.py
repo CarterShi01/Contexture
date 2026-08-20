@@ -18,8 +18,21 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import AsyncIterator
 
-from contexture import ControllerManager, Prompt, Resource, Role, Skill, Tool
-from contexture.server import ContextureApp
+from contexture import (
+    Channels,
+    ControllerManager,
+    Prompt,
+    Resource,
+    Role,
+    Skill,
+    Tool,
+)
+from contexture.server import (
+    Assembly,
+    ContextureOptions,
+    ContextureServer,
+    Dispatch,
+)
 
 
 @dataclass
@@ -35,8 +48,13 @@ class Gateway:
 
 
 @dataclass
-class Channels:
-    """Everything this application reaches outside its own process."""
+class Downstream:
+    """Everything this application reaches outside its own process.
+
+    A plain value: it is simply constructed, so it needs no lifecycle and does
+    not subclass `Channels`. Handed to the registry and stamped onto every
+    controller, and never looked at by the framework again.
+    """
 
     gateway: Gateway
     catalogue: dict[str, str]
@@ -122,28 +140,15 @@ PUBLISHED = (
 )
 
 
-def _channels() -> Channels:
-    return Channels(
+def _channels() -> Downstream:
+    return Downstream(
         gateway=Gateway(endpoint="https://gateway.internal"),
         catalogue={"runbook": "Page the owner, then open an incident channel."},
     )
 
 
-def build() -> ContextureApp:
-    """Build the app the way `main()` should read.
-
-    Connections first, because a capability that cannot reach its downstream is
-    not ready to be served; then the registry, which is what hands the handle to
-    everything it registers; then the server.
-    """
-
-    manager = ControllerManager(channels=_channels())
-    manager.register_role(Operations)
-    return ContextureApp(roots=manager, publish=PUBLISHED, name="channels-fixture")
-
-
-def build_provisioned() -> ContextureApp:
-    """The same server, for a handle that has to be opened and closed again.
+class OpenedChannels(Channels):
+    """The same handle, for a deployment where it has to be opened.
 
     `LIFECYCLE_MARKS` names a file each step appends to, which is how a test
     outside this process can see that opening happened before the first request
@@ -152,30 +157,67 @@ def build_provisioned() -> ContextureApp:
     observable, which is the whole claim.
     """
 
-    marks = Path(os.environ["LIFECYCLE_MARKS"])
+    def __init__(self, marks: Path) -> None:
+        # No `super().__init__()`: the base keeps its exit stack as a class
+        # attribute for exactly this reason.
+        self.marks = marks
+        self.gateway: Gateway | None = None
+        self.catalogue: dict[str, str] = {}
 
-    def mark(step: str) -> None:
-        with marks.open("a", encoding="utf-8") as handle:
+    def _mark(self, step: str) -> None:
+        with self.marks.open("a", encoding="utf-8") as handle:
             handle.write(f"{step}\n")
 
     @asynccontextmanager
-    async def open_channels() -> AsyncIterator[Channels]:
-        mark("open")
-        channels = _channels()
+    async def _session(self) -> AsyncIterator[Downstream]:
+        self._mark("open")
         try:
-            yield channels
+            yield _channels()
         finally:
             # Closing is the half a process that is simply killed never gets
             # to do, which is why it is worth a mark of its own.
-            mark("close")
+            self._mark("close")
 
-    manager = ControllerManager(provision=open_channels)
+    async def open(self) -> None:
+        opened = await self.enter(self._session())
+        self.gateway = opened.gateway
+        self.catalogue = opened.catalogue
+
+    async def close(self) -> None:
+        # Cleared here rather than by the framework: a call arriving after
+        # shutdown then meets `None`, which fails legibly, instead of a session
+        # somebody already closed.
+        self.gateway = None
+        self.catalogue = {}
+
+
+def build(*, channels: object | None = None) -> ContextureServer:
+    """Build the server the way `main()` should read.
+
+    Connections first, because a capability that cannot reach its downstream is
+    not ready to be served; then the registry, which is what hands the handle to
+    everything it registers; then the seal, then the server.
+    """
+
+    manager = ControllerManager(
+        channels=_channels() if channels is None else channels
+    )
     manager.register_role(Operations)
-    return ContextureApp(roots=manager, publish=PUBLISHED, name="channels-fixture")
+
+    dispatch = Dispatch()
+    assembly = Assembly.of(
+        manager.sealed(schema_of=dispatch.schema),
+        execute=dispatch.execute,
+        published=PUBLISHED,
+    )
+    return ContextureServer(assembly, name="channels-fixture")
 
 
-app = build_provisioned() if os.environ.get("LIFECYCLE_MARKS") else build()
+def main() -> None:
+    marks = os.environ.get("LIFECYCLE_MARKS")
+    server = build(channels=OpenedChannels(Path(marks)) if marks else None)
+    server.start(ContextureOptions(transport="stdio"))
 
 
 if __name__ == "__main__":  # pragma: no cover - exercised as a subprocess
-    app.run(transport="stdio")
+    main()

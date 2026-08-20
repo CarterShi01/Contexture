@@ -1,0 +1,104 @@
+"""The four entry points, and the reason a business capability is not among them.
+
+MCP tool lists are flat and, since the 2026-07-28 revision, stateless: a server
+may not vary them per connection or as a consequence of an earlier call. So a
+capability that is registered is a capability every session pays for, forever,
+whatever the user asked. The only way a tool becomes deferrable is for it not
+to be on the surface at all — its name, description and schema travel inside a
+payload instead, and arrive when the role holding it is opened.
+
+What is on the surface is four tools, whatever the declaration contains::
+
+    contexture_discover              the root roles, one level
+    contexture_open                  one node's detail, plus its members' cards
+    contexture_invoke_read_only      run a tool that leaves the world unchanged
+    contexture_invoke                run a tool that does not
+
+**`read_only` is which door, not which argument.** A host cannot see a business
+tool any more, so it cannot be told per tool whether to ask a human first. It
+can see which of the two doors was used, and each door carries the matching
+`readOnlyHint`. A model may pick the wrong one — and picking it gets the call
+refused rather than executed, which is the same protection as never letting the
+classification be an argument, relocated to where the host can still act on it.
+
+Nothing is checked in this plane's constructor because a business declares
+nothing on it. It is a class all the same, so that `build` reads as three
+planes rather than two planes and an exception.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from mcp.server.mcpserver import Context, MCPServer
+from mcp_types import ToolAnnotations
+
+from ..assembly import Assembly
+from ...core.model.system_api import GATEWAY
+from ...core.types import CompiledContext
+from . import translated
+
+
+class Gateway:
+    """The fixed four. Nothing a declaration says changes them."""
+
+    __slots__ = ("_assembly",)
+
+    def __init__(self, assembly: Assembly) -> None:
+        self._assembly = assembly
+
+    def project(self, surface: MCPServer) -> None:
+        api = self._assembly.api
+
+        # Four wrappers holding no rules of their own. Each exists for one
+        # thing the kernel cannot have: an SDK `Context` to thread through, and
+        # a signature for the SDK to derive this entry point's own schema from.
+        async def contexture_discover() -> CompiledContext:
+            with translated():
+                return await api.discover()
+
+        async def contexture_open(ref: str) -> CompiledContext:
+            with translated():
+                return await api.open(ref)
+
+        async def contexture_invoke_read_only(
+            ctx: Context,
+            ref: str,
+            arguments: dict[str, Any] | None = None,
+        ) -> Any:
+            with translated():
+                return await api.invoke_read_only(ref, arguments, context=ctx)
+
+        async def contexture_invoke(
+            ctx: Context,
+            ref: str,
+            arguments: dict[str, Any] | None = None,
+        ) -> Any:
+            with translated():
+                return await api.invoke(ref, arguments, context=ctx)
+
+        implementations = dict(
+            zip(
+                (entry.name for entry in GATEWAY),
+                (
+                    contexture_discover,
+                    contexture_open,
+                    contexture_invoke_read_only,
+                    contexture_invoke,
+                ),
+            )
+        )
+
+        # Registered from the kernel's own list rather than four call sites, so
+        # "the surface is exactly these four, described exactly this way" is a
+        # fact about one tuple instead of an agreement between eight places.
+        for entry in GATEWAY:
+            surface.add_tool(
+                implementations[entry.name],
+                name=entry.name,
+                description=entry.description,
+                annotations=ToolAnnotations(read_only_hint=entry.read_only),
+            )
+
+
+__all__ = ["Gateway"]

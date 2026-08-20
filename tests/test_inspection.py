@@ -21,7 +21,15 @@ from contexture import inspection
 from contexture.core.model.role import Role
 from contexture.core.model.skill import Skill
 from contexture.core.model.tool import Tool
-from contexture.server import DISCOVER_TOOL, OPEN_TOOL, ContextureApp, instructions
+import sys
+from pathlib import Path
+
+from contexture.server import DISCOVER_TOOL, OPEN_TOOL, ContextureServer, instructions
+
+# Discovery puts `tests/` on the path, but running one module by name does not.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from serving import serve  # noqa: E402
 from contexture.core.model.tree import ContextTree
 
 
@@ -79,14 +87,14 @@ class Platform(Role):
         )
 
 
-def _app() -> ContextureApp:
-    return ContextureApp(roots=Platform(), name="test")
+def _app() -> ContextureServer:
+    return serve(Platform)
 
 
-def _served(app: ContextureApp, name: str, arguments: dict | None = None):
+def _served(app: ContextureServer, name: str, arguments: dict | None = None):
     """What the real gateway answers, parsed back out of the wire text."""
 
-    server = app.build_server()
+    server = app.build()
     result = asyncio.run(server.call_tool(name, arguments or {}))
     return json.loads(result.content[0].text)
 
@@ -109,16 +117,16 @@ class HonestyTests(unittest.TestCase):
 
     def test_the_discover_step_is_what_discover_answers(self) -> None:
         app = _app()
-        step = inspection.discover_step(app.tree)
+        step = inspection.discover_step(app.assembly.tree)
 
         self.assertEqual(step.payload, _served(app, DISCOVER_TOOL))
         self.assertEqual(json.loads(step.body), _served(app, DISCOVER_TOOL))
 
     def test_every_open_step_is_what_open_answers(self) -> None:
         app = _app()
-        for ref in inspection.every_ref(app.tree):
+        for ref in inspection.every_ref(app.assembly.tree):
             with self.subTest(ref=ref):
-                step = inspection.open_step(app.tree, ref)
+                step = inspection.open_step(app.assembly.tree, ref)
                 self.assertFalse(step.refused)
                 self.assertEqual(
                     step.payload, _served(app, OPEN_TOOL, {"ref": ref})
@@ -135,7 +143,7 @@ class HonestyTests(unittest.TestCase):
         """
 
         app = _app()
-        step = inspection.open_step(app.tree, "platform/responder/get_pod_logs")
+        step = inspection.open_step(app.assembly.tree, "platform/responder/get_pod_logs")
 
         assert step.payload is not None
         self.assertIn("previous", step.payload["input_schema"]["properties"])
@@ -144,10 +152,10 @@ class HonestyTests(unittest.TestCase):
         self,
     ) -> None:
         app = _app()
-        text = instructions.build(app.tree)
+        text = instructions.build(app.assembly.tree)
 
-        self.assertEqual(app.build_server().instructions, text)
-        self.assertEqual(inspection.connect_step(app.tree, text).body, text)
+        self.assertEqual(app.build().instructions, text)
+        self.assertEqual(inspection.connect_step(app.assembly.tree, text).body, text)
 
 
 class ConnectStepTests(unittest.TestCase):
@@ -164,13 +172,13 @@ class ConnectStepTests(unittest.TestCase):
 
     def test_text_within_the_host_limit_passes_every_check(self) -> None:
         app = _app()
-        step = inspection.connect_step(app.tree, instructions.build(app.tree))
+        step = inspection.connect_step(app.assembly.tree, instructions.build(app.assembly.tree))
 
         self.assertTrue(all(check.ok for check in step.checks))
 
     def test_an_opening_that_does_not_stand_alone_is_reported(self) -> None:
         app = _app()
-        step = inspection.connect_step(app.tree, "Roles:\n- platform: a thing.")
+        step = inspection.connect_step(app.assembly.tree, "Roles:\n- platform: a thing.")
 
         self.assertFalse(step.checks[1].ok)
         self.assertIn(str(instructions.SELF_CONTAINED_PREFIX), step.checks[1].note)
@@ -189,7 +197,7 @@ class ConnectStepTests(unittest.TestCase):
         """They arrive at connect too, and are fixed, so they are not summed."""
 
         app = _app()
-        step = inspection.connect_step(app.tree, instructions.build(app.tree))
+        step = inspection.connect_step(app.assembly.tree, instructions.build(app.assembly.tree))
 
         assert step.aside is not None
         self.assertIn("gateway", step.aside)
@@ -200,7 +208,7 @@ class RefusalTests(unittest.TestCase):
 
     def test_a_bad_ref_prints_the_sentence_the_agent_would_read(self) -> None:
         app = _app()
-        step = inspection.open_step(app.tree, "platform/nope")
+        step = inspection.open_step(app.assembly.tree, "platform/nope")
 
         self.assertTrue(step.refused)
         self.assertIn("holds no member named 'nope'", step.body)
@@ -209,14 +217,14 @@ class RefusalTests(unittest.TestCase):
 
     def test_a_refusal_is_still_costed(self) -> None:
         app = _app()
-        step = inspection.open_step(app.tree, "platform/nope")
+        step = inspection.open_step(app.assembly.tree, "platform/nope")
 
         self.assertGreater(step.cost.tokens, 0)
 
     def test_a_refused_step_is_a_finding_and_not_a_crash(self) -> None:
         app = _app()
         traced = inspection.trace(
-            app.tree, ["platform", "platform/nope"], instructions="x"
+            app.assembly.tree, ["platform", "platform/nope"], instructions="x"
         )
 
         self.assertEqual(len(traced.steps), 4)
@@ -226,7 +234,7 @@ class RefusalTests(unittest.TestCase):
         self,
     ) -> None:
         app = _app()
-        step = inspection.read_step(app.tree, "platform/responder/diagnose")
+        step = inspection.read_step(app.assembly.tree, "platform/responder/diagnose")
 
         self.assertTrue(step.refused)
         self.assertIn("names a skill", step.body)
@@ -291,13 +299,13 @@ class SweepTests(unittest.TestCase):
 
     def test_every_ref_resolves(self) -> None:
         app = _app()
-        for ref in inspection.every_ref(app.tree):
+        for ref in inspection.every_ref(app.assembly.tree):
             with self.subTest(ref=ref):
-                app.tree.find(ref)
+                app.assembly.tree.find(ref)
 
     def test_every_node_appears_exactly_once(self) -> None:
         app = _app()
-        refs = list(inspection.every_ref(app.tree))
+        refs = list(inspection.every_ref(app.assembly.tree))
 
         self.assertEqual(len(refs), len(set(refs)))
         self.assertEqual(
@@ -316,7 +324,7 @@ class SweepTests(unittest.TestCase):
     ) -> None:
         """The bug this guards: every deep branch listed twice over."""
 
-        refs = list(inspection.every_ref(_app().tree))
+        refs = list(inspection.every_ref(_app().assembly.tree))
 
         self.assertEqual(refs.count("platform/responder"), 1)
 
@@ -325,10 +333,10 @@ class ReadTests(unittest.TestCase):
     def test_a_resource_is_read_only_when_asked_for(self) -> None:
         app = _app()
         without = inspection.trace(
-            app.tree, ["platform/responder/runbook"], instructions="x"
+            app.assembly.tree, ["platform/responder/runbook"], instructions="x"
         )
         with_read = inspection.trace(
-            app.tree, ["platform/responder/runbook"], instructions="x", read=True
+            app.assembly.tree, ["platform/responder/runbook"], instructions="x", read=True
         )
 
         self.assertNotIn("RUNBOOK-BODY", without.steps[-1].body)
@@ -336,7 +344,7 @@ class ReadTests(unittest.TestCase):
 
     def test_the_open_step_says_what_it_is_not_showing(self) -> None:
         app = _app()
-        step = inspection.open_step(app.tree, "platform/responder/runbook")
+        step = inspection.open_step(app.assembly.tree, "platform/responder/runbook")
 
         assert step.aside is not None
         self.assertIn("--read", step.aside)
@@ -359,7 +367,7 @@ class CostTests(unittest.TestCase):
     def test_the_total_is_the_sum_of_the_steps(self) -> None:
         app = _app()
         traced = inspection.trace(
-            app.tree, ["platform", "platform/responder"], instructions="hello"
+            app.assembly.tree, ["platform", "platform/responder"], instructions="hello"
         )
 
         self.assertEqual(
@@ -372,9 +380,9 @@ class RenderTests(unittest.TestCase):
     def _trace(self) -> inspection.Trace:
         app = _app()
         return inspection.trace(
-            app.tree,
+            app.assembly.tree,
             ["platform", "platform/responder"],
-            instructions=instructions.build(app.tree),
+            instructions=instructions.build(app.assembly.tree),
         )
 
     def test_the_default_rendering_shows_the_payloads(self) -> None:

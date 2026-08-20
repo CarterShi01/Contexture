@@ -1,8 +1,12 @@
-"""Tests for the gateway surface.
+"""Tests for the projected surface: what reaches the wire, and what does not.
 
 The surface is four tools whatever the declaration holds, business
 capabilities never appear on it, and the read-only classification survives as
 which entry point was used rather than as an argument a model could fill in.
+
+The other two planes are here too, because what they must agree with is on
+this one: a command answers with what `contexture_open` would have said, and a
+resource names a node the tree already holds.
 """
 
 from __future__ import annotations
@@ -21,7 +25,8 @@ from contexture.core.model.skill import Skill
 from contexture.core.model.tool import Tool
 from mcp.server.mcpserver import Context, MCPServer
 from contexture.server import instructions
-from contexture.server.binding import Dispatch, project
+from contexture.server.dispatch import Dispatch
+from contexture.server.projection import Gateway, Prompts, Resources
 from contexture.core.model.tree import SEPARATOR, ContextTree
 from contexture.server import (
     DISCOVER_TOOL,
@@ -30,11 +35,18 @@ from contexture.server import (
     INVOKE_READ_ONLY_TOOL,
     INVOKE_TOOL,
     OPEN_TOOL,
-    ContextureApp,
+    Assembly,
     claude_code_config,
     cli_commands,
     codex_config,
 )
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from serving import assemble, serve  # noqa: E402
 
 PROCEDURE = "Read the status, then the logs."
 
@@ -106,25 +118,29 @@ class Responder(Role):
 
 
 def _server():
-    return ContextureApp(roots=Responder(), name="test").build_server()
+    return serve(Responder).build()
 
 
 def _published():
     """The same graph, with the runbook published on the resource primitive."""
 
-    return ContextureApp(
-        roots=Responder(), publish=(RUNBOOK_RESOURCE,), name="test"
-    ).build_server()
+    return serve(Responder, published=(RUNBOOK_RESOURCE,)).build()
 
 
 def _published_with(opens: str, uri: str):
     """Build a server publishing one node, for the refusals worth checking."""
 
-    return ContextureApp(
-        roots=Responder(),
-        publish=(Resource(opens=opens, uri=uri, description="Content."),),
-        name="test",
-    ).build_server()
+    return serve(
+        Responder,
+        published=(
+            Resource(
+                opens=opens,
+                uri=uri,
+                mime_type="text/markdown",
+                description="Whatever this names.",
+            ),
+        ),
+    ).build()
 
 
 def _call(server, name, arguments=None):
@@ -441,9 +457,9 @@ class StatelessnessTests(unittest.TestCase):
         on it would already have been delivered once.
         """
 
-        app = ContextureApp(roots=Responder(), name="test")
+        app = serve(Responder)
         refs = []
-        for ref, role in app.tree.roles_with_refs():
+        for ref, role in app.assembly.tree.roles_with_refs():
             refs.append(ref)
             refs.extend(
                 f"{ref}/{member.name}"
@@ -542,10 +558,10 @@ class StatelessnessTests(unittest.TestCase):
         first connection warms. The second must not be able to tell.
         """
 
-        app = ContextureApp(roots=Responder(), name="test")
-        first = app.build_server()
+        server = serve(Responder)
+        first = server.build()
         self._exercise(first)
-        second = app.build_server()
+        second = server.build()
 
         self.assertEqual(
             tuple(tool.name for tool in asyncio.run(second.list_tools())),
@@ -556,14 +572,15 @@ class StatelessnessTests(unittest.TestCase):
     def test_the_schema_cache_is_a_cache_and_not_a_state(self) -> None:
         """`Dispatch` memoizes derivation; dropping it must change nothing."""
 
-        app = ContextureApp(roots=Responder(), name="test")
-        server = app.build_server()
-        self._exercise(server)
+        dispatch = Dispatch()
+        server = serve(Responder, dispatch=dispatch)
+        surface = server.build()
+        self._exercise(surface)
 
-        warm = self._surface(server)
-        app.dispatch._derived.clear()
+        warm = self._surface(surface)
+        dispatch._derived.clear()
 
-        self.assertEqual(self._surface(server), warm)
+        self.assertEqual(self._surface(surface), warm)
         self.assertEqual(warm, self.cold)
 
 
@@ -612,14 +629,14 @@ class ToolDisclosureTests(unittest.TestCase):
     """
 
     def test_both_ways_to_a_tool_describe_the_same_call(self) -> None:
-        app = ContextureApp(roots=Responder(), name="test")
+        app = serve(Responder)
 
         card = next(
             tool
-            for tool in app.tree.open("responder")["tools"]
+            for tool in app.assembly.tree.open("responder")["tools"]
             if tool["name"] == "get_pod_logs"
         )
-        opened = app.tree.open("responder/get_pod_logs")
+        opened = app.assembly.tree.open("responder/get_pod_logs")
 
         self.assertEqual(opened["input_schema"], card["input_schema"])
         self.assertEqual(opened["read_only"], card["read_only"])
@@ -632,8 +649,8 @@ class ToolDisclosureTests(unittest.TestCase):
         reach the agent on every tool card of every open.
         """
 
-        app = ContextureApp(roots=Responder(), name="test")
-        schema = app.tree.open("responder/get_pod_logs")["input_schema"]
+        app = serve(Responder)
+        schema = app.assembly.tree.open("responder/get_pod_logs")["input_schema"]
 
         self.assertNotIn("title", schema)
         self.assertEqual(
@@ -666,8 +683,8 @@ class ToolDisclosureTests(unittest.TestCase):
                     tools=[Publish()],
                 )
 
-        app = ContextureApp(roots=Notes(), name="test")
-        schema = app.tree.open("notes/publish")["input_schema"]
+        app = serve(Notes)
+        schema = app.assembly.tree.open("notes/publish")["input_schema"]
 
         self.assertEqual(sorted(schema["properties"]), ["body", "title"])
         self.assertNotIn("title", schema["properties"]["title"])
@@ -726,9 +743,9 @@ class ToolDisclosureTests(unittest.TestCase):
                     tools=[Progressing()],
                 )
 
-        app = ContextureApp(roots=Slow(), name="test")
-        opened = app.tree.open("slow/progressing")
-        card = app.tree.open("slow")["tools"][0]
+        app = serve(Slow)
+        opened = app.assembly.tree.open("slow/progressing")
+        card = app.assembly.tree.open("slow")["tools"][0]
 
         for payload in (opened, card):
             with self.subTest(payload=payload.get("ref")):
@@ -918,14 +935,14 @@ class CommandPlaneTests(unittest.IsolatedAsyncioTestCase):
         tree: ContextTree,
         publish: tuple[Prompt, ...] | None = None,
     ) -> MCPServer:
-        server = MCPServer(name="oc", version="0", instructions="x")
-        project(
-            server,
-            tree=tree,
-            dispatch=Dispatch(),
-            publish=self._published() if publish is None else publish,
+        assembly = Assembly.of(
+            tree,
+            published=self._published() if publish is None else publish,
         )
-        return server
+        surface = MCPServer(name="oc", version="0", instructions="x")
+        for plane in (Gateway(assembly), Prompts(assembly), Resources(assembly)):
+            plane.project(surface)
+        return surface
 
     async def test_only_a_marked_node_reaches_the_prompt_plane(self) -> None:
         """The command surface is authored, not derived from the forest.

@@ -1,9 +1,12 @@
 """How to serve, stated in a way that can disagree with its caller.
 
 `ContextureOptions` exists because a keyword-argument passthrough cannot hold
-an opinion. Every test here is one opinion it holds, and each one guards a
+an opinion. Most tests here are one opinion it holds, and each one guards a
 mistake that would otherwise produce a **running server on a wrong assumption**
 rather than an error — the failure mode worth paying a validation layer for.
+
+The rest are about `ContextureServer` itself: that it builds once, and that
+what it builds cannot be quietly replaced by a second answer.
 """
 
 from __future__ import annotations
@@ -11,9 +14,16 @@ from __future__ import annotations
 import unittest
 
 from contexture import Principal
-from contexture.server import ContextureApp, ContextureOptions, ServeError
+import sys
+from pathlib import Path
+
+from contexture.server import ContextureOptions, ServeError
 from contexture.server.identity import Auth
 from contexture.demo.role import KubernetesPlatform
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from serving import serve  # noqa: E402
 
 
 class Verifier:
@@ -168,27 +178,65 @@ class OverrideTests(unittest.TestCase):
         self.assertEqual(security.allowed_origins, ["https://acme.example"])
 
 
-class RunTests(unittest.TestCase):
+class ServerTests(unittest.TestCase):
     def test_stating_the_transport_twice_is_refused(self) -> None:
         """Two ways to say one thing, and no way to tell which was meant."""
 
-        app = ContextureApp(roots=KubernetesPlatform(), name="test")
+        server = serve(KubernetesPlatform)
 
         with self.assertRaises(ServeError) as caught:
-            app.run(ContextureOptions(transport="stdio"), transport="streamable-http")
+            server.start(
+                ContextureOptions(transport="stdio"), transport="streamable-http"
+            )
 
         self.assertIn("not both", str(caught.exception))
 
     def test_a_server_can_be_built_with_auth_and_without(self) -> None:
         """Both shapes reach the SDK; the gateway is the same either way."""
 
-        app = ContextureApp(roots=KubernetesPlatform(), name="test")
-
-        plain = app.build_server()
-        secured = app.build_server(auth=_auth())
+        plain = serve(KubernetesPlatform).build()
+        secured = serve(KubernetesPlatform).build(auth=_auth())
 
         self.assertIsNone(plain.settings.auth)
         self.assertIsNotNone(secured.settings.auth)
+
+    def test_building_twice_hands_back_the_one_server(self) -> None:
+        """`start` builds; a caller that already built must not get a second.
+
+        Two `MCPServer`s over one assembly is two surfaces where the process
+        serves one, and the one on the wire would be whichever was passed to
+        the transport — decided by call order rather than by anybody.
+        """
+
+        server = serve(KubernetesPlatform)
+
+        self.assertIs(server.build(), server.build())
+
+    def test_a_second_build_with_different_auth_is_refused(self) -> None:
+        """Silently keeping the first answer would decide who may knock."""
+
+        server = serve(KubernetesPlatform)
+        server.build()
+
+        with self.assertRaises(ServeError) as caught:
+            server.build(auth=_auth())
+
+        self.assertIn("already built", str(caught.exception))
+
+    def test_a_server_cannot_be_registered_into(self) -> None:
+        """The phase boundary is structural, not a run-time flag.
+
+        A graph is registered into a `ControllerManager` and sealed once; a
+        server takes the sealed result. There is deliberately no method here
+        that could add a node to something already being served, which is what
+        the protocol forbids and what a flag could only complain about after
+        the fact.
+        """
+
+        server = serve(KubernetesPlatform)
+
+        for absent in ("add_role", "add_skill", "add_tool", "register_role", "publish"):
+            self.assertFalse(hasattr(server, absent), absent)
 
 
 if __name__ == "__main__":
