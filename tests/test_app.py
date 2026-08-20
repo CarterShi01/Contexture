@@ -13,7 +13,7 @@ import unittest
 from contexture import Principal
 from contexture.server import ContextureApp, ContextureOptions, ServeError
 from contexture.server.identity import Auth
-from contexture.examples.incident.role import KubernetesPlatform
+from contexture.demo.role import KubernetesPlatform
 
 
 class Verifier:

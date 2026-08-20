@@ -99,7 +99,7 @@ Two things that item asked are still open, and neither blocks anything:
 - **Codex has never completed a run.** It registers against v0.2.0 with no
   Codex-specific artifact and is left registered on this machine, but the
   account limit that blocked it at v0.0.4 still blocks it — it resets
-  **2026-08-21 12:02**. One command after that; see `scripts/verify_codex.md`.
+  **2026-08-21 12:02**. One command after that; see `docs/verification/verify_codex.md`.
 - **`contract.unresolved()` has no field evidence.** The recovery sentence was
   written so a model that takes a wrong turn is told how to correct. The model
   never took one, so the sentence was never read by a model in anger. It is

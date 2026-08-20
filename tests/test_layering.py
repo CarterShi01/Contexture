@@ -63,12 +63,17 @@ ALLOWED: dict[str, set[str]] = {
         "core.disclosure",
         "core.mcp_interface",
     },
-    # Reference applications sit above everything and are imported by nothing.
-    # They reach everything a declaration writes with through the public
-    # facade — `Role`, `Skill`, `Tool`, `Prompt` and `Resource` all arrive from
-    # `contexture` — so the one layer left to name is `server`, to build an
-    # app. See LayeringTests.test_examples_use_only_the_public_facade.
-    "examples": {"server"},
+    # The bundled reference application sits above everything and is imported
+    # by nothing. It reaches everything a declaration writes with through the
+    # public facade — `Role`, `Skill`, `Tool`, `Prompt` and `Resource` all
+    # arrive from `contexture` — so the one layer left to name is `server`, to
+    # build an app. See LayeringTests.test_the_demo_uses_only_the_public_facade.
+    #
+    # Named `demo` rather than `examples` because it is one thing with a job:
+    # `contexture demo` serves it, `contexture inspect` replays it when there
+    # is no project, and the tests drive it. A case study that only wants
+    # reading is documentation and lives in `docs/`.
+    "demo": {"server"},
     # Replaying the disclosure for a developer to read sits above the server
     # and below the command line. It reaches `server` for the text an agent is
     # given and the budget it has to fit, and never for the wire.
@@ -92,7 +97,7 @@ ALLOWED: dict[str, set[str]] = {
 
 #: Layers permitted to import the official MCP SDK. The object model is not one
 #: of them: `core` must stay describable without a wire protocol in the room.
-SDK_LAYERS = frozenset({"server", "examples"})
+SDK_LAYERS = frozenset({"server", "demo"})
 
 #: The SDK is two distributions, not one, and a rule that names only the first
 #: leaves the second as an unguarded way in. Both are checked everywhere the
@@ -325,7 +330,7 @@ class LayeringTests(unittest.TestCase):
         }
         self.assertEqual(loaded, set())
 
-    def test_examples_use_only_the_public_facade(self) -> None:
+    def test_the_demo_uses_only_the_public_facade(self) -> None:
         """A reference application must be copy-pasteable out of this package.
 
         Reaching into `contexture.core.*` would make the example unusable as a
@@ -343,7 +348,7 @@ class LayeringTests(unittest.TestCase):
             "contexture",
             "contexture.server",
         }
-        for path in _source_modules(PACKAGE / "examples"):
+        for path in _source_modules(PACKAGE / "demo"):
             with self.subTest(module=str(path.relative_to(PACKAGE))):
                 for imported in _contexture_imports(path):
                     if imported.startswith("."):
@@ -358,7 +363,7 @@ class LayeringTests(unittest.TestCase):
                     self.assertIn(
                         imported,
                         allowed,
-                        f"{path.name} imports {imported!r}; examples may only "
+                        f"{path.name} imports {imported!r}; the demo may only "
                         f"use {sorted(allowed)}.",
                     )
 
@@ -375,7 +380,10 @@ class IOBoundaryTests(unittest.TestCase):
     substring search cannot tell `open(` from `urlopen(`.
     """
 
-    FILESYSTEM_WRITERS = {"cli.py"}
+    # One module of 106 lines, where this used to name a file of 695. The
+    # split did not change the rule; it changed how much code the rule has to
+    # excuse.
+    FILESYSTEM_WRITERS = {"cli/scaffold.py"}
     NETWORK_MODULES: set[str] = set()
 
     WRITE_CALLS = {"write_text", "write_bytes", "mkdir", "touch", "unlink"}
@@ -525,10 +533,16 @@ class PackagingBoundaryTests(unittest.TestCase):
             for path in PACKAGE.glob(pattern)
             if path.is_file()
         }
+        # Found by scanning rather than by a path spelled here, so that
+        # moving the template tree — as the `cli` split just did — cannot
+        # break shipping while this test keeps passing against an empty
+        # directory it was still pointing at.
         on_disk = {
             path.resolve()
-            for path in (PACKAGE / "templates").rglob("*")
-            if path.is_file() and "__pycache__" not in path.parts
+            for path in PACKAGE.rglob("*")
+            if path.is_file()
+            and "templates" in path.parts
+            and "__pycache__" not in path.parts
         }
 
         self.assertTrue(on_disk, "the template tree is empty")

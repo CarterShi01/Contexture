@@ -307,7 +307,7 @@ class ContextureApp:
     #: Authored, never derived: adding one is a code change and a restart,
     #: which is what keeps these lists from varying under a live
     #: connection — something the protocol forbids in any case.
-    surface: Sequence[Prompt | Resource] = ()
+    publish: Sequence[Prompt | Resource] = ()
 
     name: str = "contexture"
     version: str = PACKAGE_VERSION
@@ -375,7 +375,7 @@ class ContextureApp:
             server,
             tree=self.tree,
             dispatch=self.dispatch,
-            surface=self.surface,
+            publish=self.publish,
         )
         return server
 

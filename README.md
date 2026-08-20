@@ -241,7 +241,7 @@ its roots once in `pyproject.toml` and has no entry point of its own:
 ```toml
 [tool.contexture]
 name = "my-context"
-roots = ["my_context.assistant:MyContextAssistant"]
+roots = ["assistant:MyContextAssistant"]
 ```
 
 ```bash
@@ -459,18 +459,24 @@ ships the runner:
 ```text
 my-context/
 ├── pyproject.toml       dependencies, and one [tool.contexture] table
-└── my_context/
-    ├── assistant/       one role and what it owns — you *subclass* these
-    │   ├── role.py      the responsibility boundary
-    │   ├── skills.py    procedures — disclosed only when asked for
-    │   ├── tools.py     capabilities, as typed Python methods
-    │   └── documents.py content — a read-only tool taking no arguments
-    └── surface.py       the ways in for a person or a host — you *construct* these
+├── assistant/           one role and what it owns — you *subclass* these
+│   ├── role.py          the responsibility boundary
+│   ├── skills.py        procedures — disclosed only when asked for
+│   ├── tools.py         capabilities, as typed Python methods
+│   └── documents.py     content — a read-only tool taking no arguments
+└── publish.py           the ways in for a person or a host — you *construct*
 ```
+
+Each root role is a top-level package, the way a Django app is. Django nests a
+second level because its outer directory holds a config package *and* every
+app; here the configuration is the `[tool.contexture]` table, so the outer
+directory holds roles and nothing else.
 
 It is a project, not a package: no build system, never installed into the
 environment. `contexture serve` finds it by walking up for the
-`[tool.contexture]` table and putting that directory on `sys.path`.
+`[tool.contexture]` table and putting that directory on the *end* of
+`sys.path` — behind the standard library, so a module of yours named after one
+of Python's own cannot answer for it.
 
 Then point a host at it — the same command for each:
 
@@ -490,15 +496,15 @@ uv sync
 uv run contexture new ~/my-context
 uv run contexture demo            # the bundled reference application, over stdio
 uv run python run_tests.py        # the full suite
-uv run python tools/inspect_disclosure.py --all --summary
+uv run contexture inspect --all --summary
 ```
 
-That last command prints what an agent receives at every node of the demo, and
-what it costs, without an agent in the room. It is the same
-`contexture inspect` that ships in the package; see
-[`tools/README.md`](tools/README.md).
+That last command prints what an agent receives at every node, and what it
+costs, without an agent in the room. Run outside a project it replays the
+bundled demo, which is what makes it useful from this checkout — the framework
+has no `[tool.contexture]` project of its own.
 
-See [`contexture/examples/incident/`](contexture/examples/incident/) for
+See [`contexture/demo/`](contexture/demo/) for
 that reference application — a deterministic Kubernetes incident that forces the
 whole traversal — and [`docs/verification/hosts.md`](docs/verification/hosts.md)
 for a recorded run against both hosts.
@@ -516,14 +522,24 @@ contexture/
 │                    instructions (fitting it to a host), binding (hanging the
 │                    surface on the SDK), app, launch
 ├── inspection.py    replaying the disclosure for a developer to read
-├── cli.py           the `contexture` command: new / list / inspect / serve / demo
-├── templates/       project templates, rendered by `contexture new`
-└── examples/        reference applications built on the public API only
+├── cli/             the `contexture` command: scaffold (writing a project),
+│                    project (finding and resolving one), main (the five
+│                    commands), and the templates `new` renders
+└── demo/            the bundled reference application, on the public API only
 ```
 
-Two directories sit outside the package and ship in no wheel:
-[`tools/`](tools/README.md), the development toolset — chiefly the disclosure
-inspector — and `scripts/`, the playbooks for driving a real host against it.
+`contexture/` is the whole of what ships. The two directories beside it —
+`tests/` and `docs/` — and the `run_tests.py` that drives one of them are for
+working *on* the framework and reach no user's machine, which
+`pyproject.toml` states by naming the package to include rather than by
+listing what to leave out. `PackagingBoundaryTests` in
+`tests/test_layering.py` is where that stops being a convention.
+
+`docs/` holds four different things and its directories say which is which:
+`adr/` is the append-only decision history, `verification/` is what a real
+host actually did and how to make it do that again, `case-studies/` is a
+domain rebuilt on this framework and written up, and `atlas/` is the offline
+visual map.
 
 ## Design documents
 

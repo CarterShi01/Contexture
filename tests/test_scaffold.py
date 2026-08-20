@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -88,7 +90,7 @@ class TemplateShippingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = new_project("my-context", destination=Path(directory))
             self.assertTrue((root / "assistant" / "role.py").is_file())
-            self.assertTrue((root / "surface.py").is_file())
+            self.assertTrue((root / "publish.py").is_file())
             self.assertFalse((root / "my_context").exists())
             self.assertFalse((root / "module").exists())
             self.assertFalse((root / "__init__.py").exists())
@@ -110,7 +112,7 @@ class GeneratedProjectTests(unittest.TestCase):
         sys.path.insert(0, str(self.root))
         self.addCleanup(sys.path.remove, str(self.root))
         for name in [
-            m for m in sys.modules if m.split(".")[0] in ("assistant", "surface")
+            m for m in sys.modules if m.split(".")[0] in ("assistant", "publish")
         ]:
             del sys.modules[name]
 
@@ -134,12 +136,12 @@ class GeneratedProjectTests(unittest.TestCase):
         self.assertIn("payments-api", result)
         self.assertIn("reachable", asyncio.run(by_name["health_runbook"].invoke()))
 
-    def test_the_generated_surface_publishes_the_runbook(self) -> None:
+    def test_the_generated_project_publishes_the_runbook(self) -> None:
         """The scaffold shows both planes: a tool to navigate to, and a URI."""
 
-        surface = importlib.import_module("surface").SURFACE
+        declared = importlib.import_module("publish").PUBLISHED
 
-        (published,) = surface
+        (published,) = declared
         self.assertEqual(published.uri, "my-context://runbooks/health")
         self.assertEqual(
             published.opens, "my-context-assistant/health_runbook"
@@ -308,3 +310,55 @@ class ProjectPathTests(unittest.TestCase):
             message = str(caught.exception)
             self.assertIn("outside this project", message)
             self.assertIn("json", message)
+
+
+class InspectFallbackTests(unittest.TestCase):
+    """With no project in sight, `inspect` replays the bundled demo.
+
+    This is what let `tools/inspect_disclosure.py` be deleted. That file was a
+    45-line `sys.path` shim carrying a 171-line README, and the only thing in
+    it that was not boilerplate was this default — the framework's own checkout
+    has no `[tool.contexture]` project, so a contributor had nothing to inspect
+    without one. Making the command itself answer serves the contributor and
+    the reader who has just installed the package, with one behaviour instead
+    of two entry points.
+
+    `serve` deliberately does not do this. Printing something nobody asked for
+    is recoverable; starting a server nobody asked for is a different kind of
+    surprise.
+    """
+
+    def _run(self, *args: str, cwd: Path) -> subprocess.CompletedProcess:
+        # The whole environment, unlike `CommandLineTests`, which strips it on
+        # purpose to prove `list` needs no SDK. These commands do need one, and
+        # on Windows a subprocess without `SystemRoot` cannot initialise
+        # Winsock — which the SDK's imports reach before any of this runs.
+        return subprocess.run(
+            [sys.executable, "-m", "contexture.cli", *args],
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+        )
+
+    def test_outside_a_project_inspect_replays_the_demo_and_says_so(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result = self._run("inspect", "--summary", cwd=Path(directory))
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("bundled demo", result.stderr)
+            self.assertIn("session start", result.stdout)
+
+    def test_the_notice_stays_off_stdout_so_json_remains_a_document(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result = self._run("inspect", "--json", cwd=Path(directory))
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            json.loads(result.stdout)
+
+    def test_outside_a_project_serve_still_refuses(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result = self._run("serve", cwd=Path(directory))
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("contexture new", result.stderr)

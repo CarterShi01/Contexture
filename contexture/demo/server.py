@@ -1,7 +1,7 @@
 """The entry point a host launches.
 
     contexture demo                     # via the framework's own runner
-    python -m contexture.examples.incident.server
+    python -m contexture.demo.server
 
 Nothing in this file mentions JSON-RPC, JSON Schema, stdio framing, or any
 particular agent runtime. Claude Code and Codex run this same command.
@@ -23,7 +23,7 @@ from .role import KubernetesPlatform
 #: operation where going wrong is expensive enough to be worth reserving for a
 #: person, and marking one anyway would make the example teach the opposite of
 #: what the rule says.
-SURFACE = (
+PUBLISHED = (
     Resource(
         opens="kubernetes-platform/incident-response/crash_loop_runbook",
         uri="contexture://runbooks/crash-loop-backoff",
@@ -43,7 +43,7 @@ SURFACE = (
 
 app = ContextureApp(
     roots=KubernetesPlatform(),
-    surface=SURFACE,
+    publish=PUBLISHED,
     name="contexture-demo",
 )
 

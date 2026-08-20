@@ -18,6 +18,6 @@ name = "$project_name"
 # Each one is a top-level package in this directory, so a second role is a
 # sibling of `assistant/` rather than something nested inside it.
 roots = ["assistant:$role_class"]
-# What this server puts on the prompt and resource primitives.
-# Optional: a declaration reaches an agent through the gateway either way.
-surface = ["surface:SURFACE"]
+# What a person or a host may open. The gateway reaches everything either
+# way, so this is optional — and it is authored, never derived.
+publish = ["publish:PUBLISHED"]

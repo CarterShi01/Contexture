@@ -35,4 +35,5 @@ Repository = "https://github.com/CarterShi01/Contexture"
 include = ["contexture*"]
 
 [tool.setuptools.package-data]
-contexture = ["templates/**/*"]
+# The templates live beside the command that renders them.
+contexture = ["cli/templates/**/*"]

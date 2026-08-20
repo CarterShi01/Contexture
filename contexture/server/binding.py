@@ -119,7 +119,7 @@ def project(
     *,
     tree: ContextTree,
     dispatch: Dispatch,
-    surface: Sequence[Prompt | Resource] = (),
+    publish: Sequence[Prompt | Resource] = (),
 ) -> None:
     """Register the four gateway tools against `tree`.
 
@@ -127,7 +127,7 @@ def project(
     with, so a card's schema and the validation a call is checked against
     are derived once, from one place.
 
-    `surface` is what this server puts on the prompt and resource primitives.
+    `publish` is what this server puts on the prompt and resource primitives.
     Empty is the ordinary case: a declaration reaches an agent through the
     gateway whether or not anybody named a way in for a person.
 
@@ -144,7 +144,7 @@ def project(
     # thing that puts a ref in here.
     reserved = frozenset(
         entry.opens
-        for entry in surface
+        for entry in publish
         if isinstance(entry, Prompt) and not entry.model_may_open
     )
 
@@ -195,17 +195,17 @@ def project(
             annotations=ToolAnnotations(read_only_hint=entry.read_only),
         )
 
-    _project_surface(server, tree=tree, dispatch=dispatch, surface=surface)
+    _project_published(server, tree=tree, dispatch=dispatch, publish=publish)
 
 
-def _project_surface(
+def _project_published(
     server: MCPServer,
     *,
     tree: ContextTree,
     dispatch: Dispatch,
-    surface: Sequence[Prompt | Resource],
+    publish: Sequence[Prompt | Resource],
 ) -> None:
-    """Hang the declared surface on the two primitives the model does not drive.
+    """Hang the declared list on the two primitives the model does not drive.
 
     Each entry names a node and the tree keeps holding it, so a capability
     reached this way and reached by navigating is one capability with two
@@ -221,10 +221,10 @@ def _project_surface(
     reached for it.
     """
 
-    _reject_ambiguous_names(surface)
+    _reject_ambiguous_names(publish)
 
-    for entry in surface:
-        name = _surface_name(entry)
+    for entry in publish:
+        name = _published_name(entry)
         if isinstance(entry, Prompt):
             node = _resolve(tree, entry.opens, "prompt")
             # No arguments: the node is fixed at registration, so there is
@@ -293,7 +293,7 @@ def _project_surface(
         return Completion(values=values, total=total, has_more=total > len(matches))
 
 
-def _surface_name(entry: Prompt | Resource) -> str:
+def _published_name(entry: Prompt | Resource) -> str:
     """The name a host shows, defaulting to the last segment of the ref.
 
     A second name, independent of position — the same thing a URI has always
@@ -303,7 +303,7 @@ def _surface_name(entry: Prompt | Resource) -> str:
     return entry.name or entry.opens.rsplit(SEPARATOR, 1)[-1]
 
 
-def _reject_ambiguous_names(surface: Iterable[Prompt | Resource]) -> None:
+def _reject_ambiguous_names(published: Iterable[Prompt | Resource]) -> None:
     """Refuse two entries somebody would reach the same way.
 
     A node's name only has to be unique among its siblings, because a ref
@@ -318,12 +318,12 @@ def _reject_ambiguous_names(surface: Iterable[Prompt | Resource]) -> None:
 
     names: dict[tuple[str, str], str] = {}
     uris: dict[str, str] = {}
-    for entry in surface:
-        key = (entry.kind, _surface_name(entry))
+    for entry in published:
+        key = (entry.kind, _published_name(entry))
         if key in names:
             raise ModelValidationError(
                 f"{names[key]!r} and {entry.opens!r} are both exposed as the "
-                f"{entry.kind} {_surface_name(entry)!r}. A ref tells them "
+                f"{entry.kind} {_published_name(entry)!r}. A ref tells them "
                 "apart and a name in a menu cannot; rename one."
             )
         names[key] = entry.opens
@@ -349,7 +349,7 @@ def _resolve(tree: ContextTree, ref: str, kind: str) -> Any:
     except NodeNotFoundError as failure:
         raise ModelValidationError(
             f"The {kind} for {ref!r} names a node that does not exist "
-            f"({failure.reason.value}). A surface entry is resolved when the "
+            f"({failure.reason.value}). A published entry is resolved when the "
             "server is built so that it fails on the way up rather than in "
             "front of whoever reached for it."
         ) from None

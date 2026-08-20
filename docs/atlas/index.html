@@ -358,7 +358,7 @@
   <section class="plate" id="plate-00">
     <p class="plate-eyebrow">Plate 00</p>
     <h2 class="plate-title">目录结构</h2>
-    <p class="plate-claim">21 个框架源文件(不含 <code>__init__.py</code> 与 examples),目录本身就是架构。顶层只有两个词:<code>core</code> 回答"Contexture <strong>是什么</strong>",<code>server</code> 回答"<strong>怎么跑起来</strong>"。<code>core</code> 下面是三个各自回答一个问题的子目录,外加一块谁都能站的共享地基。</p>
+    <p class="plate-claim">21 个框架源文件(不含 <code>__init__.py</code> 与 demo),目录本身就是架构。顶层只有两个词:<code>core</code> 回答"Contexture <strong>是什么</strong>",<code>server</code> 回答"<strong>怎么跑起来</strong>"。<code>core</code> 下面是三个各自回答一个问题的子目录,外加一块谁都能站的共享地基。</p>
 
     <div class="figure-wrap">
       <ul class="tree">
@@ -366,7 +366,7 @@
           <div class="row"><span class="path dir">contexture/</span><span class="desc">5844 行 · 35 个 .py(含 8 个 <code>__init__.py</code>)· 仓库根一层,无 <code>src/</code></span></div>
           <ul>
             <li><div class="row"><span class="path">__init__.py</span><span class="desc">70 行 — 公开门面,只导出<strong>用来声明</strong>的东西;<code>ContextTree</code> 是用来<strong>运行</strong>的,故意不在这里</span></div></li>
-            <li><div class="row"><span class="path">cli.py</span><span class="desc">695 行 · 3 类 — <code>new</code> 生成项目 · <code>serve</code> 起服务 · <code>list</code> 打印它会服务什么 · <code>inspect</code> 回放披露 · <code>demo</code>。骑在所有层之上,被任何层 import 都算违规</span></div></li>
+            <li><div class="row"><span class="path dir">cli/</span><span class="desc">847 行 · 6 模块 — <code>scaffold</code> 写项目 · <code>project</code> 找并解析项目 · <code>main</code> 五个命令 · <code>usage</code> 共享地基 · <code>templates/</code>。骑在所有层之上,被任何层 import 都算违规</span></div></li>
             <li><div class="row"><span class="path">inspection.py</span><span class="desc">514 行 · 4 类 — 把一整段披露<strong>replay 给开发者看</strong>,不需要屋里有 agent;每一步花多少字符也一并算出来</span></div></li>
             <li>
               <div class="row"><span class="path dir">core/</span><span class="desc">Contexture <strong>是什么</strong> · 零 I/O · 零线路 · <strong>整层不许 import mcp / mcp_types</strong></span></div>
@@ -412,17 +412,17 @@
               </ul>
             </li>
             <li>
-              <div class="row"><span class="path dir">templates/project/</span><span class="desc"><code>contexture new</code> 抄出去的骨架:一个 <code>[tool.contexture]</code> 段、一个 role、各一个 skill / tool / 内容,外加一个 <code>surface.py</code> 声明发布什么</span></div>
+              <div class="row"><span class="path dir">templates/project/</span><span class="desc"><code>contexture new</code> 抄出去的骨架:一个 <code>[tool.contexture]</code> 段、一个 role、各一个 skill / tool / 内容,外加一个 <code>publish.py</code> 声明发布什么</span></div>
             </li>
             <li>
-              <div class="row"><span class="path dir">examples/incident/</span><span class="desc">确定性的 K8s 平台 demo,<strong>三个角色</strong>,只依赖公开 API</span></div>
+              <div class="row"><span class="path dir">demo/</span><span class="desc">确定性的 K8s 平台 demo,<strong>三个角色</strong>,只依赖公开 API;<code>contexture demo</code> 服务它,<code>inspect</code> 无项目时回放它</span></div>
               <ul>
                 <li><div class="row"><span class="path">fixtures.py</span><span class="desc">124 行 — 那一个固定事故:CrashLoopBackOff,14 次重启,缺 DB_URL;外加一次失败的发布</span></div></li>
                 <li><div class="row"><span class="path">tools.py</span><span class="desc">174 行 — 四个只读 tool + <strong>一个写 tool</strong>(roll_back_deployment,demo 里唯一走写门的路径)</span></div></li>
                 <li><div class="row"><span class="path">skills.py</span><span class="desc">65 行 — 两段只有 <code>contexture_open</code> 才吐出来的过程知识</span></div></li>
                 <li><div class="row"><span class="path">documents.py</span><span class="desc">43 行 — runbook 与回滚策略,各是一个<strong>无参只读 Tool</strong></span></div></li>
                 <li><div class="row"><span class="path">role.py</span><span class="desc">81 行 — kubernetes-platform 协调 incident-response 与 deployment-ops</span></div></li>
-                <li><div class="row"><span class="path">server.py</span><span class="desc">58 行 — demo 入口,外加 <code>SURFACE</code>:把那两份文档发布到 resource 原语上</span></div></li>
+                <li><div class="row"><span class="path">server.py</span><span class="desc">58 行 — demo 入口,外加 <code>PUBLISHED</code>:把那两份文档发布到 resource 原语上</span></div></li>
               </ul>
             </li>
           </ul>
@@ -445,7 +445,7 @@
       要发布一份内容,就在 <code>mcp_interface</code> 里声明一个 <code>Resource</code>
       指过去。<em>已经在那儿的内容</em>本身,就是一个<strong>无参的只读 Tool</strong>。
       三种节点因此全都走 route / active 两档,"两档,没有第三档"<strong>没有例外</strong>。</p>
-      <p>两个"唯一"是硬约束,不是习惯:<code>cli.py</code> 是唯一写文件系统的模块——
+      <p>两个"唯一"是硬约束,不是习惯:<code>cli/scaffold.py</code> 是唯一写文件系统的模块——
       而且只在 <code>contexture new</code> 生成项目时写,从声明到线上这条路上没有任何模块开过文件;
       <code>server/</code> 是唯一 import 官方 SDK 的层。
       <code>tests/test_layering.py</code> 用 AST 遍历全包来强制第一条,还顺带确认<strong>没有任何模块碰网络</strong>;
@@ -542,7 +542,7 @@ flowchart TB
         app["app.py<br/>ContextureApp · ContextureOptions"]
         launch["launch.py<br/>宿主启动命令<br/><i>零包内依赖</i>"]
     end
-    cli["<b>cli.py</b><br/>new · serve · list · inspect<br/><i>出度为零:没有任何模块 import 它</i>"]
+    cli["<b>cli/</b><br/>new · serve · list · inspect<br/><i>出度为零:没有任何模块 import 它</i>"]
     sdk[["官方 MCP SDK<br/>mcp · mcp_types"]]
 
     base --> node

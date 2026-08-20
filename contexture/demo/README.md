@@ -112,7 +112,7 @@ the recorded run went straight to it. See
 Every step of that trace, and its cost, can be read without a host:
 
 ```bash
-python tools/inspect_disclosure.py --all --read --summary
+contexture inspect --all --read --summary
 ```
 
 The whole tree, every document included, is about 3,600 estimated tokens. The

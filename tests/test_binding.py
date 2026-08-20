@@ -104,7 +104,7 @@ def _published():
     """The same graph, with the runbook published on the resource primitive."""
 
     return ContextureApp(
-        roots=Responder(), surface=(RUNBOOK_RESOURCE,), name="test"
+        roots=Responder(), publish=(RUNBOOK_RESOURCE,), name="test"
     ).build_server()
 
 
@@ -113,7 +113,7 @@ def _published_with(opens: str, uri: str):
 
     return ContextureApp(
         roots=Responder(),
-        surface=(Resource(opens=opens, uri=uri, description="Content."),),
+        publish=(Resource(opens=opens, uri=uri, description="Content."),),
         name="test",
     ).build_server()
 
@@ -849,7 +849,7 @@ class CommandPlaneTests(unittest.IsolatedAsyncioTestCase):
     SHIP = "oc/publishing/compose-and-ship"
 
     @classmethod
-    def _surface(cls, *, model_may_open: bool = False) -> tuple[Prompt, ...]:
+    def _published(cls, *, model_may_open: bool = False) -> tuple[Prompt, ...]:
         return (
             Prompt(
                 opens=cls.SHIP,
@@ -891,14 +891,14 @@ class CommandPlaneTests(unittest.IsolatedAsyncioTestCase):
     def _server(
         self,
         tree: ContextTree,
-        surface: tuple[Prompt, ...] | None = None,
+        publish: tuple[Prompt, ...] | None = None,
     ) -> MCPServer:
         server = MCPServer(name="oc", version="0", instructions="x")
         project(
             server,
             tree=tree,
             dispatch=Dispatch(),
-            surface=self._surface() if surface is None else surface,
+            publish=self._published() if publish is None else publish,
         )
         return server
 
@@ -925,7 +925,7 @@ class CommandPlaneTests(unittest.IsolatedAsyncioTestCase):
         convention elsewhere.
         """
 
-        prompts = await self._server(self._tree(), surface=()).list_prompts()
+        prompts = await self._server(self._tree(), publish=()).list_prompts()
 
         self.assertEqual([prompt.name for prompt in prompts], ["goto"])
 
@@ -1017,7 +1017,7 @@ class CommandPlaneTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_a_node_on_both_planes_is_open_to_both(self) -> None:
         tree = self._tree()
-        server = self._server(tree, self._surface(model_may_open=True))
+        server = self._server(tree, self._published(model_may_open=True))
 
         prompts = await server.list_prompts()
         opened = await server.call_tool(

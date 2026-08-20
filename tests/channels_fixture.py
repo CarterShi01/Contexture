@@ -93,7 +93,7 @@ class Operations(Role):
     escalation = Escalation
 
 
-SURFACE = (
+PUBLISHED = (
     Resource(
         opens="operations/escalation/runbook",
         uri="contexture://runbooks/escalation",
@@ -121,7 +121,7 @@ def build() -> ContextureApp:
     )
     manager = ControllerManager(channels=channels)
     manager.register(Operations)
-    return ContextureApp(roots=manager, surface=SURFACE, name="channels-fixture")
+    return ContextureApp(roots=manager, publish=PUBLISHED, name="channels-fixture")
 
 
 app = build()

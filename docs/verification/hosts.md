@@ -205,7 +205,7 @@ ERROR: You've hit your usage limit. … try again at Aug 21st, 2026 12:02 PM.
 ```
 
 The server stays registered, so the run is one command away once the limit
-resets. See `scripts/verify_codex.md`.
+resets. See `verify_codex.md`.
 
 ---
 
@@ -218,7 +218,7 @@ Recorded 2026-08-19 against the branch `feature/native-mcp-server`.
 > `contexture_get_context` where `contexture_open` now stands. What it verifies
 > is still the claim under test — one server, one launch command, two hosts, no
 > generated context files. A re-run against the five-tool gateway has not been
-> recorded yet, and `scripts/verify_claude_code.md` drives the current surface.
+> recorded yet, and `verify_claude_code.md` drives the current surface.
 
 The claim under test: **one server, one launch command, two hosts, no generated
 context files.**
@@ -322,7 +322,7 @@ subprocess with the official SDK client over real stdio — including the legacy
 handshake revision Codex may negotiate — but that is not a substitute for
 running Codex itself.
 
-To finish this row once the limit resets, see `scripts/verify_codex.md`.
+To finish this row once the limit resets, see `verify_codex.md`.
 
 ## Automated equivalent
 
