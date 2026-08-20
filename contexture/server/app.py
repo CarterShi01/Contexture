@@ -29,8 +29,17 @@ from __future__ import annotations
 
 import logging
 import sys
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Literal, Mapping, Sequence
+from typing import (
+    Any,
+    AsyncIterator,
+    Callable,
+    Iterable,
+    Literal,
+    Mapping,
+    Sequence,
+)
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
@@ -303,6 +312,11 @@ class ContextureApp:
     #: and never inspected here.
     channels: Any = None
 
+    #: The same shortcut for a handle that has to be *opened* rather than
+    #: constructed. A factory returning an async context manager; it is entered
+    #: before the first request and exited after the last.
+    provision: Callable[[], AbstractAsyncContextManager[Any]] | None = None
+
     #: What this server puts on the prompt and resource primitives.
     #: Authored, never derived: adding one is a code change and a restart,
     #: which is what keeps these lists from varying under a live
@@ -335,14 +349,15 @@ class ContextureApp:
         """
 
         if isinstance(self.roots, ControllerManager):
-            if self.channels is not None and self.channels is not self.roots.channels:
+            given = self.channels is not None or self.provision is not None
+            if given and self.channels is not self.roots.channels:
                 raise ModelValidationError(
                     "This app was given both a manager and channels. The "
                     "manager already holds a handle; passing a second one here "
                     "would leave two answers to what a capability reaches."
                 )
             return self.roots
-        manager = ControllerManager(channels=self.channels)
+        manager = ControllerManager(channels=self.channels, provision=self.provision)
         roots = (self.roots,) if isinstance(self.roots, Role) else tuple(self.roots)
         for root in roots:
             manager.register(root)
@@ -354,14 +369,36 @@ class ContextureApp:
 
         return self.tree.registry
 
+    @asynccontextmanager
+    async def _lifespan(self, server: MCPServer) -> AsyncIterator[Any]:
+        """Open this app's handle for exactly as long as it is serving.
+
+        What this yields reaches the SDK as `request_context.lifespan_context`,
+        and nothing here reads it back: a capability finds its handle on itself,
+        stamped by the registry, because half the doors into a capability carry
+        no request context at all.
+        """
+
+        async with self.manager.provisioned() as opened:
+            yield opened
+
     def build_server(self, *, auth: Auth | None = None) -> MCPServer:
-        """Build the MCP server with the gateway registered on it."""
+        """Build the MCP server with the gateway registered on it.
+
+        **Synchronous, and it stays that way.** Tests build a server and call
+        into it directly, with no transport and no session, which is what lets
+        the disclosure model be exercised without the wire. So a lifecycle
+        wraps *serving* rather than *construction*, which is also what the
+        SDK's own `lifespan` hook does — verified entered and exited on both
+        the stdio and the streamable-HTTP path.
+        """
 
         server = MCPServer(
             name=self.name,
             version=self.version,
             instructions=self.instructions
             or instructions_module.build(self.tree),
+            **({"lifespan": self._lifespan} if self.manager.provision else {}),
             **(
                 {
                     "auth": auth.settings(),

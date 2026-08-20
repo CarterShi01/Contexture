@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -41,13 +43,15 @@ FIXTURE_MODULE = "tests.channels_fixture"
 TIMEOUT_SECONDS = 30
 
 
-def _run(work):
+def _run(work, *, marks: Path | None = None):
     async def session() -> object:
         environment = dict(os.environ)
         existing = environment.get("PYTHONPATH")
         environment["PYTHONPATH"] = (
             f"{SOURCE_ROOT}{os.pathsep}{existing}" if existing else str(SOURCE_ROOT)
         )
+        if marks is not None:
+            environment["LIFECYCLE_MARKS"] = str(marks)
         parameters = StdioServerParameters(
             command=sys.executable,
             args=["-m", FIXTURE_MODULE],
@@ -125,6 +129,128 @@ class HandOffTests(unittest.TestCase):
         )
 
 
+class LifecycleTests(unittest.TestCase):
+    """Opening a handle that cannot simply be constructed, and closing it."""
+
+    @staticmethod
+    def _manager(marks: list[str], *, fail: bool = False) -> ControllerManager:
+        @asynccontextmanager
+        async def open_channels():
+            marks.append("open")
+            if fail:
+                raise RuntimeError("gateway unreachable")
+            try:
+                yield fixture.Channels(
+                    gateway=fixture.Gateway(endpoint="https://opened.internal"),
+                    catalogue={"runbook": "-"},
+                )
+            finally:
+                marks.append("close")
+
+        manager = ControllerManager(provision=open_channels)
+        manager.register(fixture.Operations)
+        return manager
+
+    def test_a_handle_is_open_only_while_it_is_being_served(self) -> None:
+        marks: list[str] = []
+        manager = self._manager(marks)
+        tool = manager.find(("operations", "escalation", "notify_squad"))
+        self.assertIsNone(tool.channels)
+
+        async def serve() -> str:
+            async with manager.provisioned():
+                marks.append("serving")
+                return await tool.invoke(squad="payments")
+
+        answer = asyncio.run(serve())
+        self.assertIn("https://opened.internal", answer)
+        self.assertEqual(marks, ["open", "serving", "close"])
+        # Cleared rather than left behind: a late call sees None, which fails
+        # legibly, instead of a session somebody already closed.
+        self.assertIsNone(tool.channels)
+
+    def test_the_handle_is_closed_even_when_serving_raises(self) -> None:
+        marks: list[str] = []
+        manager = self._manager(marks)
+
+        async def serve() -> None:
+            async with manager.provisioned():
+                raise RuntimeError("a request blew up")
+
+        with self.assertRaises(RuntimeError):
+            asyncio.run(serve())
+        self.assertEqual(marks, ["open", "close"])
+        self.assertIsNone(manager.channels)
+
+    def test_a_handle_that_cannot_be_opened_stops_the_server_starting(self) -> None:
+        marks: list[str] = []
+        manager = self._manager(marks, fail=True)
+
+        async def serve() -> None:
+            async with manager.provisioned():
+                marks.append("serving")
+
+        with self.assertRaises(RuntimeError) as caught:
+            asyncio.run(serve())
+        self.assertIn("gateway unreachable", str(caught.exception))
+        self.assertNotIn("serving", marks)
+
+    def test_it_may_be_opened_again(self) -> None:
+        """A factory, not a context manager, so a second run still works."""
+
+        marks: list[str] = []
+        manager = self._manager(marks)
+
+        async def twice() -> None:
+            for _ in range(2):
+                async with manager.provisioned():
+                    pass
+
+        asyncio.run(twice())
+        self.assertEqual(marks, ["open", "close", "open", "close"])
+
+    def test_a_context_manager_instead_of_a_factory_is_refused(self) -> None:
+        """And refused where it was written, not on the second run."""
+
+        @asynccontextmanager
+        async def open_channels():
+            yield object()
+
+        with self.assertRaises(Exception) as caught:
+            ControllerManager(provision=open_channels())  # type: ignore[arg-type]
+        self.assertIn("not a factory", str(caught.exception))
+
+    def test_something_that_opens_nothing_is_refused(self) -> None:
+        manager = ControllerManager(provision=lambda: object())
+        manager.register(fixture.Operations)
+
+        async def serve() -> None:
+            async with manager.provisioned():
+                pass
+
+        with self.assertRaises(Exception) as caught:
+            asyncio.run(serve())
+        self.assertIn("not an async context manager", str(caught.exception))
+
+    def test_a_value_and_a_way_to_open_one_together_are_refused(self) -> None:
+        with self.assertRaises(Exception) as caught:
+            ControllerManager(channels=object(), provision=lambda: None)
+        self.assertIn("both channels and a way to open them", str(caught.exception))
+
+    def test_a_manager_with_nothing_to_open_still_answers(self) -> None:
+        """One shape for both kinds, so a caller need not ask which it holds."""
+
+        channels = object()
+        manager = ControllerManager(channels=channels)
+        manager.register(fixture.Operations)
+
+        async def serve() -> object:
+            async with manager.provisioned() as opened:
+                return opened
+
+        self.assertIs(asyncio.run(serve()), channels)
+
+
 @unittest.skipIf(ClientSession is None, "the MCP SDK is not installed")
 class OverTheWireTests(unittest.TestCase):
     """The claim, through a real client and a real subprocess.
@@ -172,6 +298,37 @@ class OverTheWireTests(unittest.TestCase):
         for card in payload["tools"]:
             self.assertNotIn("channels", json.dumps(card))
             self.assertNotIn("path", card["input_schema"].get("properties", {}))
+
+
+@unittest.skipIf(ClientSession is None, "the MCP SDK is not installed")
+class LifecycleOverTheWireTests(unittest.TestCase):
+    """Opening and closing, observed from outside the process that does it.
+
+    In-process cases can show that `provisioned()` opens and closes. Only a
+    subprocess can show *when* — that opening happened before the server was
+    able to answer anything, and that closing happened at all rather than being
+    skipped by a process that simply exited.
+    """
+
+    def test_it_opens_before_serving_and_closes_after(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            marks = Path(directory) / "marks.txt"
+
+            async def work(client):
+                return await client.call_tool(
+                    "contexture_invoke",
+                    {
+                        "ref": "operations/escalation/notify_squad",
+                        "arguments": {"squad": "payments"},
+                    },
+                )
+
+            answer = _text(_run(work, marks=marks))
+            steps = marks.read_text(encoding="utf-8").split()
+
+        # The call reached a gateway that only exists between these two marks.
+        self.assertIn("https://gateway.internal:notify:payments", answer)
+        self.assertEqual(steps, ["open", "close"])
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -108,7 +108,7 @@ untestable in process.
 channels = OCChannels(gateway=connect("https://gateway.internal"))
 manager = ControllerManager(channels=channels)
 manager.register(OneCreator)
-app = ContextureApp(roots=manager, surface=SURFACE)
+app = ContextureApp(roots=manager, publish=PUBLISHED)
 ```
 
 It accepts a class as readily as an instance, and builds the class here. That
@@ -177,7 +177,48 @@ so it refuses what `_reject_cycles` passed in silence: **the same object held at
 two addresses**, the DAG [ADR 008](008-who-may-open-a-node.md) recorded as
 failing quietly.
 
-### 6. What is deliberately not built
+### 6. A handle that must be opened is opened by the lifespan, and closed by it
+
+`channels` covers a handle that can simply be constructed — which is most of
+them, because the shape worth copying is `Channel::Init`: cheap, synchronous,
+connections dialled on demand. `provision` covers the rest: a pool that must be
+awaited into existence, a session that shakes hands, anything that has to be
+closed again.
+
+It is a **factory** returning an async context manager, never a context manager
+itself, because one is consumed by being entered — a server run twice would
+meet an `AttributeError` raised from inside `contextlib`, a long way from the
+line that caused it. That mistake is refused at construction, where it was
+written.
+
+The framework enters exactly one. Composing several belongs to the application,
+in its own factory, where `async with a, b` already unwinds in the right order
+and runs every teardown even when one raises. A framework-side exit stack would
+buy the same property one layer further from the code that knows what it holds.
+
+Probed rather than assumed, because the whole shape depends on it:
+
+| Question | Result |
+| --- | --- |
+| Is `MCPServer(lifespan=...)` entered and exited over **stdio**? | Yes — `start, enter, call, exit` |
+| Over **streamable-HTTP**? | Yes — `start, enter, … exit` on shutdown |
+| Does a failure while opening stop the server? | Yes, before it serves; the reason reaches stderr |
+| Is a context-manager instance re-enterable? | No — `AttributeError` from `contextlib` |
+
+`build_server()` stays synchronous, which is a constraint rather than an
+accident: tests build a server and call into it with no transport and no
+session. So the lifecycle wraps *serving*, never *construction*.
+
+What the lifespan yields reaches the SDK as `request_context.lifespan_context`
+and nothing here reads it back. The opened handle is **stamped onto every
+controller** instead, for the reason decision 3 gives: half the doors into a
+capability carry no request context at all.
+
+On the way out the handle is cleared. A call arriving after shutdown then sees
+`None`, which fails legibly, rather than a session somebody already closed,
+which fails somewhere inside a client library.
+
+### 7. What is deliberately not built
 
 - **No DI container, registry of providers, or wiring graph.** There is one
   level: the application builds the handle, controllers consume it. No ordering
@@ -205,13 +246,6 @@ failing quietly.
 
 ## Not done here
 
-- **Asynchronous provisioning and teardown.** The handle is built
-  synchronously, which is enough for anything shaped like `Channel::Init` —
-  lazily connected clients, pools that dial on first use. A dependency that
-  must be `await`ed into existence, or closed at shutdown, still has nowhere to
-  say so. The mechanism is known (`AsyncExitStack` driven by the SDK's lifespan
-  hook, which exists and was probed) and is deliberately left until something
-  needs it.
 - **Configuration-driven registration.** `[tool.contexture]` already resolves
   roots by reflection; pushing that to individual controllers should only ever
   **subtract**. A configuration that could add a member would be a second source

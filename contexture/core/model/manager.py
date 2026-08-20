@@ -41,8 +41,9 @@ happens to have been imported.
 
 from __future__ import annotations
 
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Any, Iterator, Sequence
+from typing import Any, AsyncIterator, Callable, Iterator, Sequence
 
 from ..errors import LookupFailure, ModelValidationError, NodeNotFoundError
 from .node import ContextNode
@@ -58,6 +59,25 @@ class ControllerManager:
     #: registered controller can reach the same one.
     channels: Any = None
 
+    #: How to open that handle, for anything that cannot simply be
+    #: constructed: a pool that must be awaited into existence, a session that
+    #: shakes hands, a client that has to be closed again afterwards.
+    #:
+    #: A **factory** returning an async context manager, never a context
+    #: manager itself. One is consumed by being entered, so a server run twice
+    #: would meet an `AttributeError` raised from inside `contextlib` — a long
+    #: way from the mistake that caused it.
+    #:
+    #: The framework enters exactly one. Composing several is the
+    #: application's own job, in its own factory, where `async with a, b`
+    #: already unwinds them in the right order::
+    #:
+    #:     @asynccontextmanager
+    #:     async def open_channels():
+    #:         async with gateway_session(URL) as gw, create_pool(DSN) as db:
+    #:             yield Channels(gateway=gw, db=db)
+    provision: Callable[[], AbstractAsyncContextManager[Any]] | None = None
+
     _roots: list[Role] = field(default_factory=list, repr=False)
     _by_path: dict[tuple[str, ...], ContextNode] = field(
         default_factory=dict, repr=False
@@ -67,6 +87,77 @@ class ControllerManager:
     _address_of: dict[int, tuple[str, ...]] = field(default_factory=dict, repr=False)
     _parent_of: dict[int, ContextNode | None] = field(default_factory=dict, repr=False)
     _by_kind: dict[str, list[ContextNode]] = field(default_factory=dict, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.channels is not None and self.provision is not None:
+            raise ModelValidationError(
+                "This manager was given both channels and a way to open them. "
+                "Keep the one that matches the handle: `channels` for a value "
+                "that is simply constructed, `provision` for one that has to "
+                "be opened and closed again."
+            )
+        if self.provision is None:
+            return
+        # Refused here rather than at startup, because the two mistakes look
+        # identical in a source file and only one of them is survivable: a
+        # context manager is spent by being entered, so a server run a second
+        # time would fail from inside `contextlib` with nothing pointing back
+        # to this line.
+        if hasattr(self.provision, "__aenter__"):
+            raise ModelValidationError(
+                "`provision` was given a context manager, not a factory. Pass "
+                "the function itself — `provision=open_channels`, not "
+                "`provision=open_channels()` — because a context manager is "
+                "consumed by being entered and a server may be run twice."
+            )
+        if not callable(self.provision):
+            raise ModelValidationError(
+                f"`provision` must be callable; {self.provision!r} is not."
+            )
+
+    # ---- lifecycle -------------------------------------------------------
+
+    @asynccontextmanager
+    async def provisioned(self) -> AsyncIterator[Any]:
+        """Hold this registry's handle open, and put it in reach of everything.
+
+        Entered before the first request and exited after the last, so a
+        connection that cannot be opened fails on the way up — in front of
+        whoever started the server — rather than in front of the first caller
+        who needed it.
+
+        What it opens is stamped onto every registered controller, which is
+        what keeps a dependency reachable **without a live session**: the SDK
+        enters no lifespan for an in-process call, so a handle that lived only
+        inside a request would be out of reach of a test, of `inspection`, and
+        of a resource read.
+
+        On the way out the handle is cleared rather than left behind. A call
+        arriving after shutdown then sees `None`, which fails legibly, instead
+        of a closed session, which fails somewhere deep inside somebody else's
+        client library.
+        """
+
+        if self.provision is None:
+            # Nothing to open. Yielding what is already there saves a caller
+            # from having to ask which kind of manager it is holding.
+            yield self.channels
+            return
+
+        opener = self.provision()
+        if not hasattr(opener, "__aenter__"):
+            raise ModelValidationError(
+                f"`provision` returned {opener!r}, which is not an async "
+                "context manager. It has to be a factory returning one: a "
+                "function decorated with `@asynccontextmanager`, or a class "
+                "with `__aenter__` and `__aexit__`."
+            )
+        async with opener as opened:
+            self.rebind_channels(opened)
+            try:
+                yield opened
+            finally:
+                self.rebind_channels(None)
 
     # ---- registration ----------------------------------------------------
 

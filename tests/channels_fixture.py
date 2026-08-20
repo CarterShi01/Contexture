@@ -12,7 +12,11 @@ real socket would only add a second thing that can fail.
 
 from __future__ import annotations
 
+import os
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import AsyncIterator
 
 from contexture import ControllerManager, Prompt, Resource, Role, Skill, Tool
 from contexture.server import ContextureApp
@@ -107,6 +111,13 @@ PUBLISHED = (
 )
 
 
+def _channels() -> Channels:
+    return Channels(
+        gateway=Gateway(endpoint="https://gateway.internal"),
+        catalogue={"runbook": "Page the owner, then open an incident channel."},
+    )
+
+
 def build() -> ContextureApp:
     """Build the app the way `main()` should read.
 
@@ -115,16 +126,44 @@ def build() -> ContextureApp:
     everything it registers; then the server.
     """
 
-    channels = Channels(
-        gateway=Gateway(endpoint="https://gateway.internal"),
-        catalogue={"runbook": "Page the owner, then open an incident channel."},
-    )
-    manager = ControllerManager(channels=channels)
+    manager = ControllerManager(channels=_channels())
     manager.register(Operations)
     return ContextureApp(roots=manager, publish=PUBLISHED, name="channels-fixture")
 
 
-app = build()
+def build_provisioned() -> ContextureApp:
+    """The same server, for a handle that has to be opened and closed again.
+
+    `LIFECYCLE_MARKS` names a file each step appends to, which is how a test
+    outside this process can see that opening happened before the first request
+    and that closing happened after the last. A real deployment would be
+    opening a pool or a session here; the marks are what make the *order*
+    observable, which is the whole claim.
+    """
+
+    marks = Path(os.environ["LIFECYCLE_MARKS"])
+
+    def mark(step: str) -> None:
+        with marks.open("a", encoding="utf-8") as handle:
+            handle.write(f"{step}\n")
+
+    @asynccontextmanager
+    async def open_channels() -> AsyncIterator[Channels]:
+        mark("open")
+        channels = _channels()
+        try:
+            yield channels
+        finally:
+            # Closing is the half a process that is simply killed never gets
+            # to do, which is why it is worth a mark of its own.
+            mark("close")
+
+    manager = ControllerManager(provision=open_channels)
+    manager.register(Operations)
+    return ContextureApp(roots=manager, publish=PUBLISHED, name="channels-fixture")
+
+
+app = build_provisioned() if os.environ.get("LIFECYCLE_MARKS") else build()
 
 
 if __name__ == "__main__":  # pragma: no cover - exercised as a subprocess
