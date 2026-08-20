@@ -15,7 +15,7 @@
 
 | 原语 | 协议分类 | 谁决定何时用 | 本目录放什么 |
 |---|---|---|---|
-| **Tool** | model-controlled | 模型 | `tool.py` — 五个网关入口，整片森林都在它们后面 |
+| **Tool** | model-controlled | 模型 | `tool.py` — 四个网关入口，整片森林都在它们后面 |
 | **Resource** | application-controlled | 宿主应用 | `resource.py` — 宿主可自行取用的内容 |
 | **Prompt** | user-controlled | 使用者 | `prompt.py` — 由人按名触发的能力 |
 
@@ -39,7 +39,7 @@ Codex 与 Cursor 各有各的做法，`docs/verification/hosts.md` 记录了实�
 ## 与 `core/model` 的关系：没有依赖关系
 
 `core/model` 的 Role / Skill / Tool 全部落在 **Tool** 那一行——它们由模型决策，
-经五个网关入口披露。本目录的 Resource 与 Prompt 落在另外两行，由宿主或人触发。
+经四个网关入口披露。本目录的 Resource 与 Prompt 落在另外两行，由宿主或人触发。
 
 两者在类型上、依赖上都不相交：
 

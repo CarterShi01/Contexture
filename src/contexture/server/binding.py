@@ -1,4 +1,4 @@
-"""Project the tree onto a fixed five-tool gateway.
+"""Project the tree onto a fixed four-tool gateway.
 
 This module is the only place in Contexture that knows what MCP looks like on
 the wire, and it holds no business rules of its own.
@@ -185,7 +185,7 @@ def project(
     }
 
     # Registered from the contract rather than five call sites, so "the surface
-    # is exactly these five, described exactly this way" is a fact about one
+    # is exactly these four, described exactly this way" is a fact about one
     # tuple instead of an agreement between ten places.
     for entry in GATEWAY:
         server.add_tool(

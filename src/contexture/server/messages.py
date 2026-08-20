@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from ..core.errors import LookupFailure, NodeNotFoundError
 
-# Imported for the sentences below, not re-exported. The five entry points are
+# Imported for the sentences below, not re-exported. The four entry points are
 # declared in `core.mcp_interface.tool` — what this server exposes on a
 # primitive is a fact about the surface, not about the wording. What lives here
 # is everything said *to* somebody: an agent that took a wrong turn, or a

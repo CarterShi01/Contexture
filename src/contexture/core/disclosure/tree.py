@@ -1,7 +1,7 @@
 """The multi-headed tree, disclosed lazily.
 
 Below this module sits `ContextNode.compile()`, which every node answers for
-itself. Above it sit the five entry points `contexture.server` puts on the
+itself. Above it sit the four entry points `contexture.server` puts on the
 wire. This module is the whole of what joins them, and the whole of the
 navigation model.
 

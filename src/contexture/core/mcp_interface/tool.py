@@ -15,7 +15,7 @@ when the role holding it is opened.
 Declaration only. Nothing here imports the SDK, builds an annotation, or knows
 how a tool is invoked; `server` does all of that. What lives here is the answer
 to one question — *what does this server put on the tool primitive?* — and the
-answer is these five, whatever the declaration contains.
+answer is these four, whatever the declaration contains.
 """
 
 from __future__ import annotations

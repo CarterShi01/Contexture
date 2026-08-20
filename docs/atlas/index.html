@@ -327,133 +327,17 @@
 
 
   <header class="hero">
-    <p class="eyebrow">contexture · v0.4.0</p>
+    <p class="eyebrow">contexture · v0.5.0</p>
     <h1 class="title">Contexture Atlas</h1>
     <p class="dek">一份把框架拆开看的地图集——业务怎么声明一次、分层谁依赖谁、类怎么组合、同一份声明怎么变成一个 Claude Code 和 Codex 都能连的原生 MCP Server。</p>
     <p class="statline">
-      <span><b>19</b> 框架源文件</span><span class="sep">·</span>
-      <span><b>28</b> 个类</span><span class="sep">·</span>
+      <span><b>21</b> 框架源文件</span><span class="sep">·</span>
+      <span><b>34</b> 个类</span><span class="sep">·</span>
       <span><b>8</b> 层单向依赖</span><span class="sep">·</span>
-      <span><b>206</b> 个测试用例</span><span class="sep">·</span>
+      <span><b>244</b> 个测试用例</span><span class="sep">·</span>
       <span>MCP <b>2026-07-28</b></span>
     </p>
   </header>
-
-  <div class="callout" style="margin-bottom: 40px;">
-    <strong>v0.0.4 变更：主箭头翻转了。</strong>v0.0.3 的主线是
-    <em>声明 → 编译 → 生成 CLAUDE.md / AGENTS.md / SKILL.md → Agent 去读文件</em>；
-    v0.0.4 的主线是 <em>声明 → 一个原生 MCP Server → Agent 连上来</em>。
-    生成的文件是副本,声明一变就漂;server 是指针,不会漂。<br><br>
-    新增 <code>contexture.discovery</code>(ref 寻址与两个动词)与
-    <code>contexture.server</code>(唯一 import 官方 SDK 的层);
-    <code>core</code> 新增可执行的 <code>Tool</code> 与可读的 <code>Resource</code>。
-    <code>targets/</code> 降级为副路。
-    代价:<strong>零依赖属性没有了</strong>,官方 SDK 带进 28 个包。<br><br>
-    <strong>随后出站方向被整体移除(ADR 003)。</strong>
-    <code>MCPTool</code> / <code>MCPResource</code> / <code>MCPServer</code> /
-    <code>MCPBinding</code> / <code>protocol/</code> / <code>execution.py</code>
-    描述的是"别人家的能力"和"怎么去调它"——那是宿主该干的事,不是提供方。
-    删掉之后 <code>core</code> 只剩四个概念,且真的不知道 MCP 存在。
-  </div>
-
-  <div class="callout" style="margin-bottom: 40px;">
-    <strong>v0.1.0 变更:能力不再上 MCP 表面(ADR 004)。</strong>
-    在此之前,<code>projection</code> 把整片森林的每一个 tool 和 resource 都注册成原生
-    MCP 条目。<strong>注册即常驻</strong>——协议禁止 tool 列表随连接变化,所以一个被注册的能力
-    是每次会话无论用户问什么都要付的钱。渐进披露实际只藏住了 instructions。<br><br>
-    现在表面是<strong>固定五个工具</strong>:<code>contexture_discover</code> ·
-    <code>contexture_open</code> · <code>contexture_read</code> ·
-    <code>contexture_invoke_read_only</code> · <code>contexture_invoke</code>。
-    业务能力的名字、描述、schema 只活在 payload 里,打开它所属的角色时才到达。
-    <code>invoke</code> 拆成两扇门,是 <code>readOnlyHint</code> 在网关下唯一的活法:
-    宿主看不见业务 tool 了,但看得见走的是哪扇门,而<strong>门与 ref 不一致的调用被拒绝而不是被执行</strong>。<br><br>
-    披露按<strong>种类</strong>切而不是按深度:角色骨架一次给全(它没有 schema,便宜)——<strong>这一条在 v0.2.0 被 ADR 007 推翻了一半,见下</strong>,
-    角色里的东西等被打开。<code>ContextTree</code> 一个类接替了
-    <code>discovery.py</code> + <code>compiler.py</code> + <code>core/registry.py</code>,
-    八个类变一个。代价也记在 ADR 004 里:业务 tool 的 outputSchema 没了,
-    而且模型对泛化 dispatch 的熟练度不如原生 tool call。
-  </div>
-
-  <div class="callout" style="margin-bottom: 40px;">
-    <strong>v0.2.0 变更:副路整条删除(ADR 005)。</strong>
-    ADR 001 把主箭头翻转之后,<code>contexture.targets</code> 没有被删,只是降级成"给连不上
-    MCP 的 runtime"的副路。量一下:框架里<strong>没有任何模块 import 它</strong>,CLI 里
-    <strong>没有任何命令通向它</strong>(只有 <code>new / list / serve / demo</code>),
-    脚手架不提它,用户唯一的入口是照着 README 的一段散文手写 <code>import render_all</code>。<br><br>
-    七个文件、740 行、十个类——占当时框架类数的三成——外加 244 行测试,谁都到不了。
-    一个没人能调用的能力不叫"留着",叫"在付钱"。<br><br>
-    删掉之后:<code>TargetRenderError</code> 从公开门面消失(<strong>破坏性变更</strong>),
-    <code>core/errors.py</code> 剩下的五个异常都有活着的代码会抛;
-    <code>cli.py</code> 成为<strong>全包唯一碰文件系统的模块</strong>,而且只用来生成项目——
-    "从声明到线上这条路上没有任何模块开过文件",这条断言比原来那条强。
-  </div>
-
-  <div class="callout" style="margin-bottom: 40px;">
-    <strong>v0.2.0 变更:角色轴也变懒了(ADR 007,部分推翻 ADR 004)。</strong>
-    ADR 004 的依据是 <em>every sibling is visible before the choice</em>——
-    这要求<strong>一层兄弟</strong>;而实现给的是<strong>森林里所有层的兄弟</strong>。
-    在它 traced 的那个 6 角色两层例子上两者是同一个东西,于是结论被从 n=6 外推到了所有 n。<br><br>
-    量出来:交叉点约 30 个角色。585 个角色时骨架 21,000 token——<strong>在 agent 还没问任何问题之前就付掉</strong>,
-    正是网关存在的理由要消灭的那种开销;11,111 个角色时 440,808 token,<strong>根本装不进 200k 窗口</strong>,
-    服务器不可用而代码里没有任何地方说这件事。<br><br>
-    现在 <code>contexture_discover</code> 只答根,其余靠 <code>contexture_open</code> 一层一层出来——
-    而 <code>open()</code> 本来就一直在返回 <code>sub_roles</code> 卡片,所以这次改动主要是<strong>减法</strong>。
-    代价两条写在明处:到第 d 层要 d 次往返(小树因此略贵),
-    以及<strong>角色的 description 从此必须能替它整棵子树做路由</strong>。<br><br>
-    连带修掉一个:bootstrap 的 roster 原来按深度优先截断,1200 字预算全花在一条深脊上,
-    根的其他子角色一个都不提。改成广度优先。
-  </div>
-
-  <div class="callout" style="margin-bottom: 40px;">
-    <strong>v0.2.0 变更:异常携带事实,文案收归一处(ADR 006)。</strong>
-    问"server 这层到底解决什么问题"问出来的:它不是翻译层——真只是翻译的话八十行就够了。
-    它装着三样变更理由完全不同的东西,而<strong>「agent 读到什么」这一样没有模块</strong>,于是散了。<br><br>
-    症状:每个网关工具有<strong>两份描述</strong>(docstring 与 <code>add_tool</code> 的 description),
-    上线的是较差那份;"用卡片上的 ref、别自己拼"这句话有三个措辞不同的副本。
-    更要命的是<strong>最该说的那半句根本写不出来</strong>——查找失败在 <code>tree</code> 里抛出,
-    而"下一步该调 <code>contexture_open</code>"需要网关工具的名字,tree 不知道也不许知道。<br><br>
-    根因是<strong>一个字符串伺候两个读者</strong>:看 traceback 的开发者,和会读错误并自己改正的模型。
-    现在 <code>NodeNotFoundError</code> 只携带事实(reason · ref · segment · scope · kind · known),
-    <strong>异常本身就是向上运输结构化数据的通道</strong>,不需要注入任何回调;
-    <code>projection._translated</code> 本来就是唯一的收口,以前被塞成品字符串,现在拿到事实自己渲染。
-    六种失败每一种都以"该调哪个工具"收尾,有穷举测试守着。<br><br>
-    <code>Role</code> 也拿回了它本该有的方法:<code>member()</code> 跨种类查找——<strong>因为跨种类唯一这条不变量本来就是它自己在强制的</strong>,
-    它付了代价却把好处让给了 <code>tree._member</code>(那个函数的签名里没有一个 tree 概念)。
-    <code>NodeNotFoundError</code> 不再继承 <code>KeyError</code>,四个 <code>get_*</code> 退休。
-  </div>
-
-  <div class="callout" style="margin-bottom: 40px;">
-    <strong>v0.4.0 变更:协议平面不是对象模型(ADR 009 / 010)。</strong>
-    <code>core</code> 里有一个也叫 <code>Resource</code> 的类,而它<em>不是</em> MCP 的
-    resource 原语——它是森林里的节点,由模型经网关到达。线上从来没搞错过
-    (<code>contexture_read</code> 是网关工具,不是 <code>resources/read</code>),
-    但把两者分开的全部力量,是一句注释外加一个拼写差异:
-    <code>mime_type</code> 对着协议的 <code>mimeType</code>。<strong>那是约定,不是机制。</strong><br><br>
-    跟着漏进来的是两个<em>协议</em>字段。<code>uri</code> 与 <code>mime_type</code> 是地址和媒体类型,
-    <code>core</code> 本不该知道它们,就像它不知道分隔符是什么;代价是
-    <code>ContextTree._by_uri</code> 为了解析一个本不属于树的地址而线性扫描整片森林。
-    <code>opened_by</code> 是同一种漏,只是方向相反:它让 <code>core</code> 用自己无法校验的
-    词汇去规定"谁可以<em>打开</em>一个节点"。<br><br>
-    于是 <code>core.Resource</code> 删了。<strong>已经在那儿的内容,就是一个无参的只读 Tool</strong>
-    ——那正是旧类给自己下的定义。<code>core.model</code> 现在三种节点,三种都走
-    route / active,<strong>ADR 004 那句「两档,没有第三档」再没有例外</strong>。
-    三个原语各自摆什么,声明在 <code>core/mcp_interface</code>,一个原语一个模块,
-    按协议自己的轴切:<strong>谁决定何时使用</strong>。
-    <code>Prompt</code> 与 <code>Resource</code> 持有的是 ref <strong>字符串</strong>——
-    与 <code>Skill.uses</code> 同一条担保,走不进森林,森林也够不回来。
-    一个能力两个地址,而不是两份声明。<br><br>
-    网关因此收成<strong>四个</strong>:<code>contexture_read</code> 退休,内容像别的只读 tool
-    一样被 invoke。而 <strong>resource 原语第一次真正被实现</strong>:
-    <code>resources/list</code> 与 <code>resources/read</code> 从声明好的表面作答,
-    构建时就检查——ref 必须解析得到,节点必须只读,而且必须无参,因为宿主是不带参数来读的。<br><br>
-    <code>core</code> 顺势拆成三个子目录加一块共享地基,<code>server</code> 的模块改叫
-    <code>binding</code> / <code>messages</code> / <code>launch</code>。
-    <strong>分层测试先于搬家加固并在旧结构下跑绿</strong>:否则把 <code>tree</code> 移进
-    <code>core/</code> 会让两条规则合并成一条,一条边无声消失。写那一步顺带逮到两个真缺口——
-    运行期 SDK 检查只看 <code>mcp</code> 不看 <code>mcp_types</code>,
-    以及相对 import 按层级数比对深度,对 <code>core/disclosure/tree.py</code> 引
-    <code>..model.role</code> 会记成零。
-  </div>
 
   <nav class="index" aria-label="图鉴目录">
     <p class="eyebrow">图鉴目录 — 建议按顺序看</p>
@@ -473,21 +357,21 @@
   <section class="plate" id="plate-00">
     <p class="plate-eyebrow">Plate 00</p>
     <h2 class="plate-title">目录结构</h2>
-    <p class="plate-claim">19 个框架源文件(不含 <code>__init__.py</code> 与 examples),目录本身就是架构。顶层只有两个词:<code>core</code> 回答"Contexture <strong>是什么</strong>",<code>server</code> 回答"<strong>怎么跑起来</strong>"。<code>core</code> 下面是三个各自回答一个问题的子目录,外加一块谁都能站的共享地基。</p>
+    <p class="plate-claim">21 个框架源文件(不含 <code>__init__.py</code> 与 examples),目录本身就是架构。顶层只有两个词:<code>core</code> 回答"Contexture <strong>是什么</strong>",<code>server</code> 回答"<strong>怎么跑起来</strong>"。<code>core</code> 下面是三个各自回答一个问题的子目录,外加一块谁都能站的共享地基。</p>
 
     <div class="figure-wrap">
       <ul class="tree">
         <li>
-          <div class="row"><span class="path dir">src/contexture/</span><span class="desc">4947 行 · 33 个 .py(含 7 个 <code>__init__.py</code>)</span></div>
+          <div class="row"><span class="path dir">src/contexture/</span><span class="desc">5732 行 · 35 个 .py(含 8 个 <code>__init__.py</code>)</span></div>
           <ul>
-            <li><div class="row"><span class="path">__init__.py</span><span class="desc">49 行 — 公开门面,只导出<strong>用来声明</strong>的东西;<code>ContextTree</code> 是用来<strong>运行</strong>的,故意不在这里</span></div></li>
-            <li><div class="row"><span class="path">cli.py</span><span class="desc">578 行 · 3 类 — <code>new</code> 生成项目 · <code>serve</code> 起服务 · <code>list</code> 打印它会服务什么 · <code>inspect</code> 回放披露 · <code>demo</code>。骑在所有层之上,被任何层 import 都算违规</span></div></li>
+            <li><div class="row"><span class="path">__init__.py</span><span class="desc">55 行 — 公开门面,只导出<strong>用来声明</strong>的东西;<code>ContextTree</code> 是用来<strong>运行</strong>的,故意不在这里</span></div></li>
+            <li><div class="row"><span class="path">cli.py</span><span class="desc">650 行 · 3 类 — <code>new</code> 生成项目 · <code>serve</code> 起服务 · <code>list</code> 打印它会服务什么 · <code>inspect</code> 回放披露 · <code>demo</code>。骑在所有层之上,被任何层 import 都算违规</span></div></li>
             <li><div class="row"><span class="path">inspection.py</span><span class="desc">514 行 · 4 类 — 把一整段披露<strong>replay 给开发者看</strong>,不需要屋里有 agent;每一步花多少字符也一并算出来</span></div></li>
             <li>
               <div class="row"><span class="path dir">core/</span><span class="desc">Contexture <strong>是什么</strong> · 零 I/O · 零线路 · <strong>整层不许 import mcp / mcp_types</strong></span></div>
               <ul>
                 <li><div class="row"><span class="path">README.md</span><span class="desc">三个子目录各回答哪个问题,以及分层表里两条承重的行</span></div></li>
-                <li><div class="row"><span class="path">types.py · constants.py · errors.py</span><span class="desc">11 + 8 + 125 行 · 6 类 — <strong>共享地基</strong>:三个子目录都能站在它上面,它自己不站在任何东西上面。<strong>NodeNotFoundError 不带散文</strong>:它有两个读者(开发者 / agent),携带事实,各自渲染</span></div></li>
+                <li><div class="row"><span class="path">types.py · constants.py · errors.py · principal.py</span><span class="desc">11 + 8 + 125 + 153 行 · 7 类 — <strong>共享地基</strong>:三个子目录都能站在它上面,它自己不站在任何东西上面。<strong>NodeNotFoundError 不带散文</strong>:它有两个读者(开发者 / agent),携带事实,各自渲染。<strong>Principal 是"谁在调用",不是"他能做什么"</strong>——身份落在地基上,是因为业务 tool、<code>server</code>、以及任何将来要按调用者变答案的代码都要读它,而这三者互不相邻</span></div></li>
                 <li>
                   <div class="row"><span class="path dir">model/</span><span class="desc">一个能力<strong>是什么</strong>。节点知道自己叫什么,不知道自己挂在哪里</span></div>
                   <ul>
@@ -519,8 +403,9 @@
               <div class="row"><span class="path dir">server/</span><span class="desc"><strong>怎么跑起来</strong> — 原生 MCP Server,唯一 import 官方 SDK 的层</span></div>
               <ul>
                 <li><div class="row"><span class="path">messages.py</span><span class="desc">257 行 — <strong>说给某个人听的每一句话</strong>:bootstrap 文本 · 查找失败怎么变成一句能照做的话 · 一个人打开命令时读到的开头。<strong>不 import SDK</strong></span></div></li>
-                <li><div class="row"><span class="path">binding.py</span><span class="desc">552 行 · 2 类 — 把<strong>声明好的表面</strong>挂到 SDK 上:四个网关工具 · prompts · resources · completion · Dispatch(推 schema 与校验参数,<strong>不上表面</strong>)· 两扇门的一致性检查</span></div></li>
-                <li><div class="row"><span class="path">app.py</span><span class="desc">119 行 — ContextureApp,业务唯一需要接触的对象;不继承 SDK 的 MCPServer,而是组合它</span></div></li>
+                <li><div class="row"><span class="path">binding.py</span><span class="desc">567 行 · 2 类 — 把<strong>声明好的表面</strong>挂到 SDK 上:四个网关工具 · prompts · resources · completion · Dispatch(推 schema 与校验参数,<strong>不上表面</strong>)· 两扇门的一致性检查</span></div></li>
+                <li><div class="row"><span class="path">app.py</span><span class="desc">410 行 · 3 类 — <strong>ContextureApp</strong>(服务什么,启动前定死;不继承 SDK 的 MCPServer,而是组合它)+ <strong>ContextureOptions</strong>(怎么服务:传输 · 地址 · 谁能敲门)。<code>stateless_http</code> 钉死 <code>True</code>,不是可调项</span></div></li>
+                <li><div class="row"><span class="path">identity.py</span><span class="desc">233 行 · 3 类 — <strong>谁在调用</strong>:业务插自己验票器的插座(<code>TokenVerifier</code>,一个方法)· <code>Auth</code> 配置 · <code>Principal</code> 与 SDK <code>AccessToken</code> 的无损双向翻译。<strong>不内置任何 verifier,也不发令牌</strong></span></div></li>
                 <li><div class="row"><span class="path">instructions.py</span><span class="desc">143 行 — 只管把文本<strong>塞进某个宿主的版面</strong>:前 512 字自包含(Codex),总长 &lt;2KB(Claude Code)</span></div></li>
                 <li><div class="row"><span class="path">launch.py</span><span class="desc">96 行 — 生成指向<strong>本 server</strong> 的启动命令;不 import 包内任何东西</span></div></li>
               </ul>
@@ -541,8 +426,8 @@
             </li>
           </ul>
         </li>
-        <li><div class="row"><span class="path dir">tests/</span><span class="desc">10 个测试文件 · 206 个用例,含分层约束、I/O 边界,以及<strong>真起子进程走 stdio</strong> 的端到端验证</span></div></li>
-        <li><div class="row"><span class="path dir">docs/</span><span class="desc">01 对象模型 · 02 框架分层 · adr/001–010 · verification/ 宿主实测 · atlas 本页</span></div></li>
+        <li><div class="row"><span class="path dir">tests/</span><span class="desc">12 个测试文件 · 244 个用例,含分层约束、I/O 边界,以及<strong>真起子进程</strong>的端到端验证——stdio 一套,streamable HTTP 一套(两代协议 · 无状态 · 身份从验票器走到 <code>invoke</code> 里)</span></div></li>
+        <li><div class="row"><span class="path dir">docs/</span><span class="desc">01 对象模型 · 02 框架分层 · adr/001–011 · verification/ 宿主实测 · atlas 本页</span></div></li>
       </ul>
     </div>
 
@@ -550,15 +435,15 @@
       <p><strong>不是一类一文件,是一个内聚概念一文件。</strong> <code>core/</code> 从八个平铺模块
       变成三个子目录,是因为它要装的本来就是三个不同的问题:一个能力<em>是什么</em>、
       它<em>在哪</em>、在协议上<em>暴露什么</em>。共享地基(<code>errors</code> /
-      <code>types</code> / <code>constants</code>)留在 <code>core/</code> 根下不是图省事——
+      <code>types</code> / <code>constants</code> / <code>principal</code>)留在
+      <code>core/</code> 根下不是图省事——
       把它们并进 <code>model/</code>,<code>mcp_interface</code> 就得为了一个异常类去
       import <code>model</code>,而那正是它唯一不能有的依赖。</p>
-      <p><strong>四种节点变三种。</strong> <code>core.Resource</code> 在 ADR 009 里删了:
-      它带着 <code>uri</code> 和 <code>mime_type</code> 两个<em>协议</em>字段,而
-      <code>core</code> 本不该知道地址长什么样。已经在那儿的内容,就是一个
-      <strong>无参的只读 Tool</strong>——那也正是它旧文档里对自己的定义。
-      于是三种节点全都走 route / active 两档,ADR 004 那句"两档,没有第三档"
-      <strong>再没有例外</strong>。</p>
+      <p><strong>三种节点,没有第四种。</strong> <code>uri</code> 与 <code>mime_type</code>
+      是<em>协议</em>字段,<code>core</code> 不该知道地址长什么样,所以节点上没有它们——
+      要发布一份内容,就在 <code>mcp_interface</code> 里声明一个 <code>Resource</code>
+      指过去。<em>已经在那儿的内容</em>本身,就是一个<strong>无参的只读 Tool</strong>。
+      三种节点因此全都走 route / active 两档,"两档,没有第三档"<strong>没有例外</strong>。</p>
       <p>两个"唯一"是硬约束,不是习惯:<code>cli.py</code> 是唯一写文件系统的模块——
       而且只在 <code>contexture new</code> 生成项目时写,从声明到线上这条路上没有任何模块开过文件;
       <code>server/</code> 是唯一 import 官方 SDK 的层。
@@ -579,11 +464,11 @@
         <pre class="mermaid">
 flowchart TB
     biz["<b>你的应用</b><br/>声明 Role · Skill · Tool"]
-    base["<b>core.__base__</b><br/>errors · types · constants<br/><i>共享地基:谁都能站,它谁也不站</i>"]
+    base["<b>core.__base__</b><br/>errors · types · constants · principal<br/><i>共享地基:谁都能站,它谁也不站</i>"]
     model["<b>core.model</b><br/>Role · Skill · Tool · ContextNode<br/><i>不知道自己挂在哪,不知道 ref 是什么</i>"]
     disc["<b>core.disclosure</b><br/>ContextTree:骨架 · 解析 · 打开<br/><i>ref 与层级在这里被发明出来</i>"]
     mcpi["<b>core.mcp_interface</b><br/>tool · resource · prompt<br/><i>三个原语的声明 · 仍然不 import SDK</i>"]
-    srv["<b>contexture.server</b><br/>binding · messages · app · launch<br/><i>唯一 import 官方 SDK 的层</i>"]
+    srv["<b>contexture.server</b><br/>binding · messages · identity · app · launch<br/><i>唯一 import 官方 SDK 的层</i>"]
     cli["<b>contexture.cli</b><br/>new · serve · list · inspect<br/><i>骑在最上面,谁都不许 import 它</i>"]
     agent["<b>Claude Code · Codex · Cursor</b><br/>LLM 循环 · 规划 · 工具选择"]
 
@@ -601,7 +486,7 @@ flowchart TB
     style srv stroke-width:3px
     style agent stroke-dasharray: 5 5
         </pre>
-        <figcaption>每层一个问题:<code>model</code> 是"节点怎么描述自己",<code>disclosure</code> 是"编译谁、编译到哪一档",<code>mcp_interface</code> 是"在三个原语上摆什么",<code>server</code> 是"怎么挂到 SDK 上"。<strong>注意 <code>mcpi</code> 只有一条入边,来自共享地基</strong>——它跟 <code>model</code> 之间没有箭头,两个平面在类型系统里连一条 import 边都没有。<code>cli</code> 骑在最上面,业务项目因此连一个入口文件都不用写:根角色写在 <code>pyproject.toml</code> 的 <code>[tool.contexture]</code> 里,<code>contexture serve</code> 去读。图上<strong>只有一条路</strong>:渲染文件那条副路(<code>targets</code>)在 ADR 005 里整条删了——它没有任何调用者,也没有任何 CLI 入口,是 ADR 001 翻转主箭头时留下没删干净的一半。出站那条腿(<code>protocol</code> / <code>execution</code>)在 ADR 003 里整条拿掉了:它描述的是宿主的活,不是提供方的。最右边那个虚线框<strong>不属于 Contexture</strong>。依赖规则由 <code>tests/test_layering.py</code> 强制:既查 AST,也在子进程里真跑一次——<code>import contexture.core</code> 之后 <code>sys.modules</code> 里不许出现 <code>mcp</code> 或 <code>mcp_types</code>。这套检查<strong>先于搬家做</strong>并在旧结构下跑绿:否则把 <code>tree</code> 移进 <code>core/</code> 会让两条规则合并成一条,一条边就这么无声消失。</figcaption>
+        <figcaption>每层一个问题:<code>model</code> 是"节点怎么描述自己",<code>disclosure</code> 是"编译谁、编译到哪一档",<code>mcp_interface</code> 是"在三个原语上摆什么",<code>server</code> 是"怎么挂到 SDK 上"。<strong>注意 <code>mcpi</code> 只有一条入边,来自共享地基</strong>——它跟 <code>model</code> 之间没有箭头,两个平面在类型系统里连一条 import 边都没有。<code>cli</code> 骑在最上面,业务项目因此连一个入口文件都不用写:根角色写在 <code>pyproject.toml</code> 的 <code>[tool.contexture]</code> 里,<code>contexture serve</code> 去读。图上<strong>只有一条路</strong>:声明进来,一个 MCP Server 出去。没有渲染文件的副路,也没有反向调用别人服务器的出站腿——那是宿主的活,不是提供方的。最右边那个虚线框<strong>不属于 Contexture</strong>。依赖规则由 <code>tests/test_layering.py</code> 强制:既查 AST,也在子进程里真跑一次——<code>import contexture.core</code> 之后 <code>sys.modules</code> 里不许出现 <code>mcp</code> 或 <code>mcp_types</code>,两个发行包都查,只查前一个会把间接 import 那条路留着没人看。</figcaption>
       </figure>
     </div>
 
@@ -625,7 +510,7 @@ flowchart TB
       <figure>
         <pre class="mermaid">
 flowchart TB
-    base["<b>core/</b> types · constants · errors<br/><i>共享地基:零内部依赖,几乎人人 import</i>"]
+    base["<b>core/</b> types · constants · errors · principal<br/><i>共享地基:零内部依赖,几乎人人 import</i>"]
 
     subgraph MODEL["core.model — 一个能力是什么"]
         direction TB
@@ -647,12 +532,13 @@ flowchart TB
         mprompt["prompt.py<br/>Prompt"]
     end
 
-    subgraph SERVER["contexture.server — 只有 app 与 binding import SDK"]
+    subgraph SERVER["contexture.server — 只有 app · binding · identity import SDK"]
         direction TB
         msg["messages.py<br/>说给人听的每一句<br/><i>不 import SDK</i>"]
         instr["instructions.py<br/>塞进宿主的版面"]
+        ident["identity.py<br/>谁在调用 · TokenVerifier 插座"]
         bind["binding.py<br/>挂到 SDK 上 · Dispatch"]
-        app["app.py<br/>ContextureApp"]
+        app["app.py<br/>ContextureApp · ContextureOptions"]
         launch["launch.py<br/>宿主启动命令<br/><i>零包内依赖</i>"]
     end
     cli["<b>cli.py</b><br/>new · serve · list · inspect<br/><i>出度为零:没有任何模块 import 它</i>"]
@@ -686,6 +572,10 @@ flowchart TB
     instr --> app
     mres --> app
     mprompt --> app
+    base --> ident
+    ident --> bind
+    ident --> app
+    sdk --> ident
     sdk --> bind
     sdk --> app
     tree --> cli
@@ -695,7 +585,7 @@ flowchart TB
     style base stroke-width:3px
     style tree stroke-width:3px
         </pre>
-        <figcaption>箭头方向 = 被 import 者 → import 者。<strong>最该看的是没有的那些线</strong>:<code>MCPI</code> 那一簇没有任何一条边连向 <code>MODEL</code> 或 <code>DISC</code>,它只从共享地基取一个异常类——协议平面持有的是 ref <strong>字符串</strong>,走不进森林,森林也够不回来。<code>role.py</code> 出度最高:它是三个概念汇合的地方,也是 <code>tree</code> 与 <code>cli</code> 共同的入口。<code>declarative.py</code> 同时喂给 Skill、Tool、Role——类体声明这条路对三者一视同仁。<code>messages.py</code> 只依赖 <code>errors</code> 与网关入口的名字——决定"跟模型说什么"不需要知道线路长什么样,所以它能脱离 SDK 单独测。<code>launch.py</code> 是全包唯一一个不 import 包内任何东西的模块,它只拼一段启动命令。<code>types</code> / <code>errors</code> 的扇出没有画全,否则线会盖住图。</figcaption>
+        <figcaption>箭头方向 = 被 import 者 → import 者。<strong>最该看的是没有的那些线</strong>:<code>MCPI</code> 那一簇没有任何一条边连向 <code>MODEL</code> 或 <code>DISC</code>,它只从共享地基取一个异常类——协议平面持有的是 ref <strong>字符串</strong>,走不进森林,森林也够不回来。<code>role.py</code> 出度最高:它是三个概念汇合的地方,也是 <code>tree</code> 与 <code>cli</code> 共同的入口。<code>declarative.py</code> 同时喂给 Skill、Tool、Role——类体声明这条路对三者一视同仁。<code>messages.py</code> 只依赖 <code>errors</code> 与网关入口的名字——决定"跟模型说什么"不需要知道线路长什么样,所以它能脱离 SDK 单独测。<code>launch.py</code> 是全包唯一一个不 import 包内任何东西的模块,它只拼一段启动命令。<code>identity.py</code> 只有一条入边来自共享地基和一条来自 SDK——身份的<strong>形状</strong>在 <code>core</code>,身份<strong>怎么到</strong>在这里,业务实现的验票器两边都不认识。<code>types</code> / <code>errors</code> 的扇出没有画全,否则线会盖住图。</figcaption>
       </figure>
     </div>
 
@@ -709,7 +599,7 @@ flowchart TB
   <section class="plate" id="plate-03">
     <p class="plate-eyebrow">Plate 03</p>
     <h2 class="plate-title">对象模型</h2>
-    <p class="plate-claim"><strong>三个</strong> <code>ContextNode</code> 子类共享同一套 route / active 生命周期,而且只有这三个——ADR 009 删掉第四个之后,"两档,没有第三档"<strong>再没有例外</strong>。<code>Role</code> 的每个字段都是"它自己声明的东西"——没有第二条腿。节点知道怎么编译<strong>自己</strong>;"编译谁、编译到哪一档"由 ref 的形状和调用的是哪个动词决定,而读这两样的是 <code>ContextTree</code>。</p>
+    <p class="plate-claim"><strong>三个</strong> <code>ContextNode</code> 子类共享同一套 route / active 生命周期,而且只有这三个——"两档,没有第三档"<strong>没有例外</strong>。<code>Role</code> 的每个字段都是"它自己声明的东西"——没有第二条腿。节点知道怎么编译<strong>自己</strong>;"编译谁、编译到哪一档"由 ref 的形状和调用的是哪个动词决定,而读这两样的是 <code>ContextTree</code>。</p>
 
     <div class="figure-wrap">
       <figure>
@@ -793,23 +683,17 @@ classDiagram
     </div>
 
     <div class="plate-notes">
-      <p>这张图删过两轮。v0.0.1 里 <code>Role</code> 挂着 <code>mcp_bindings</code> 和
-      <code>data_bindings</code> 两条结构同构的授权线;<code>d2a8e66</code> 把后者并进
-      Resource 消掉一条;ADR 003 把前者整条拿掉——它描述的是"别人家的能力",
-      而 Contexture 是提供方,不是宿主。</p>
-      <p>ADR 004 又删了一轮:<code>RoleCompiler</code> 四个类、<code>DisclosureEngine</code>
-      / <code>CapabilityGraph</code> / <code>Ref</code>、<code>RoleRegistry</code>,全部并进
-      <code>ContextTree</code>。<code>Ref</code> 消失是因为 ref 变成了纯路径
+      <p><strong>三种节点,不是四种。</strong> Role 递归组合,Skill 装过程知识,
+      Tool 装可执行能力——三种全都走 route / active 两档。<em>已经在那儿的内容</em>
+      不是第四种节点,它就是一个<strong>无参的只读 Tool</strong>:两次调用返回同样的
+      字节,什么也不从参数算。列出一百份 runbook 依然只花一百行描述——卡片是卡片,
+      正文只有真去 invoke 才来。</p>
+      <p><strong>整棵树只有一个运行时类:<code>ContextTree</code>。</strong> 没有编译器、
+      没有注册表、没有 <code>Ref</code> 类型。ref 是纯路径
       (<code>kubernetes-platform/incident-response/get_pod_logs</code>),
       <code>split("/")</code> 就是全部解析逻辑——这是"一个角色内成员名跨种类唯一"
       这条约束换来的。</p>
-      <p>ADR 009 删掉第四个节点类型:<code>core.Resource</code> 带着 <code>uri</code>
-      与 <code>mime_type</code> 两个<em>协议</em>字段,而 <code>core</code> 本不该知道
-      地址长什么样——代价是 <code>ContextTree</code> 里那个为了按 URI 找东西而
-      扫描整片森林的 <code>_by_uri</code>。已经在那儿的内容,就是一个
-      <strong>无参的只读 Tool</strong>:两次调用返回同样的字节,什么也不从参数算。
-      列出一百份 runbook 依然只花一百行描述——卡片是卡片,正文只有真去 invoke 才来。</p>
-      <p><strong>URI 没有消失,它换了归属。</strong> 想让宿主在 resource 原语上取到
+      <p><strong>URI 属于协议平面,不属于节点。</strong> 想让宿主在 resource 原语上取到
       同一份内容,就在 <code>mcp_interface</code> 里声明一个 <code>Resource</code> 指过去。
       一个能力两个地址,而不是两份声明——两条路读到的永远是同一个节点。</p>
     </div>
@@ -876,7 +760,7 @@ flowchart LR
   <section class="plate" id="plate-05">
     <p class="plate-eyebrow">Plate 05</p>
     <h2 class="plate-title">披露成本 — 一次调用只看一层</h2>
-    <p class="plate-claim">一层<strong>总是给全</strong>,因为看不全兄弟就只能猜;但<strong>不能因此推出所有层都该一次给全</strong>。这是 v0.2.0 推翻的一条结论(ADR 007)——它在原来那个 6 角色的例子上是对的,在 11,111 个角色上装不进 context window。</p>
+    <p class="plate-claim">一层<strong>总是给全</strong>,因为看不全兄弟就只能猜;但<strong>只给这一层</strong>。规则作用于<strong>一层兄弟</strong>,不作用于整棵树:6 个角色时这两者是同一个东西,11,111 个角色时后者装不进 context window。</p>
 
     <div class="figure-wrap">
       <figure>
@@ -897,15 +781,15 @@ flowchart LR
     style skip stroke-dasharray: 5 5
     style deep stroke-dasharray: 5 5
         </pre>
-        <figcaption>与旧图的差别只有一条虚线:<code>deep</code>。以前<strong>没打开的分支下面的角色卡片照样全发</strong>——那正是被推翻的部分。现在没进的枝,连它有几层都不告诉你。</figcaption>
+        <figcaption>注意那条虚线 <code>deep</code>:<strong>没进的枝,连它有几层都不告诉你</strong>。一次调用答复的是一层兄弟,不是一棵子树。</figcaption>
       </figure>
     </div>
 
     <div class="callout warn">
-      <strong>论证滑在哪里:证明的是「广度」,实现的是「广度 × 深度」。</strong>
-      ADR 004 的依据原文是 <em>every sibling is visible before the choice</em>——
-      这要求<strong>一层兄弟</strong>。而它 traced 的例子是 6 个角色、两层深,
-      在那个尺寸上「一层兄弟」和「整棵树」是同一个东西,于是结论被从 n=6 外推到了所有 n。
+      <strong>「广度」和「广度 × 深度」是两回事。</strong>
+      规则的原文是 <em>every sibling is visible before the choice</em>——它要求的是
+      <strong>一层兄弟</strong>,不是一棵子树。小树上这两者看起来是同一个东西,
+      这正是它容易被外推成后者的原因;<strong>它不能被这样外推</strong>。
     </div>
 
     <div class="figure-wrap">
@@ -941,7 +825,7 @@ xychart-beta
   <section class="plate" id="plate-06">
     <p class="plate-eyebrow">Plate 06</p>
     <h2 class="plate-title">网关投影 — 为什么模型那一侧永远只有四个工具</h2>
-    <p class="plate-claim">这是主路的核心转换,也是 v0.1.0 翻转的地方。<strong>注册即常驻</strong>:协议禁止 tool 列表随连接变化,所以一个被注册的能力是每次会话无论用户问什么都要付的钱。能力要能被推迟,唯一的办法是<strong>根本不上表面</strong>。</p>
+    <p class="plate-claim">这是主路的核心转换。<strong>注册即常驻</strong>:协议禁止 tool 列表随连接变化,所以一个被注册的能力是每次会话无论用户问什么都要付的钱。能力要能被推迟,唯一的办法是<strong>根本不上表面</strong>。</p>
 
     <div class="figure-wrap">
       <figure>
@@ -1043,7 +927,7 @@ flowchart TB
     style contract stroke-width:3px
     style agent stroke-width:3px
         </pre>
-        <figcaption><strong>异常本身就是向上运输结构化数据的通道</strong>——所以这条解耦一根线都不用接:不需要往 <code>ContextTree</code> 注入文案回调,也不需要 <code>core</code> 反过来依赖任何东西。收口 <code>_translated</code> 本来就在那儿,以前被塞的是烤好的字符串,现在拿到的是事实。粗框那三个是新增的分工:<strong>事实在哪产生 · 句子在哪写 · 谁读</strong>。虚线那条是第二个读者,它要的内容和上面那条完全不同,这正是当初一个字符串写不好两份的原因。</figcaption>
+        <figcaption><strong>异常本身就是向上运输结构化数据的通道</strong>——所以这条解耦一根线都不用接:不需要往 <code>ContextTree</code> 注入文案回调,也不需要 <code>core</code> 反过来依赖任何东西。收口在 <code>_translated</code>,它拿到的是<strong>事实</strong>而不是烤好的字符串。粗框那三个是分工:<strong>事实在哪产生 · 句子在哪写 · 谁读</strong>。虚线那条是第二个读者,它要的内容和上面那条完全不同——一个字符串写不好两份,这就是原因。</figcaption>
       </figure>
     </div>
 
@@ -1132,7 +1016,7 @@ sequenceDiagram
   </section>
 
   <footer>
-    <div>contexture · v0.1.0 · git@github.com:CarterShi01/Contexture.git</div>
+    <div>contexture · v0.5.0 · git@github.com:CarterShi01/contexture-mcp.git</div>
     <div>设计文档:docs/01-role-object-model.md(对象模型) · docs/02-framework-layers.md(框架分层) · docs/adr/(001 主路翻转 · 002 per-call context 提案 · 003 移除出站 · 004 网关与懒加载)</div>
     <div>本页纯手工维护,不随代码自动生成——架构变了记得回来改这份文件(旁边 vendor/mermaid.min.js 是本地离线渲染依赖)。</div>
     <div>改完跑一次 node docs/atlas/check.mjs 校验每张图能否解析(需先 npm install jsdom@22)。</div>

@@ -3,7 +3,7 @@
 One module per primitive, so that the answer to *what does this server put in
 front of a host?* is a directory listing rather than a search.
 
-    tool.py       the five entry points every declaration projects onto
+    tool.py       the four entry points every declaration projects onto
     resource.py   content a host may take up on its own
     prompt.py     capabilities a person triggers by name
 
