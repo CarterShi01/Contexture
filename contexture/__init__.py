@@ -25,6 +25,7 @@ from .core.constants import PACKAGE_VERSION as __version__
 from .core import (
     CompileLevel,
     ContextNode,
+    ControllerManager,
     ContextureError,
     DeclarationError,
     DuplicateNameError,
@@ -53,6 +54,7 @@ from .core.mcp_interface import Prompt, Resource
 __all__ = [
     "CompileLevel",
     "ContextNode",
+    "ControllerManager",
     "ContextureError",
     "DeclarationError",
     "DuplicateNameError",

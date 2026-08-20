@@ -41,6 +41,7 @@ _EXPORTS = {
     "current_principal": ".principal",
     "CompileLevel": ".model",
     "ContextNode": ".model",
+    "ControllerManager": ".model",
     "Role": ".model",
     "Skill": ".model",
     "Tool": ".model",

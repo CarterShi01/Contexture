@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from ..errors import ModelValidationError
 from ..types import CompiledContext
@@ -49,6 +49,28 @@ class ContextNode(ABC):
     #: inside is what opening delivers, and describing it twice is how the two
     #: copies start disagreeing.
     description: str
+
+    #: The segments that reach this node, or `()` until a `ControllerManager`
+    #: has registered it. A node still cannot *work out* where it hangs — it is
+    #: told, once, by the one object that holds the whole graph.
+    #:
+    #: Segments and never a joined string, and that is a layer boundary rather
+    #: than a preference: which character spells a separator is `disclosure`'s
+    #: business, and a tuple carries the position without carrying the
+    #: spelling.
+    path: tuple[str, ...] = field(default=(), compare=False, repr=False)
+
+    #: The application's handle on whatever lives outside this process — a
+    #: gateway session, a connection pool, a dataclass holding several.
+    #:
+    #: `Any` because the framework must never learn what is in it. Stamped by
+    #: the manager at registration rather than passed to `__init__`, because a
+    #: declared member is built by the declaration machinery and the
+    #: application never gets to call its constructor.
+    #:
+    #: `None` is the ordinary case: a capability that reaches nothing outside
+    #: this process needs no handle.
+    channels: Any = field(default=None, compare=False, repr=False)
 
     kind: ClassVar[str] = "context_node"
 
