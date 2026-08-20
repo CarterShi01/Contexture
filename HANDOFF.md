@@ -9,6 +9,77 @@ Delete an item when it is done. Delete the file when it is empty.
 
 ---
 
+## A. The standing objective: one mental model a beginner can hold
+
+**Raised:** 2026-08-20, against the second of the two sentences under
+"Two models" in the README — *The framework model — how a developer uses it*.
+
+This is not a documentation item. That sentence is the whole of what a business
+developer reads before writing their first class, so whatever it gets wrong
+they get wrong, and the cost lands again on every project built afterwards.
+Everything else in this file is a release gate; this is the thing the releases
+are for.
+
+### The question, in the terms it was asked
+
+1. **What does each layer expose to a user?** Read against OOP, and against
+   brpc, where every kind of thing has exactly one way to be used and the name
+   tells you which: a `Service` is inherited, an `Options` is filled in, a
+   `Controller` is handed to you, a built-in service is fixed.
+2. **After installing, what can a user see, and how do they write against it?**
+3. **Which parts are meant to be subclassed, which are fixed, and which are
+   written some other way?** Asked concretely: `core/model` looked like nothing
+   but abstract bases; `mcp_interface`'s tool plane looked hardcoded; `Prompt`
+   and `Resource` looked like a third thing again.
+
+Question 3 was the tell. The answer at the time was **three different
+mechanisms wearing one verb**: the README said business developers "extend"
+the abstractions, and a reader who tried to extend a `Resource` got a class the
+tree could never hold, in silence. `docs/case-studies/oc-goal` had already made
+exactly that mistake and nothing in the suite caught it.
+
+### What is settled, so nobody re-derives it
+
+- **The verb.** [ADR 013](docs/adr/013-a-constructor-is-the-declaration.md)
+  converged all five kinds onto one: every plane is a class handing its
+  identity to a base constructor. What differs between planes is what they
+  *carry*, not how they are written. README's "Three planes, one verb" states
+  it, and the table there is the answer to question 3.
+- **One import.** `Role`, `Skill`, `Tool`, `Prompt` and `Resource` all arrive
+  from `contexture`. Reaching a layer path to publish a document was the last
+  place the package's internal layering leaked into a user's first file.
+- **One word, one meaning.** `roots` is the way in for a model, `publish` the
+  way in for a person or a host. `surface` had meant three things.
+- **The tree teaches the same story as the prose.** Six top-level entries, each
+  with one audience; no `src/`; a generated project one level deep with each
+  root role a top-level package, the way a Django app is.
+
+### What is still open against it
+
+1. **The assembly step has no place in the main path.** ADR 012 gave a
+   capability `channels`, built by a `ControllerManager` before anything is
+   served. A handle is a live object, so it cannot be named in
+   `[tool.contexture]`, and `cli/project.py:resolve_target` accepts only a
+   `Role`. So a project that needs a connection pool or a gateway **cannot use
+   `contexture serve`** and must write the entry point the README opens by
+   promising it will not need. Either the project table grows a way to name a
+   factory, or the boundary is stated plainly and stops being a promise. This
+   is the one that decides whether the answer to question 2 is one path or two.
+2. **The scaffold teaches only the half that has no connections.** It shows
+   `roots` and `publish` and says nothing about registration. Whether that is
+   right is downstream of item 1.
+3. **"Two ends written by hand, everything between them discovered" still opens
+   with "The verbs differ because the counts do."** There is one verb now. The
+   paragraph carries the principle that `roots` and `publish` are authored and
+   the forest is discovered, which is worth keeping; the sentence in front of
+   it is left over from before ADR 013.
+
+**Done when:** a reader who has just installed the package can answer, without
+opening an ADR — what do I subclass, what do I hand to the framework, and where
+does anything that must exist before serving get built.
+
+---
+
 ## What has now been verified, and what that closes
 
 | Was | Now |
