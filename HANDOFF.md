@@ -198,14 +198,16 @@ style across a large team. If that matters, the mechanism is identical to
 
 ## 5. Documentation state
 
-- **[`docs/atlas/index.html`](docs/atlas/index.html)** is current as of v0.2.0:
-  nine plates, and **every number on it was re-measured against this commit**.
-  It is hand-maintained and does not regenerate. After editing, run
+- **[`docs/atlas/index.html`](docs/atlas/index.html)** is current as of v0.5.0:
+  ten plates, and **every number on it was re-measured against this commit**.
+  It is hand-maintained and does not regenerate. **It carries no changelog** —
+  it states the design as it is now, and the history lives in `docs/adr/`,
+  which is dated by design where the atlas is not. After editing, run
   `node docs/atlas/check.mjs` (needs `npm install jsdom@22`) — a mermaid syntax
   error is otherwise invisible until someone opens the page, and one was caught
   that way while writing plate 07, and again while redrawing plate 05 for
-  ADR 007 (`call` is a reserved word in a mermaid flowchart). **Run 2026-08-19:
-  eight blocks all parsed at `0920b5a`; nine parse now.** ESM ignores `NODE_PATH`, so either install `jsdom` beside
+  ADR 007 (`call` is a reserved word in a mermaid flowchart). **Run 2026-08-20:
+  eleven blocks all parse.** ESM ignores `NODE_PATH`, so either install `jsdom` beside
   the script or run a copy of it from wherever `node_modules` is, passing the
   atlas and vendor paths as `argv[2]` and `argv[3]`.
 - **[`docs/02-framework-layers.md`](docs/02-framework-layers.md)** carries a

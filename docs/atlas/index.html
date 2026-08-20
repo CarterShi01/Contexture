@@ -351,6 +351,7 @@
       <li><span class="num">06</span><a href="#plate-06">网关投影</a><span class="desc">— 为什么模型那一侧永远只有四个工具</span></li>
       <li><span class="num">07</span><a href="#plate-07">谁在跟 Agent 说话</a><span class="desc">— 一个失败怎么变成一句能照做的话</span></li>
       <li><span class="num">08</span><a href="#plate-08">披露路径</a><span class="desc">— Agent 怎么在树上走,而服务器不记状态</span></li>
+      <li><span class="num">09</span><a href="#plate-09">服务与身份</a><span class="desc">— 它怎么被连上,"谁在调用"从哪来,到哪为止</span></li>
     </ol>
   </nav>
 
@@ -1015,9 +1016,95 @@ sequenceDiagram
     </div>
   </section>
 
+  <section class="plate" id="plate-09">
+    <p class="plate-eyebrow">Plate 09</p>
+    <h2 class="plate-title">服务与身份 — 谁在调用,到哪为止</h2>
+    <p class="plate-claim">同一片森林,stdio 起是本机的一个子进程,streamable HTTP 起是网络上的一个端点。换传输<strong>不改变声明里的任何一个字</strong>。变的只有一件事:网络上的调用者带着一张票来,于是"谁在调用"第一次成为一个真问题——而框架对这个问题的回答,<strong>止于把答案交出去</strong>。</p>
+
+    <div class="figure-wrap">
+      <figure>
+        <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant A as Claude Code / Codex
+    participant S as Contexture
+    participant V as 你的 Verifier
+    participant T as 你的 Tool
+    participant I as 授权服务器
+
+    A->>S: POST /mcp ← 没带票
+    S-->>A: 401 + WWW-Authenticate<br/>resource_metadata="…/.well-known/…"
+    A->>S: GET /.well-known/oauth-protected-resource/mcp
+    S-->>A: {resource, authorization_servers, scopes_supported}<br/>← RFC 9728,框架生成
+    A->>I: OAuth 2.1 + PKCE
+    I-->>A: access token,audience = 这台服务器
+    Note over A,I: 这两步整段不经过 Contexture
+
+    A->>S: POST /mcp  Authorization Bearer …
+    S->>V: verify(token)
+    Note over V: 验签 · 校 audience · 取 claims<br/>用你自家 IdP 的库,框架一行不管
+    V-->>S: Principal 或 None
+    Note over S: None → 401。框架不解 JWT,不查 JWKS
+
+    A->>S: contexture_invoke(ref=".../roll_back_deployment")
+    S->>T: invoke(...) ← Principal 绑在 contextvar 上
+    T->>T: current_principal() → 能不能做,你自己判断
+    T-->>A: 结果,或一句读得懂的拒绝(isError: true)
+        </pre>
+        <figcaption>1–4 是<strong>协议接线</strong>:一个错误码、一个指针、一份元数据,规范里有唯一正确答案,业务开发者不该背。5–6 <strong>整段不属于本框架</strong>。8–10 是那个插座:框架把字符串递进去,拿一个 <code>Principal</code> 出来,<strong>怎么判断它是真的,框架不知道也不该知道</strong>。12–14 是你的代码。<br><br>拒绝走的是<strong>工具结果</strong>而不是传输层错误——模型读到"你没有 k8s.write"会换条路,读到连接断开只能重试。stdio 下没有第 1–10 步,<code>current_principal()</code> 恒为 <code>None</code>:宿主启动了这个进程,操作系统已经决定了它是谁。</figcaption>
+      </figure>
+    </div>
+
+    <div class="figure-wrap">
+      <figure>
+        <pre class="mermaid">
+flowchart LR
+    idp["授权服务器<br/><i>不属于本框架</i>"] -.->|发票| tok["Bearer token"]
+    tok --> fw1["<b>框架</b><br/>401 · RFC 9728 元数据<br/>audience 必须校验"]
+    fw1 -->|token 字符串| biz1["<b>业务</b><br/>verify(token)<br/>验签 · 校 audience"]
+    biz1 -->|Principal| fw2["<b>框架</b><br/>绑在 contextvar 上<br/><i>_invoke,唯一一个绑定点</i>"]
+    fw2 --> biz2["<b>业务</b><br/>current_principal()<br/>能不能做,自己判断"]
+    biz2 --> up["<b>业务</b><br/>上游凭据<br/><i>不许把客户端的票透传出去</i>"]
+
+    style idp stroke-dasharray: 5 5
+    style fw1 stroke-width:3px
+    style fw2 stroke-width:3px
+        </pre>
+        <figcaption>所有权<strong>左右交替</strong>,这不是巧合:框架拿到的每一段都是"规范说了算"的部分,业务拿到的每一段都是"你的系统说了算"的部分。<code>Principal</code> 落在 <code>core</code> 的共享地基上而不是 <code>server</code> 里,是因为要读它的三方——业务 tool、<code>server</code>、以及任何将来按调用者变答案的代码——互不相邻,只有地基是三方都能站的地方。</figcaption>
+      </figure>
+    </div>
+
+    <div class="callout">
+      <strong>身份是 contextvar,不是参数。</strong>
+      官方 Python SDK、FastMCP、mcp-go 各自独立得出同一个结论:身份是<em>请求</em>的属性,
+      不是某个函数签名的属性。做成参数,等于给每一个根本不关心调用者是谁的能力
+      都加一个它用不到的形参。<code>Principal</code> 上<strong>也不带原始 token</strong>——
+      规范禁止把客户端的票透传给上游,框架拦不住,但可以不提供便利:真要透传,
+      得绕过 <code>contexture</code> 伸手去够 SDK,那在 review 里是看得见的动作。
+    </div>
+
+    <div class="callout">
+      <strong>无状态不是配置项,是立场。</strong>
+      2026-07-28 之后协议没有会话,<code>open(ref)</code> 是 ref 的纯函数,
+      服务器不记任何每连接状态——所以<strong>任意副本能答任意请求</strong>,
+      负载均衡后面不需要黏性会话。<code>stateless_http</code> 因此钉死 <code>True</code>,
+      连逃生口都不给:能关掉它,就等于能让上面那句话在不报错的情况下变成假的。
+    </div>
+
+    <div class="callout warn">
+      <strong>框架给身份,不给权限——代价写在明处。</strong>
+      没有 <code>required_scopes</code> 挂在 tool 上,没有按调用者过滤披露。
+      一个调不动某能力的人,<strong>照样看得见它的卡片</strong>:名字、描述、参数 schema。
+      公网部署时,<strong>能力图谱是公开的</strong>。<br><br>
+      这是取舍不是疏漏:框架自带一套策略词汇,就是框架在替业务决定业务拥有的东西。
+      真要堵,需要 <code>core.disclosure</code> 上一道缝,外加 instructions 里那份 roster
+      ——它在启动时算一次、所有人拿到同一份,不一起改的话过滤等于白做。
+    </div>
+  </section>
+
   <footer>
     <div>contexture · v0.5.0 · git@github.com:CarterShi01/contexture-mcp.git</div>
-    <div>设计文档:docs/01-role-object-model.md(对象模型) · docs/02-framework-layers.md(框架分层) · docs/adr/(001 主路翻转 · 002 per-call context 提案 · 003 移除出站 · 004 网关与懒加载)</div>
+    <div>设计文档:docs/01-role-object-model.md(对象模型) · docs/02-framework-layers.md(框架分层) · docs/adr/(001 主路翻转 · 002 per-call context 提案 · 003 移除出站 · 004 网关与懒加载 · 011 身份与服务)</div>
     <div>本页纯手工维护,不随代码自动生成——架构变了记得回来改这份文件(旁边 vendor/mermaid.min.js 是本地离线渲染依赖)。</div>
     <div>改完跑一次 node docs/atlas/check.mjs 校验每张图能否解析(需先 npm install jsdom@22)。</div>
   </footer>
