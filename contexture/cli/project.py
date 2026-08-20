@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
+from ..core.model.node import ContextNode
 from ..core.model.role import Role
 from .usage import UsageError
 
@@ -72,6 +73,18 @@ class ProjectConfig:
     #: through the gateway whether or not anybody named a way in for a person.
     publish: tuple[str, ...] = ()
 
+    #: What every capability in this project may reach outside the process,
+    #: as one `package.module:ClassName` target. Optional, and **one** rather
+    #: than a list: a manager holds one handle, and two would be two answers
+    #: to what a capability reaches.
+    #:
+    #: A live object cannot be written in a TOML table — but a **class** can be
+    #: named, and a class is a zero-argument factory. That is the same door
+    #: `roots` goes through (ADR 013), and it is why this key can exist at all:
+    #: since ADR 015 a handle with a lifecycle *is* a class, where `provision`
+    #: was a function returning a context manager and fitted no such rule.
+    channels: str | None = None
+
     @classmethod
     def load(cls, root: Path) -> ProjectConfig:
         table = _read_toml(root / "pyproject.toml").get("tool", {}).get(
@@ -88,11 +101,20 @@ class ProjectConfig:
         exposed = table.get("publish") or ()
         if isinstance(exposed, str):
             exposed = (exposed,)
+        channels = table.get("channels")
+        if isinstance(channels, (list, tuple)):
+            raise UsageError(
+                f"{root / 'pyproject.toml'} lists {len(channels)} `channels` "
+                "targets. Name one: a manager holds one handle, and two would "
+                "be two answers to what a capability reaches. Compose them "
+                "inside a single Channels subclass instead."
+            )
         return cls(
             root=root,
             name=str(table.get("name") or root.name),
             roots=tuple(str(target) for target in targets),
             publish=tuple(str(target) for target in exposed),
+            channels=str(channels) if channels else None,
         )
 
 
@@ -117,25 +139,7 @@ def resolve_target(
     `_require_declared_here`.
     """
 
-    module_name, separator, attribute = target.partition(":")
-    if not separator or not module_name or not attribute:
-        raise UsageError(
-            f"{target!r} must be written as \"package.module:RoleClass\"."
-        )
-    try:
-        module = importlib.import_module(module_name)
-    except ModuleNotFoundError as exc:
-        raise UsageError(
-            f"Cannot import {module_name!r} ({exc}). Run this from inside the "
-            "project, or check `roots` in pyproject.toml."
-        ) from exc
-    _require_declared_here(module, module_name, project)
-    try:
-        declared = getattr(module, attribute)
-    except AttributeError:
-        raise UsageError(
-            f"{module_name!r} has no attribute {attribute!r}."
-        ) from None
+    declared = _declared(target, project=project, key="roots", shape="package.module:RoleClass")
     if isinstance(declared, Role) or (
         isinstance(declared, type) and issubclass(declared, Role)
     ):
@@ -143,6 +147,36 @@ def resolve_target(
     raise UsageError(
         f"{target} is a {type(declared).__name__}, not a Role subclass."
     )
+
+
+def _declared(target: str, *, project: Path | None, key: str, shape: str) -> object:
+    """Resolve one `package.module:NAME` to whatever the project put there.
+
+    The one piece of reflection in this package, and it stays this small on
+    purpose: a string becomes an attribute of a module, and nothing decides
+    what that attribute *is*. Each caller says what it needed, because only the
+    caller knows what a wrong answer would have broken. `shape` is what this
+    key expects on the right of the colon, so a malformed target is refused
+    with the form the reader was actually reaching for.
+    """
+
+    module_name, separator, attribute = target.partition(":")
+    if not separator or not module_name or not attribute:
+        raise UsageError(f"{target!r} must be written as \"{shape}\".")
+    try:
+        module = importlib.import_module(module_name)
+    except ModuleNotFoundError as exc:
+        raise UsageError(
+            f"Cannot import {module_name!r} ({exc}). Run this from inside the "
+            f"project, or check `{key}` in pyproject.toml."
+        ) from exc
+    _require_declared_here(module, module_name, project)
+    try:
+        return getattr(module, attribute)
+    except AttributeError:
+        raise UsageError(
+            f"{module_name!r} has no attribute {attribute!r}."
+        ) from None
 
 
 def _require_declared_here(
@@ -210,25 +244,7 @@ def load_published(
 
     entries: list[object] = []
     for target in targets:
-        module_name, separator, attribute = target.partition(":")
-        if not separator or not module_name or not attribute:
-            raise UsageError(
-                f"{target!r} must be written as \"package.module:NAME\"."
-            )
-        try:
-            module = importlib.import_module(module_name)
-        except ModuleNotFoundError as exc:
-            raise UsageError(
-                f"Cannot import {module_name!r} ({exc}). Check `publish` in "
-                "pyproject.toml."
-            ) from exc
-        _require_declared_here(module, module_name, project)
-        try:
-            declared = getattr(module, attribute)
-        except AttributeError:
-            raise UsageError(
-                f"{module_name!r} has no attribute {attribute!r}."
-            ) from None
+        declared = _declared(target, project=project, key="publish", shape="package.module:NAME")
         if isinstance(declared, (list, tuple)):
             entries.extend(declared)
         else:
@@ -236,11 +252,82 @@ def load_published(
     return entries
 
 
-def _targets_and_project(
-    target: str | None,
-    *,
-    or_demo: bool = False,
-) -> tuple[tuple[str, ...], Path | None, str | None, tuple[str, ...]]:
+def load_channels(target: str | None, *, project: Path | None = None) -> object:
+    """Resolve what every capability in this project may reach.
+
+    **A class, and it is built here.** That is the whole trick, and it is the
+    same one `roots` uses: a live handle cannot be written into a TOML table,
+    but a class can be named, and a class is a zero-argument factory. So a
+    project with downstream connections is served by `contexture serve` like
+    any other, instead of having to write the entry point the README opens by
+    promising it will not need.
+
+    It only became possible in ADR 015. `provision` was a *function* returning
+    an async context manager, and no rule in this package turns a named
+    function into a live object — `Channels` is a class, and the rule already
+    existed.
+
+    What it must not be is a node. A `Role`, `Skill` or `Tool` here is a
+    `roots` entry written under the wrong key, and building it as a handle
+    would give every capability in the project a second, never-registered
+    controller to reach for.
+    """
+
+    if not target:
+        return None
+    declared = _declared(
+        target,
+        project=project,
+        key="channels",
+        shape="package.module:ChannelsClass",
+    )
+    if isinstance(declared, (list, tuple)):
+        raise UsageError(
+            f"{target} names {len(declared)} objects. `channels` is one "
+            "handle; compose several inside a single Channels subclass, in "
+            "its own `open`."
+        )
+    if isinstance(declared, ContextNode) or (
+        isinstance(declared, type) and issubclass(declared, ContextNode)
+    ):
+        raise UsageError(
+            f"{target} is a {getattr(declared, 'kind', 'node')}, which belongs "
+            "in `roots`, not `channels`. A handle is what a capability reaches "
+            "*outside* this process."
+        )
+    # A class is a zero-argument factory — the same rule `ControllerManager`
+    # applies to a root. An already-built value passes through, which is what
+    # keeps a module-level singleton nameable.
+    return declared() if isinstance(declared, type) else declared
+
+
+@dataclass(slots=True, frozen=True, kw_only=True)
+class Serving:
+    """What a command was asked to serve, however it was asked.
+
+    A named object rather than the tuple this used to be: it grew a field every
+    time the project table learned a key, and three of its four callers were
+    unpacking positions they did not use.
+    """
+
+    #: `package.module:RoleClass` targets, one or many.
+    roots: tuple[str, ...]
+
+    #: Where the project lives, or None when a target was named explicitly and
+    #: there is nothing to check it against.
+    project: Path | None = None
+
+    #: What a connecting host sees. None falls back to the framework default.
+    name: str | None = None
+
+    publish: tuple[str, ...] = ()
+
+    #: One `package.module:ClassName`, or None for a server that reaches
+    #: nothing outside its own process — which is the ordinary case.
+    channels: str | None = None
+
+
+def _targets_and_project(target: str | None, *, or_demo: bool = False) -> Serving:
     """Resolve what to serve: an explicit target, or the enclosing project.
 
     `or_demo` belongs to the one command that has something worth saying with
@@ -254,10 +341,14 @@ def _targets_and_project(
 
     project = find_project()
     if target:
-        return (target,), project, None, ()
+        return Serving(roots=(target,), project=project)
     if project is None:
         if or_demo:
-            return (DEMO_TARGET,), None, "contexture-demo", (DEMO_PUBLISH,)
+            return Serving(
+                roots=(DEMO_TARGET,),
+                name="contexture-demo",
+                publish=(DEMO_PUBLISH,),
+            )
         raise UsageError(
             "No [tool.contexture] table found in this directory or above it. "
             "Run inside a project, name a root explicitly "
@@ -265,7 +356,13 @@ def _targets_and_project(
             "`contexture new <name>`."
         )
     config = ProjectConfig.load(project)
-    return config.roots, project, config.name, config.publish
+    return Serving(
+        roots=config.roots,
+        project=project,
+        name=config.name,
+        publish=config.publish,
+        channels=config.channels,
+    )
 
 
 __all__ = [
@@ -273,8 +370,10 @@ __all__ = [
     "DEMO_PUBLISH",
     "DEMO_TARGET",
     "ProjectConfig",
+    "Serving",
     "find_project",
     "load_roots",
+    "load_channels",
     "load_published",
     "resolve_target",
 ]

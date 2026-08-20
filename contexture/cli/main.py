@@ -23,7 +23,9 @@ from ..core.errors import ContextureError
 from .project import (
     DEMO_PUBLISH,
     DEMO_TARGET,
+    Serving,
     _targets_and_project,
+    load_channels,
     load_roots,
     load_published,
     resolve_target,
@@ -49,7 +51,8 @@ def command_new(args: argparse.Namespace) -> int:
 def command_list(args: argparse.Namespace) -> int:
     from ..core.model.tree import ContextTree
 
-    targets, project, _, _ = _targets_and_project(args.target)
+    serving = _targets_and_project(args.target)
+    targets, project = serving.roots, serving.project
     tree = ContextTree.of(load_roots(targets, project=project))
 
     # Printed with the reference an agent would actually be handed, so what a
@@ -65,8 +68,13 @@ def command_list(args: argparse.Namespace) -> int:
     return 0
 
 
-def _assembled(roots, published, *, project: Path | None = None):
+def _assembled(serving: Serving):
     """Register, seal, and hand back the assembly — `main()`'s three steps.
+
+    The same five objects a project writes by hand, in the same order. What
+    differs is only where each one is named: here from a `[tool.contexture]`
+    table, there from an import. Two doors, one flow — which is what keeps a
+    newcomer learning one path instead of two.
 
     Imported here, not at module scope: `new` and `list` must work in an
     environment that has no SDK, and only the commands calling this need one.
@@ -75,7 +83,13 @@ def _assembled(roots, published, *, project: Path | None = None):
     from ..core.model.manager import ControllerManager, register_root
     from ..server import Assembly, Dispatch
 
-    manager = ControllerManager()
+    project = serving.project
+    # `load_roots` is what puts the project on `sys.path`, so it runs before
+    # anything else the project declared is resolved.
+    roots = load_roots(serving.roots, project=project)
+    manager = ControllerManager(
+        channels=load_channels(serving.channels, project=project)
+    )
     for root in roots:
         register_root(manager, root)
 
@@ -84,7 +98,7 @@ def _assembled(roots, published, *, project: Path | None = None):
     return Assembly.of(
         tree,
         execute=dispatch.execute,
-        published=load_published(published, project=project),
+        published=load_published(serving.publish, project=project),
     )
 
 
@@ -101,10 +115,8 @@ def command_inspect(args: argparse.Namespace) -> int:
     from .. import inspection
     from ..server import instructions as instructions_module
 
-    targets, project, name, exposed = _targets_and_project(
-        args.target, or_demo=True
-    )
-    if project is None and not args.target:
+    serving = _targets_and_project(args.target, or_demo=True)
+    if serving.project is None and not args.target:
         # stderr, so `--json` stays a clean document on stdout. Announced at
         # all because replaying something other than what the reader meant, in
         # silence, is worse than the refusal this replaced.
@@ -113,9 +125,7 @@ def command_inspect(args: argparse.Namespace) -> int:
             "project, or name one with --target, to read your own.",
             file=sys.stderr,
         )
-    assembly = _assembled(
-        load_roots(targets, project=project), exposed, project=project
-    )
+    assembly = _assembled(serving)
 
     instructions = instructions_module.build(
         assembly.tree,
@@ -175,7 +185,9 @@ def command_demo(args: argparse.Namespace) -> int:
 
     from ..server import ContextureServer
 
-    assembly = _assembled([resolve_target(DEMO_TARGET)], [DEMO_PUBLISH])
+    assembly = _assembled(
+        Serving(roots=(DEMO_TARGET,), name="contexture-demo", publish=(DEMO_PUBLISH,))
+    )
     ContextureServer(assembly, name="contexture-demo").start(serve_options(args))
     return 0
 
@@ -183,11 +195,11 @@ def command_demo(args: argparse.Namespace) -> int:
 def command_serve(args: argparse.Namespace) -> int:
     from ..server import ContextureServer
 
-    targets, project, name, exposed = _targets_and_project(args.target)
-    assembly = _assembled(
-        load_roots(targets, project=project), exposed, project=project
+    serving = _targets_and_project(args.target)
+    assembly = _assembled(serving)
+    ContextureServer(assembly, name=serving.name or "contexture").start(
+        serve_options(args)
     )
-    ContextureServer(assembly, name=name or "contexture").start(serve_options(args))
     return 0
 
 

@@ -373,6 +373,48 @@ claude mcp add --scope project my-context -- uv run contexture serve
 codex  mcp add                 my-context -- uv run contexture serve
 ```
 
+### Reaching something outside the process
+
+A capability that talks to a cluster, a database or somebody else's gateway
+needs a handle, and a handle is a live object no TOML table can hold. What a
+table *can* name is a class — and a class is a zero-argument factory, the same
+rule `roots` uses:
+
+```toml
+[tool.contexture]
+roots    = ["assistant:MyContextAssistant"]
+channels = "assistant.channels:ClusterChannels"
+```
+
+```python
+from contexture import Channels
+
+class ClusterChannels(Channels):
+    def __init__(self) -> None:                 # address: cheap, no I/O
+        self.url = os.environ["CLUSTER_URL"]
+
+    async def open(self) -> None:               # the connection
+        self.api = await self.enter(session(self.url))
+        self.db  = await self.enter(create_pool(DSN))
+
+    async def close(self) -> None:
+        self.api = self.db = None
+```
+
+`open` runs once, before the first request, so a connection that cannot be made
+stops the server starting rather than failing in front of whoever asked first.
+`close` runs after the last. Whatever you put on `self` is what a capability
+finds on `self.channels`.
+
+`enter` hands a resource to the framework to unwind: several handles close in
+reverse, and the first is closed if the second fails to open. Contexture never
+looks inside any of it — one object, opened and closed, and its contents are
+yours.
+
+`contexture serve` works unchanged. That is the point of naming a class.
+
+### Writing the entry point yourself
+
 For a graph served from a process this command does not own — embedded in an
 existing service, or built inside a test — write the entry point yourself. It
 is five objects, and every one of them is something you make a decision about:

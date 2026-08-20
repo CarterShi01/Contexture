@@ -21,3 +21,16 @@ roots = ["assistant:$role_class"]
 # What a person or a host may open. The gateway reaches everything either
 # way, so this is optional — and it is authored, never derived.
 publish = ["publish:PUBLISHED"]
+# What every capability here may reach outside this process: one class, built
+# with no arguments before anything is served. Uncomment when this project
+# talks to something — a cluster, a database, somebody else's gateway.
+#
+#   class ClusterChannels(Channels):        # from contexture import Channels
+#       def __init__(self) -> None:
+#           self.url = os.environ["CLUSTER_URL"]     # address: cheap, no I/O
+#       async def open(self) -> None:
+#           self.api = await self.enter(session(self.url))   # the connection
+#
+# `open` runs before the first request, `close` after the last, and a
+# capability finds what it built on `self.channels`.
+# channels = "assistant.channels:ClusterChannels"

@@ -56,18 +56,39 @@ exactly that mistake and nothing in the suite caught it.
 
 ### What is still open against it
 
-1. **The assembly step has no place in the main path.** ADR 012 gave a
-   capability `channels`, built by a `ControllerManager` before anything is
-   served. A handle is a live object, so it cannot be named in
-   `[tool.contexture]`, and `cli/project.py:resolve_target` accepts only a
-   `Role`. So a project that needs a connection pool or a gateway **cannot use
-   `contexture serve`** and must write the entry point the README opens by
-   promising it will not need. Either the project table grows a way to name a
-   factory, or the boundary is stated plainly and stops being a promise. This
-   is the one that decides whether the answer to question 2 is one path or two.
-2. **The scaffold teaches only the half that has no connections.** It shows
-   `roots` and `publish` and says nothing about registration. Whether that is
-   right is downstream of item 1.
+1. ~~**The assembly step has no place in the main path.**~~ **Closed
+   2026-08-21.** The question was: a handle is a live object, so it cannot be
+   named in `[tool.contexture]`, and a project that needs a connection has to
+   write the entry point the README opens by promising it will not need. The
+   two ways out named here were "the project table grows a way to name a
+   factory" or "the boundary stops being a promise".
+
+   It was the first, and it cost one key and no new machinery — because
+   [ADR 015](docs/adr/015-the-server-is-an-object.md) had already made a handle
+   a **class**. `provision` was a *function* returning an async context
+   manager, and no rule in this package turns a named function into a live
+   object; "a class is a zero-argument factory" is the rule `roots` has used
+   since ADR 013, and `Channels` fits it.
+
+   ```toml
+   [tool.contexture]
+   roots    = ["assistant:MyContextAssistant"]
+   channels = "assistant.channels:ClusterChannels"
+   ```
+
+   `contexture serve` and a hand-written `main()` now walk the same five steps
+   in the same order — the only difference is whether each object is named by a
+   table or by an import. **The answer to question 2 is one path.**
+
+   `tests/test_project_channels.py` holds it, including a project served over a
+   real stdio wire whose tool answers with what its `open` dialled.
+
+2. **The scaffold teaches only the half that has no connections.** *Partly
+   addressed:* the generated `pyproject.toml` now carries a commented `channels`
+   key with the four lines of a `Channels` subclass beside it, and the README
+   has a section of its own. What is still open is whether a scaffold should
+   generate a working `channels.py` rather than describe one — a template that
+   dials nothing has nothing honest to put in `open`.
 3. **"Two ends written by hand, everything between them discovered" still opens
    with "The verbs differ because the counts do."** There is one verb now. The
    paragraph carries the principle that `roots` and `publish` are authored and

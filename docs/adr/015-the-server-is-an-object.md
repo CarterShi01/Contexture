@@ -269,10 +269,30 @@ contexture/core/model/
   和业务 main 走的是同一条路,而那是 `register_root` 带来的,不是 `Source`。
 - **不让 `ContextureServer` 继承 `MCPServer`。** 运行时拥有角色与披露,SDK 拥有线。
 - **不动 `messages` / `instructions` / `identity` / `launch`。**
+- **反射的剂量不变。** `cli/project.py` 里那一处 `importlib` + `getattr` 现在被三个
+  key 共用(`roots` / `publish` / `channels`),但它做的事没有变多:把一个字符串变成
+  一个模块属性,到此为止。把属性变成节点的仍然只有 `ControllerManager._build`,把
+  它变成句柄的是同一条"类即零参工厂"的规则。
 
-## 遗留
+## 一个顺带被解决的开放问题
 
-`ControllerManager(channels=…)` 收的是一个**活对象**,而 `[tool.contexture]` 只能写
-字符串。所以一个需要连接的项目仍然用不了 `contexture serve`,得自己写 entry point。
-这是 HANDOFF 条目 A 点名的那个开放问题,这份 ADR 没有解决它——`Channels` 让句柄有了
-类型,但没有让它可以被一个 TOML 表命名。
+HANDOFF 条目 A 点名过:`ControllerManager(channels=…)` 收的是**活对象**,而
+`[tool.contexture]` 只能写字符串,所以一个需要连接的项目用不了 `contexture serve`,
+得自己写 entry point——而 README 开篇承诺过它不必写。
+
+**这份 ADR 把它变成了一个 key,而不是一套新机制。** 因为 `provision` 是一个*函数*
+(返回 async context manager),而这个包里没有任何规则能把一个被命名的函数变成活对象;
+`Channels` 是一个**类**,而"类是零参工厂"是 `roots` 从 ADR 013 起就在用的规则。
+
+```toml
+[tool.contexture]
+roots    = ["assistant:MyContextAssistant"]
+channels = "assistant.channels:ClusterChannels"
+```
+
+零参构造函数记地址(不做 I/O),`open()` 建连接。于是 `contexture serve` 和一个手写
+的 `main()` 走**同样的五步、同样的顺序**,差别只剩每个对象是被一张表命名还是被一句
+import 命名。
+
+这不是这次重构的目标,是它的副产品——把 `channels` 从"一个必须传工厂的参数"改成
+"一个类",顺手让它落进了一条已经存在的规则里。
