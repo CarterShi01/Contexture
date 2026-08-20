@@ -60,6 +60,27 @@ class DeclaredMember:
     value: Any
     declared_by: str
 
+    #: The class this member was declared as, when it was declared as one.
+    #: `None` when the class body named an object instead, because an object
+    #: with constructor arguments cannot be rebuilt from nothing and the author
+    #: who wrote it out meant *that* object.
+    factory: type | None = None
+
+    def build(self) -> Any:
+        """Return this member for one owning instance.
+
+        A declared class is built again here, per owner, so two instances of a
+        role hold two independent members rather than the same object twice.
+        That matters as soon as anything is *stamped* onto a node — an address,
+        a handle on something outside the process — because a shared member
+        would take the last stamp written anywhere in the process.
+
+        Copies are cheap. A 300-role forest with distinct strings is 184 KB
+        resident, and correctness at registration is worth more than the bytes.
+        """
+
+        return self.value if self.factory is None else self.factory()
+
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"<DeclaredMember {self.declared_by}.{self.attribute}>"
 
@@ -189,6 +210,7 @@ def collect(
                 attribute=attribute,
                 value=_materialize(value, member_types, cls, attribute),
                 declared_by=owner,
+                factory=value if _is_member_class(value, member_types) else None,
             )
 
     return Declaration(
@@ -232,8 +254,13 @@ def _materialize(
 
     Declaring `diagnose = DiagnoseDeployment` and `diagnose =
     DiagnoseDeployment()` should mean the same thing, so a bare class is built
-    once here, at class-creation time, and the resulting instance is shared by
-    every instance of the declaring class.
+    here, at class-creation time, and the result is what the declaration
+    reports: it is the prototype every validation reads, and it is what a
+    caller inspecting `declaration` gets.
+
+    It is **not** what an owning instance holds. `DeclaredMember.build` makes a
+    fresh one per owner, because a member shared by two owners is one object at
+    two addresses.
     """
 
     if not _is_member_class(value, member_types):

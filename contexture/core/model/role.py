@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Iterable, Iterator
+from typing import Any, ClassVar, Iterable, Iterator, TypeVar
 
 from . import declarative
 from .node import ContextNode
@@ -17,6 +17,8 @@ from ..errors import (
 from .skill import Skill
 from .tool import Tool
 from ..types import CompiledContext
+
+_T = TypeVar("_T")
 
 
 @dataclass(slots=True, kw_only=True)
@@ -230,6 +232,22 @@ def _validate_declaration(
     )
 
 
+def _built(declaration: declarative.Declaration, kind: type[_T]) -> list[_T]:
+    """Build this declaration's members of one kind, fresh for one owner.
+
+    Per owner rather than once per class, so two instances of a role are two
+    independent subtrees. Anything a registry stamps onto a node — its address,
+    the handle it may reach outside this process — would otherwise be written
+    onto objects a second server in the same process is also serving.
+    """
+
+    return [
+        member.build()
+        for member in declaration.members
+        if isinstance(member.value, kind)
+    ]
+
+
 def _declarative_init(self: Role, **overrides: Any) -> None:
     """Build a declared Role, letting the caller override any stated field."""
 
@@ -241,9 +259,9 @@ def _declarative_init(self: Role, **overrides: Any) -> None:
             "name": declaration.name,
             "description": declaration.description,
             "instructions": declaration.instructions,
-            "children": list(declaration.of_type(Role)),
-            "skills": list(declaration.of_type(Skill)),
-            "tools": list(declaration.of_type(Tool)),
+            "children": _built(declaration, Role),
+            "skills": _built(declaration, Skill),
+            "tools": _built(declaration, Tool),
             **declaration.stated(),
             **overrides,
         },

@@ -194,30 +194,67 @@ class AddressTests(unittest.TestCase):
         self.assertIn("contains itself", str(caught.exception))
 
 
-class SecondAddressTests(unittest.TestCase):
-    """Registering as a root something another root already holds.
+class IndependenceTests(unittest.TestCase):
+    """Two instances of one Role class are two independent subtrees.
 
-    Two instances of one Role class share their member objects — a member is
-    materialised once, when the class body is read — so registering
-    `IncidentResponse` beside a `Platform` that already holds it does not
-    produce a second copy. It produces one skill at two addresses, which is the
-    thing an address exists to prevent, and the manager is the first place in
-    this package that can see it.
+    A member used to be materialised once, when the class body was read, and
+    shared by every instance of the declaring class. That was invisible while
+    nothing was ever written onto a node — and stopped being invisible the
+    moment a registry started stamping an address and a handle onto one.
     """
 
-    def test_a_held_role_may_not_also_be_a_root(self) -> None:
+    def test_two_instances_do_not_share_their_members(self) -> None:
+        first, second = IncidentResponse(), IncidentResponse()
+        self.assertIsNot(first.skills[0], second.skills[0])
+        self.assertIsNot(first.tools[0], second.tools[0])
+        self.assertEqual(first.skills[0].name, second.skills[0].name)
+
+    def test_a_role_may_be_held_here_and_registered_there(self) -> None:
         manager = ControllerManager()
         manager.register(Platform)
-        with self.assertRaises(ModelValidationError) as caught:
-            manager.register(IncidentResponse)
-        message = str(caught.exception)
-        self.assertIn("held twice", message)
-        self.assertIn("platform/incident-response/diagnose", message)
+        manager.register(IncidentResponse)
+        held = manager.find(("platform", "incident-response", "diagnose"))
+        root = manager.find(("incident-response", "diagnose"))
+        self.assertIsNot(held, root)
+        self.assertEqual(held.path, ("platform", "incident-response", "diagnose"))
+        self.assertEqual(root.path, ("incident-response", "diagnose"))
 
-    def test_the_sharing_that_makes_it_so(self) -> None:
-        first, second = IncidentResponse(), IncidentResponse()
-        self.assertIsNot(first, second)
-        self.assertIs(first.skills[0], second.skills[0])
+    def test_two_managers_do_not_write_over_each_other(self) -> None:
+        """The property the whole change exists for.
+
+        Two servers in one process, each with its own downstream connections,
+        must not find their capabilities pointing at the other's.
+        """
+
+        left = ControllerManager(channels=Channels("left"))
+        right = ControllerManager(channels=Channels("right"))
+        left.register(Platform)
+        right.register(Platform)
+        self.assertEqual(
+            left.find(("platform", "incident-response")).channels.label, "left"
+        )
+        self.assertEqual(
+            right.find(("platform", "incident-response")).channels.label, "right"
+        )
+
+    def test_a_member_declared_as_an_object_is_that_object(self) -> None:
+        """An author who wrote out an instance meant that one.
+
+        A class can be built again; an object with constructor arguments
+        cannot, and rebuilding it from nothing would silently drop them.
+        """
+
+        built = GetPodStatus(name="pinned", description="Pinned.")
+
+        class Pinned(Role):
+            """Holds an object rather than a class."""
+
+            instructions = "Hold it."
+
+            status = built
+
+        self.assertIs(Pinned().tools[0], built)
+        self.assertIs(Pinned().tools[0], Pinned().tools[0])
 
 
 class ChannelTests(unittest.TestCase):

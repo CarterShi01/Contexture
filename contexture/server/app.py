@@ -36,9 +36,10 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 
 from ..core.constants import PACKAGE_VERSION
-from ..core.errors import ContextureError
+from ..core.errors import ContextureError, ModelValidationError
 from ..core.mcp_interface.prompt import Prompt
 from ..core.mcp_interface.resource import Resource
+from ..core.model.manager import ControllerManager
 from ..core.model.role import Role
 from ..core.disclosure.tree import ContextTree
 from . import instructions as instructions_module
@@ -291,7 +292,16 @@ class ContextureOptions:
 class ContextureApp:
     """A declared capability graph, ready to be served over MCP."""
 
-    roots: Role | Iterable[Role]
+    #: The roots this server offers, or the registry they were registered
+    #: into. Passing the registry is the order an application that has
+    #: downstream connections wants: build them, register against them, serve.
+    roots: Role | Iterable[Role] | ControllerManager = ()
+
+    #: A shortcut for the same thing when there is no reason to hold the
+    #: registry yourself: whatever an application wants its capabilities to
+    #: reach outside this process. It is registered before anything is served
+    #: and never inspected here.
+    channels: Any = None
 
     #: What this server puts on the prompt and resource primitives.
     #: Authored, never derived: adding one is a code change and a restart,
@@ -310,7 +320,39 @@ class ContextureApp:
         # One Dispatch derives every schema and validates every call, so a
         # card's schema and the check a call is measured against cannot drift.
         self.dispatch = Dispatch()
-        self.tree = ContextTree.of(self.roots, schema_of=self.dispatch.schema)
+        self.tree = ContextTree.of(
+            self._registry(), schema_of=self.dispatch.schema
+        )
+        self.roots = self.tree.roots
+
+    def _registry(self) -> ControllerManager:
+        """Resolve what was passed into the one registry this app serves.
+
+        A manager arrives already filled — with its handle in place, because
+        that is the point of holding one. Anything else is registered here, and
+        `channels` is how an application that never wanted to hold a registry
+        still gets its capabilities connected to something.
+        """
+
+        if isinstance(self.roots, ControllerManager):
+            if self.channels is not None and self.channels is not self.roots.channels:
+                raise ModelValidationError(
+                    "This app was given both a manager and channels. The "
+                    "manager already holds a handle; passing a second one here "
+                    "would leave two answers to what a capability reaches."
+                )
+            return self.roots
+        manager = ControllerManager(channels=self.channels)
+        roots = (self.roots,) if isinstance(self.roots, Role) else tuple(self.roots)
+        for root in roots:
+            manager.register(root)
+        return manager
+
+    @property
+    def manager(self) -> ControllerManager:
+        """The registry backing this server."""
+
+        return self.tree.registry
 
     def build_server(self, *, auth: Auth | None = None) -> MCPServer:
         """Build the MCP server with the gateway registered on it."""
