@@ -1,0 +1,9 @@
+{
+  "open ''": "A reference must name at least a root role. Call contexture_discover for the roles this server serves.",
+  "open 'no-such-root'": "No root role named 'no-such-root'. This server serves: kubernetes-platform. Call contexture_discover for their cards, then open one to reach what is beneath it.",
+  "open 'kubernetes-platform/incident-response/get_pod_status/deeper'": "Reference 'kubernetes-platform/incident-response/get_pod_status/deeper' continues past 'get_pod_status', which is a tool and holds nothing. Open 'get_pod_status' itself with contexture_open, or go back to the card the ref came from.",
+  "open 'kubernetes-platform/no-such-member'": "Role 'kubernetes-platform' holds no member named 'no-such-member'. It holds: deployment-ops, incident-response. Call contexture_open on 'kubernetes-platform' to see each member with the ref that opens it.",
+  "invoke_read_only 'kubernetes-platform/incident-response'": "kubernetes-platform/incident-response names a role, not a tool. Open it with contexture_open.",
+  "invoke 'kubernetes-platform/incident-response/get_pod_status'": "kubernetes-platform/incident-response/get_pod_status is read-only, so it must be run through contexture_invoke_read_only.",
+  "invoke_read_only 'kubernetes-platform/deployment-ops/roll_back_deployment'": "kubernetes-platform/deployment-ops/roll_back_deployment is not read-only, so it must be run through contexture_invoke."
+}

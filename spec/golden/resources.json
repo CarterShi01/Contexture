@@ -1,0 +1,24 @@
+[
+  {
+    "name": "crash_loop_runbook",
+    "title": null,
+    "uri": "contexture://runbooks/crash-loop-backoff",
+    "description": "How to diagnose a container that keeps restarting, and what not to do.",
+    "mime_type": "text/markdown",
+    "size": null,
+    "icons": null,
+    "annotations": null,
+    "meta": null
+  },
+  {
+    "name": "rollback_policy",
+    "title": null,
+    "uri": "contexture://runbooks/rollback-policy",
+    "description": "When a rollback is the right remediation, and what it costs.",
+    "mime_type": "text/markdown",
+    "size": null,
+    "icons": null,
+    "annotations": null,
+    "meta": null
+  }
+]

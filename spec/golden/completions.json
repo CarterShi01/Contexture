@@ -1,0 +1,46 @@
+{
+  "": {
+    "values": [
+      "kubernetes-platform",
+      "kubernetes-platform/deployment-ops",
+      "kubernetes-platform/incident-response",
+      "kubernetes-platform/deployment-ops/rollback_policy",
+      "kubernetes-platform/incident-response/get_pod_logs",
+      "kubernetes-platform/incident-response/get_pod_events",
+      "kubernetes-platform/incident-response/get_pod_status",
+      "kubernetes-platform/deployment-ops/get_rollout_status",
+      "kubernetes-platform/deployment-ops/roll_back_deployment",
+      "kubernetes-platform/incident-response/crash_loop_runbook",
+      "kubernetes-platform/deployment-ops/roll-back-a-failed-release",
+      "kubernetes-platform/incident-response/diagnose-crash-loop-backoff"
+    ],
+    "total": 12
+  },
+  "kubernetes-platform": {
+    "values": [
+      "kubernetes-platform",
+      "kubernetes-platform/deployment-ops",
+      "kubernetes-platform/incident-response",
+      "kubernetes-platform/deployment-ops/rollback_policy",
+      "kubernetes-platform/incident-response/get_pod_logs",
+      "kubernetes-platform/incident-response/get_pod_events",
+      "kubernetes-platform/incident-response/get_pod_status",
+      "kubernetes-platform/deployment-ops/get_rollout_status",
+      "kubernetes-platform/deployment-ops/roll_back_deployment",
+      "kubernetes-platform/incident-response/crash_loop_runbook",
+      "kubernetes-platform/deployment-ops/roll-back-a-failed-release",
+      "kubernetes-platform/incident-response/diagnose-crash-loop-backoff"
+    ],
+    "total": 12
+  },
+  "kubernetes-platform/dep": {
+    "values": [
+      "kubernetes-platform/deployment-ops",
+      "kubernetes-platform/deployment-ops/rollback_policy",
+      "kubernetes-platform/deployment-ops/get_rollout_status",
+      "kubernetes-platform/deployment-ops/roll_back_deployment",
+      "kubernetes-platform/deployment-ops/roll-back-a-failed-release"
+    ],
+    "total": 5
+  }
+}

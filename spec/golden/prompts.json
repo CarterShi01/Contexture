@@ -1,0 +1,25 @@
+[
+  {
+    "name": "roll-back-a-release",
+    "title": null,
+    "description": "Put the rollback procedure in context: what to capture before a release is reversed, and what reversing it destroys. (kubernetes-platform/deployment-ops/roll-back-a-failed-release)",
+    "arguments": [],
+    "icons": null,
+    "meta": null
+  },
+  {
+    "name": "goto",
+    "title": null,
+    "description": "Open any capability this server holds, by reference. The reference completes as you type, so the whole tree can be browsed here without asking the agent to go and look.",
+    "arguments": [
+      {
+        "name": "ref",
+        "title": null,
+        "description": null,
+        "required": true
+      }
+    ],
+    "icons": null,
+    "meta": null
+  }
+]

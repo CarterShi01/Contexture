@@ -1,0 +1,12 @@
+{
+  "roles": [
+    {
+      "kind": "role",
+      "name": "kubernetes-platform",
+      "description": "Operate a Kubernetes platform: diagnose incidents, and reverse releases.",
+      "ref": "kubernetes-platform"
+    }
+  ],
+  "skills": [],
+  "tools": []
+}
