@@ -45,10 +45,12 @@ class Verifier:
 
 
 class WhoAmI(Tool):
-    """Report the caller this server sees."""
-
-    name = "whoami"
-    read_only = True
+    def __init__(self) -> None:
+        super().__init__(
+            name="whoami",
+            description="Report the caller this server sees.",
+            read_only=True,
+        )
 
     async def invoke(self) -> str:
         who = current_principal()
@@ -61,10 +63,12 @@ class WhoAmI(Tool):
 
 
 class RollBack(Tool):
-    """Reverse a release, for a caller allowed to."""
-
-    name = "roll_back"
-    read_only = False
+    def __init__(self) -> None:
+        super().__init__(
+            name="roll_back",
+            description="Reverse a release, for a caller allowed to.",
+            read_only=False,
+        )
 
     async def invoke(self, deployment: str) -> str:
         who = current_principal()
@@ -76,18 +80,17 @@ class RollBack(Tool):
 
 
 class Ops(Role):
-    """Operate a platform."""
-
-    instructions = "Read before you write."
-
-    whoami = WhoAmI
-    roll_back = RollBack
+    def __init__(self) -> None:
+        super().__init__(
+            name="ops",
+            description="Operate a platform.",
+            instructions="Read before you write.",
+            tools=[WhoAmI(), RollBack()],
+        )
 
 
 def build(port: int, *, secured: bool) -> tuple[ContextureApp, ContextureOptions]:
-    app = ContextureApp(
-        roots=Ops(name="ops", description="Operate a platform."), name="http-fixture"
-    )
+    app = ContextureApp(roots=Ops(), name="http-fixture")
     options = ContextureOptions(
         transport="streamable-http",
         host="127.0.0.1",

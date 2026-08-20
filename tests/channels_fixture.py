@@ -43,58 +43,69 @@ class Channels:
 
 
 class NotifySquad(Tool):
-    """Notify the squad that owns a service, through the gateway."""
-
-    name = "notify_squad"
-    read_only = False
+    def __init__(self) -> None:
+        super().__init__(
+            name="notify_squad",
+            description="Notify the squad that owns a service, through the gateway.",
+            read_only=False,
+        )
 
     async def invoke(self, squad: str) -> str:
         return self.channels.gateway.call(f"notify:{squad}")
 
 
 class WhereAmI(Tool):
-    """Report this capability's own address and what it can reach."""
-
-    name = "where_am_i"
-    read_only = True
+    def __init__(self) -> None:
+        super().__init__(
+            name="where_am_i",
+            description="Report this capability's own address and what it can reach.",
+            read_only=True,
+        )
 
     async def invoke(self) -> str:
         return f"{'/'.join(self.path)} -> {self.channels.gateway.endpoint}"
 
 
 class Runbook(Tool):
-    """The escalation runbook, as the gateway currently publishes it."""
-
-    name = "runbook"
-    read_only = True
+    def __init__(self) -> None:
+        super().__init__(
+            name="runbook",
+            description="The escalation runbook, as the gateway currently publishes it.",
+            read_only=True,
+        )
 
     async def invoke(self) -> str:
         return self.channels.catalogue["runbook"]
 
 
 class Escalate(Skill):
-    """Escalate an incident to the squad that owns the service."""
-
-    instructions = "1. Read the runbook. 2. Call notify_squad with the owner."
+    def __init__(self) -> None:
+        super().__init__(
+            name="escalate",
+            description="Escalate an incident to the squad that owns the service.",
+            instructions="1. Read the runbook. 2. Call notify_squad with the owner.",
+        )
 
 
 class Escalation(Role):
-    """Reach the humans who own a failing service."""
-
-    instructions = "Read the runbook before paging anyone."
-
-    escalate = Escalate
-    notify = NotifySquad
-    where = WhereAmI
-    runbook = Runbook
+    def __init__(self) -> None:
+        super().__init__(
+            name="escalation",
+            description="Reach the humans who own a failing service.",
+            instructions="Read the runbook before paging anyone.",
+            skills=[Escalate()],
+            tools=[NotifySquad(), WhereAmI(), Runbook()],
+        )
 
 
 class Operations(Role):
-    """Operate the platform."""
-
-    instructions = "Route to the branch that owns the question."
-
-    escalation = Escalation
+    def __init__(self) -> None:
+        super().__init__(
+            name="operations",
+            description="Operate the platform.",
+            instructions="Route to the branch that owns the question.",
+            children=[Escalation()],
+        )
 
 
 PUBLISHED = (

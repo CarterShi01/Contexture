@@ -40,29 +40,36 @@ PROCEDURE = "Read the status, then the logs."
 
 
 class GetPodLogs(Tool):
-    """Return the recent container logs for a Pod."""
-
-    name = "get_pod_logs"
-    read_only = True
+    def __init__(self) -> None:
+        super().__init__(
+            name="get_pod_logs",
+            description="Return the recent container logs for a Pod.",
+            read_only=True,
+        )
 
     async def invoke(self, namespace: str, pod: str, previous: bool = False) -> str:
         return f"{namespace}/{pod} previous={previous}"
 
 
 class DeletePod(Tool):
-    """Delete a Pod so its controller recreates it."""
-
-    name = "delete_pod"
+    def __init__(self) -> None:
+        super().__init__(
+            name="delete_pod",
+            description="Delete a Pod so its controller recreates it.",
+            read_only=False,
+        )
 
     async def invoke(self, namespace: str, pod: str) -> str:
         return f"deleted {namespace}/{pod}"
 
 
 class Runbook(Tool):
-    """How to diagnose a container that keeps restarting."""
-
-    name = "runbook"
-    read_only = True
+    def __init__(self) -> None:
+        super().__init__(
+            name="runbook",
+            description="How to diagnose a container that keeps restarting.",
+            read_only=True,
+        )
 
     async def invoke(self) -> str:
         return "RUNBOOK-BODY"
@@ -79,21 +86,23 @@ RUNBOOK_RESOURCE = Resource(
 
 
 class Diagnose(Skill):
-    """Find why a Pod restarts repeatedly."""
-
-    name = "diagnose"
-    instructions = PROCEDURE
+    def __init__(self) -> None:
+        super().__init__(
+            name="diagnose",
+            description="Find why a Pod restarts repeatedly.",
+            instructions=PROCEDURE,
+        )
 
 
 class Responder(Role):
-    """Diagnose and repair unhealthy Pods."""
-
-    instructions = "Inspect before changing anything."
-
-    diagnose = Diagnose
-    logs = GetPodLogs
-    remove = DeletePod
-    runbook = Runbook
+    def __init__(self) -> None:
+        super().__init__(
+            name="responder",
+            description="Diagnose and repair unhealthy Pods.",
+            instructions="Inspect before changing anything.",
+            skills=[Diagnose()],
+            tools=[GetPodLogs(), DeletePod(), Runbook()],
+        )
 
 
 def _server():
@@ -638,17 +647,24 @@ class ToolDisclosureTests(unittest.TestCase):
         class Publish(Tool):
             """Publish a note."""
 
-            name = "publish"
+            def __init__(self) -> None:
+                super().__init__(
+                    name="publish",
+                    description="Publish a note.",
+                    read_only=False,
+                )
 
             async def invoke(self, title: str, body: str = "") -> str:
                 return title
 
         class Notes(Role):
-            """Keep notes."""
-
-            instructions = "Write it down."
-
-            publish = Publish
+            def __init__(self) -> None:
+                super().__init__(
+                    name="notes",
+                    description="Keep notes.",
+                    instructions="Write it down.",
+                    tools=[Publish()],
+                )
 
         app = ContextureApp(roots=Notes(), name="test")
         schema = app.tree.open("notes/publish")["input_schema"]
@@ -691,18 +707,24 @@ class ToolDisclosureTests(unittest.TestCase):
         class Progressing(Tool):
             """Do something slow enough to report on."""
 
-            name = "progressing"
-            read_only = True
+            def __init__(self) -> None:
+                super().__init__(
+                    name="progressing",
+                    description="Do something slow enough to report on.",
+                    read_only=True,
+                )
 
             async def invoke(self, ctx: Context, target: str) -> str:
                 return target
 
         class Slow(Role):
-            """Run something slow."""
-
-            instructions = "Report progress."
-
-            progressing = Progressing
+            def __init__(self) -> None:
+                super().__init__(
+                    name="slow",
+                    description="Run something slow.",
+                    instructions="Report progress.",
+                    tools=[Progressing()],
+                )
 
         app = ContextureApp(roots=Slow(), name="test")
         opened = app.tree.open("slow/progressing")
@@ -825,9 +847,12 @@ if __name__ == "__main__":  # pragma: no cover
 
 
 class _GenerateCover(Tool):
-    """Generate a cover image for a letter."""
-
-    name = "generate_cover"
+    def __init__(self) -> None:
+        super().__init__(
+            name="generate_cover",
+            description="Generate a cover image for a letter.",
+            read_only=False,
+        )
 
     async def invoke(self, topic: str) -> str:
         return f"cover-{topic}.png"

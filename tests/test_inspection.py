@@ -26,48 +26,57 @@ from contexture.core.model.tree import ContextTree
 
 
 class GetPodLogs(Tool):
-    """Return the recent container logs for a Pod."""
-
-    name = "get_pod_logs"
-    read_only = True
+    def __init__(self) -> None:
+        super().__init__(
+            name="get_pod_logs",
+            description="Return the recent container logs for a Pod.",
+            read_only=True,
+        )
 
     async def invoke(self, namespace: str, pod: str, previous: bool = False) -> str:
         return f"{namespace}/{pod} previous={previous}"
 
 
 class Runbook(Tool):
-    """How to diagnose a container that keeps restarting."""
-
-    name = "runbook"
-    read_only = True
+    def __init__(self) -> None:
+        super().__init__(
+            name="runbook",
+            description="How to diagnose a container that keeps restarting.",
+            read_only=True,
+        )
 
     async def invoke(self) -> str:
         return "RUNBOOK-BODY"
 
 
 class Diagnose(Skill):
-    """Find why a Pod restarts repeatedly."""
-
-    name = "diagnose"
-    instructions = "Read the status, then the logs."
+    def __init__(self) -> None:
+        super().__init__(
+            name="diagnose",
+            description="Find why a Pod restarts repeatedly.",
+            instructions="Read the status, then the logs.",
+        )
 
 
 class Responder(Role):
-    """Diagnose unhealthy Pods."""
-
-    instructions = "Inspect before changing anything."
-
-    diagnose = Diagnose
-    logs = GetPodLogs
-    runbook = Runbook
+    def __init__(self) -> None:
+        super().__init__(
+            name="responder",
+            description="Diagnose and repair unhealthy Pods.",
+            instructions="Inspect before changing anything.",
+            skills=[Diagnose()],
+            tools=[GetPodLogs(), Runbook()],
+        )
 
 
 class Platform(Role):
-    """Operate the platform."""
-
-    instructions = "Route to the specialism the task belongs to."
-
-    responder = Responder
+    def __init__(self) -> None:
+        super().__init__(
+            name="platform",
+            description="Operate the platform.",
+            instructions="Route to the branch that owns the question.",
+            children=[Responder()],
+        )
 
 
 def _app() -> ContextureApp:
