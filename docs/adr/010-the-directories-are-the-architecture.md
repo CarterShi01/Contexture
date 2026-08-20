@@ -10,6 +10,12 @@ no behaviour: every test that passed before it passes after it, unchanged.
 > `declarative.py` was deleted in v0.5.0; see
 > [ADR 013](013-a-constructor-is-the-declaration.md).
 >
+> **`server/` is redrawn by [ADR 015](015-the-server-is-an-object.md).** The
+> rule this ADR states — a directory either expresses a boundary or should not
+> exist — is what put `projection/` there: one module per MCP primitive,
+> mirroring `core/mcp_interface/`. It is also what kept `Assembly` out of
+> `core/model/`, since sealing joins two layers this ADR keeps apart.
+>
 > **Section 2 is superseded by [ADR 014](014-navigation-is-part-of-the-kernel.md).**
 > `core/disclosure/` no longer exists: `tree.py` sits in `model/`, beside the
 > nodes it discloses, because navigation turned out to be part of the kernel

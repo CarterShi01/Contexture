@@ -399,9 +399,12 @@
             <li>
               <div class="row"><span class="path dir">server/</span><span class="desc"><strong>怎么跑起来</strong> — 原生 MCP Server,唯一 import 官方 SDK 的层</span></div>
               <ul>
-                <li><div class="row"><span class="path">messages.py</span><span class="desc">257 行 — <strong>说给某个人听的每一句话</strong>:bootstrap 文本 · 查找失败怎么变成一句能照做的话 · 一个人打开命令时读到的开头。<strong>不 import SDK</strong></span></div></li>
-                <li><div class="row"><span class="path">binding.py</span><span class="desc">567 行 · 2 类 — 把<strong>声明好的表面</strong>挂到 SDK 上:四个网关工具 · prompts · resources · completion · Dispatch(推 schema 与校验参数,<strong>不上表面</strong>)· 两扇门的一致性检查</span></div></li>
-                <li><div class="row"><span class="path">app.py</span><span class="desc">410 行 · 3 类 — <strong>ContextureApp</strong>(服务什么,启动前定死;不继承 SDK 的 MCPServer,而是组合它)+ <strong>ContextureOptions</strong>(怎么服务:传输 · 地址 · 谁能敲门)。<code>stateless_http</code> 钉死 <code>True</code>,不是可调项</span></div></li>
+                <li><div class="row"><span class="path">messages.py</span><span class="desc">162 行 — <strong>说给某个人听的每一句话</strong>:bootstrap 文本 · 查找失败怎么变成一句能照做的话 · 一个人打开命令时读到的开头。<strong>不 import SDK</strong></span></div></li>
+                <li><div class="row"><span class="path">server.py</span><span class="desc">231 行 · 1 类 — <strong>ContextureServer</strong>:收一个已密封的 Assembly,<strong>没有任何注册方法</strong>——相位由结构强制,不能往正在服务的图里塞节点。组合 SDK 的 MCPServer 而非继承它。<code>build()</code> 幂等</span></div></li>
+                <li><div class="row"><span class="path">assembly.py</span><span class="desc">143 行 · 1 类 — <strong>Assembly</strong>:注册相结束后才存在的东西(树 · 四个调用 · 已验证的 prompts / resources)。它是 <code>core.model</code> 与 <code>core.mcp_interface</code> 两个互不相识的兄弟的<strong>接合处</strong>,所以住在两者之上</span></div></li>
+                <li><div class="row"><span class="path">projection/</span><span class="desc">468 行 · 4 类 — <strong>一个 MCP 原语一个模块</strong>,与 <code>core/mcp_interface/</code> 一一对应:<code>gateway.py</code>(四个入口)· <code>prompts.py</code>(命令 + goto + completion)· <code>resources.py</code>(文档)。<strong>构造即检查,project 只写入</strong>——坏声明抛出时 MCPServer 还不存在</span></div></li>
+                <li><div class="row"><span class="path">options.py</span><span class="desc">307 行 · 2 类 — <strong>ContextureOptions</strong>:怎么服务(传输 · 地址 · 谁能敲门)。与"服务什么"分成两个对象,因为它们在两个时刻定下来。<code>stateless_http</code> 钉死 <code>True</code>,不是可调项</span></div></li>
+                <li><div class="row"><span class="path">dispatch.py</span><span class="desc">166 行 · 1 类 — <strong>Dispatch</strong>:填上 <code>core</code> 开的两个口子(卡片上的 schema · 真正跑一个 tool)。<strong>同一份派生管两个方向</strong>,所以 agent 不会"按 A 说的调、被 B 拒"。身份绑定也在这里</span></div></li>
                 <li><div class="row"><span class="path">identity.py</span><span class="desc">233 行 · 3 类 — <strong>谁在调用</strong>:业务插自己验票器的插座(<code>TokenVerifier</code>,一个方法)· <code>Auth</code> 配置 · <code>Principal</code> 与 SDK <code>AccessToken</code> 的无损双向翻译。<strong>不内置任何 verifier,也不发令牌</strong></span></div></li>
                 <li><div class="row"><span class="path">instructions.py</span><span class="desc">143 行 — 只管把文本<strong>塞进某个宿主的版面</strong>:前 512 字自包含(Codex),总长 &lt;2KB(Claude Code)</span></div></li>
                 <li><div class="row"><span class="path">launch.py</span><span class="desc">96 行 — 生成指向<strong>本 server</strong> 的启动命令;不 import 包内任何东西</span></div></li>
@@ -527,13 +530,15 @@ flowchart TB
         mprompt["prompt.py<br/>Prompt"]
     end
 
-    subgraph SERVER["contexture.server — 只有 app · binding · identity import SDK"]
+    subgraph SERVER["contexture.server — messages · launch 之外都 import SDK"]
         direction TB
         msg["messages.py<br/>说给人听的每一句<br/><i>不 import SDK</i>"]
         instr["instructions.py<br/>塞进宿主的版面"]
         ident["identity.py<br/>谁在调用 · TokenVerifier 插座"]
-        bind["binding.py<br/>挂到 SDK 上 · Dispatch"]
-        app["app.py<br/>ContextureApp · ContextureOptions"]
+        disp["dispatch.py<br/>Dispatch<br/>填 core 的两个口子"]
+        asm["assembly.py<br/>Assembly<br/>密封的产物"]
+        bind["projection/<br/>一个原语一个模块<br/>构造即检查"]
+        app["server.py<br/>ContextureServer<br/>没有注册方法"]
         launch["launch.py<br/>宿主启动命令<br/><i>零包内依赖</i>"]
     end
     cli["<b>cli/</b><br/>new · serve · list · inspect<br/><i>出度为零:没有任何模块 import 它</i>"]
@@ -558,29 +563,35 @@ flowchart TB
     msg --> instr
     msg --> bind
     tree --> instr
-    tool --> bind
+    tool --> disp
+    tree --> asm
+    mres --> asm
+    mprompt --> asm
+    disp --> asm
+    asm --> bind
     tree --> bind
     mres --> bind
     mprompt --> bind
-    tree --> app
+    asm --> app
     bind --> app
     instr --> app
-    mres --> app
-    mprompt --> app
     base --> ident
-    ident --> bind
+    ident --> disp
     ident --> app
     sdk --> ident
+    sdk --> disp
     sdk --> bind
     sdk --> app
     tree --> cli
+    asm --> cli
+    disp --> cli
     app --> cli
     role --> cli
 
     style base stroke-width:3px
     style tree stroke-width:3px
         </pre>
-        <figcaption>箭头方向 = 被 import 者 → import 者。<strong>最该看的是没有的那些线</strong>:<code>MCPI</code> 那一簇没有任何一条边连向 <code>MODEL</code> 或 <code>DISC</code>,它只从共享地基取一个异常类——协议平面持有的是 ref <strong>字符串</strong>,走不进森林,森林也够不回来。<code>role.py</code> 出度最高:它是三个概念汇合的地方,也是 <code>tree</code> 与 <code>cli</code> 共同的入口。<code>manager.py</code> 反过来收 Role、Skill、Tool 三条边——它是唯一把类变成节点的地方,三种 kind 各有一个注册方法。<code>messages.py</code> 只依赖 <code>errors</code> 与网关入口的名字——决定"跟模型说什么"不需要知道线路长什么样,所以它能脱离 SDK 单独测。<code>launch.py</code> 是全包唯一一个不 import 包内任何东西的模块,它只拼一段启动命令。<code>identity.py</code> 只有一条入边来自共享地基和一条来自 SDK——身份的<strong>形状</strong>在 <code>core</code>,身份<strong>怎么到</strong>在这里,业务实现的验票器两边都不认识。<code>types</code> / <code>errors</code> 的扇出没有画全,否则线会盖住图。</figcaption>
+        <figcaption>箭头方向 = 被 import 者 → import 者。<strong>最该看的是没有的那些线</strong>:<code>MCPI</code> 那一簇没有任何一条边连向 <code>MODEL</code> 或 <code>DISC</code>,它只从共享地基取一个异常类——协议平面持有的是 ref <strong>字符串</strong>,走不进森林,森林也够不回来。<code>role.py</code> 出度最高:它是三个概念汇合的地方,也是 <code>tree</code> 与 <code>cli</code> 共同的入口。<code>manager.py</code> 反过来收 Role、Skill、Tool 三条边——它是唯一把类变成节点的地方,三种 kind 各有一个注册方法。<code>messages.py</code> 只依赖 <code>errors</code> 与网关入口的名字——决定"跟模型说什么"不需要知道线路长什么样,所以它能脱离 SDK 单独测。<code>launch.py</code> 是全包唯一一个不 import 包内任何东西的模块,它只拼一段启动命令。<code>identity.py</code> 只有一条入边来自共享地基和一条来自 SDK——身份的<strong>形状</strong>在 <code>core</code>,身份<strong>怎么到</strong>在这里,业务实现的验票器两边都不认识。<code>assembly.py</code> 是全图唯一同时收 <code>tree</code>(对象模型)和 <code>mres</code> / <code>mprompt</code>(协议平面)两侧边的节点——密封就是这两个兄弟的接合,所以它不能住在任何一个里面。<code>types</code> / <code>errors</code> 的扇出没有画全,否则线会盖住图。</figcaption>
       </figure>
     </div>
 

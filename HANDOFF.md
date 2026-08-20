@@ -190,29 +190,98 @@ modules still cannot run without the SDK, but they are no longer where the
 behaviour lives: what is left in `test_stdio_server.py` is the set of claims
 that genuinely need a wire.
 
-## 0d. `tests/channels_fixture.py` never made it through v0.5.0
+## 0d. v0.7.0: the server is an object
 
-**Found while verifying v0.6.0, and it predates it.** The fixture still declares
-its capabilities in the class-body style ADR 013 deleted:
+[ADR 015](docs/adr/015-the-server-is-an-object.md) has the reasoning.
+
+**This is the third breaking release in a row, and the three are one thing in
+three steps** — 013 the model, 014 navigation, 015 serving. A project on 0.4.x
+should read all three tables before moving; a project starting now should start
+here and read none of them.
+
+| Gone | Replaced by |
+| --- | --- |
+| `ContextureApp` | `ContextureServer`, and **no alias** |
+| `ContextureApp(roots=…, publish=…)` | register into a `ControllerManager`, seal with `Assembly.of`, hand the assembly to `ContextureServer` |
+| `ContextureApp(roots=manager)` | there is one door now: build the manager, register into it, seal it |
+| `app.run(...)` | `server.start(...)`, plus `await server.start_async(...)` for a process that already has a loop |
+| `app.build_server()` | `server.build()` — and it is idempotent; a second call with a different `auth` is refused |
+| `app.tree` / `app.manager` | `server.assembly.tree` / `server.assembly.tree.registry` |
+| `contexture.server.app` (module) | `contexture.server.server` + `contexture.server.options` |
+| `contexture.server.binding` (module) | `contexture.server.dispatch` + `contexture.server.assembly` + `contexture.server.projection/` |
+| `binding.project()` / `binding.system_api()` | `Assembly.of(...)`, then `Gateway/Prompts/Resources(assembly).project(surface)` |
+| `ControllerManager(provision=…)` | a `Channels` subclass, passed as `channels=` |
+| `ControllerManager.provision` | gone; `provisioned()` keeps its name and signature |
+
+`ControllerManager.register_role/register_skill/register_tool`,
+`manager.sealed(schema_of=…)`, `ContextureOptions`, `Auth`, `Dispatch` and every
+name `contexture.server` exports are unchanged apart from which module backs
+them.
+
+### What a `main()` looks like now
 
 ```python
-class NotifySquad(Tool):
-    name = "notify_squad"        # a class attribute, not a constructor
-    read_only = False
+manager = ControllerManager(channels=channels)
+manager.register_role(KubernetesPlatform)
+
+dispatch = Dispatch()
+tree     = manager.sealed(schema_of=dispatch.schema)
+assembly = Assembly.of(tree, execute=dispatch.execute, published=PUBLISHED)
+
+ContextureServer(assembly, name="my-context").start(
+    ContextureOptions(transport="stdio")
+)
 ```
 
-So `import tests.channels_fixture` raises `TypeError: Role.__init__() missing 3
-required keyword-only arguments`, and `test_channels.py` cannot run **even with
-the SDK installed**. It was invisible because the module fails to import for the
-SDK's absence first, on every machine that has looked at it so far.
+Seven objects rather than four lines of sugar, and the trade is deliberate: each
+one is something the application makes a decision about, and hiding them made
+`main` short by making the object model invisible. `import` builds nothing.
 
-Six declarations to migrate: `NotifySquad`, `WhereAmI`, `Runbook`, `Escalate`,
-`Escalation`, `Operations`. Its `manager.register(...)` calls were already
-corrected to `register_role` in the v0.6.0 commit; the constructors were not,
-because they cannot be verified from a machine without the SDK.
+### Migrating a `provision=` handle
 
-**Done when:** `python run_tests.py` on a machine with the SDK reports no error
-from `test_channels`.
+```python
+# before
+@asynccontextmanager
+async def open_channels():
+    async with gateway_session(URL) as gw, create_pool(DSN) as db:
+        yield Channels(gateway=gw, db=db)
+
+manager = ControllerManager(provision=open_channels)
+
+# after
+class MyChannels(Channels):
+    async def open(self) -> None:
+        self.gw = await self.enter(gateway_session(URL))
+        self.db = await self.enter(create_pool(DSN))
+
+    async def close(self) -> None:
+        self.gw = self.db = None      # see below
+
+manager = ControllerManager(channels=MyChannels())
+```
+
+`enter` keeps what `async with a, b` gave you: reverse unwind, and the first
+resource closed if the second fails to open. `close` is paired with a
+*successful* `open`, so it never has to tolerate a half-opened object.
+
+**One behaviour change to know about.** The stamped handle and the opened handle
+are now the same instance, so the framework no longer clears a node's `channels`
+on the way out. Clearing your own references in `close` is what keeps a call
+arriving after shutdown meeting `None` — which fails legibly — rather than a
+session somebody already closed.
+
+### Fixed on the way
+
+`contexture/demo/tools.py` passed a prose string to `NodeNotFoundError`, which
+has carried facts and no prose since ADR 006. Every unknown-pod and
+unknown-deployment refusal in the demo raised `TypeError` instead. It is a
+`ContextureError` now: nothing failed to *resolve* there — the tool was found
+and ran, and what it could not find is a Pod.
+
+**0d as it stood** — `tests/channels_fixture.py` never finishing the ADR 013
+migration — was real and larger than recorded: four files, 60 errors, and
+`test_channels` unable to import at all. It is done; the suite is 318 tests and
+green.
 
 ## 1. Reserve the distribution name on PyPI
 

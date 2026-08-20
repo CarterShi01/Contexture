@@ -111,7 +111,7 @@ class ContextTree:
         ever turned into a node by a `ControllerManager` — so one is built here
         and the view is sealed over what it registered. That keeps a single
         answer to "when does a node come into existence" whether a caller went
-        through `ContextureApp`, through a test, or through `contexture list`.
+        through `main()`, through a test, or through `contexture list`.
         """
 
         if isinstance(roots, ControllerManager):

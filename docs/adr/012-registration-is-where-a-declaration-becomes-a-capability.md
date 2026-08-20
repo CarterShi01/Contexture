@@ -8,6 +8,14 @@
 > beside the one the manager built. ADR 013 removed the class-body reading
 > entirely, so registration is now the *only* place a node comes into
 > existence. Registration also became three methods, one per kind.
+>
+> **`provision` is superseded by [ADR 015](015-the-server-is-an-object.md).**
+> Section 5's two ways of handing over a handle — a value for what is simply
+> constructed, a factory returning an async context manager for what has to be
+> opened — are one way now: a plain value, or a `Channels` subclass whose
+> lifecycle is a type rather than a run-time refusal. Everything else here
+> stands, `channels` included, and so does the reason it exists: a handle
+> arrives before the first call, not during it.
 **Status:** accepted, implemented in v0.5.0
 **Date:** 2026-08-20
 

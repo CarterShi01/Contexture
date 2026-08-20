@@ -168,10 +168,10 @@ doc comment. The one thing still read off the code is a tool's input schema,
 derived from `invoke`'s type hints — and even there, what conformance pins is
 the schema that reaches the wire, never how it was derived.
 
-Inversion of control runs the other way from a library: you never construct a
-server, dispatch a request, parse arguments, or serialize a result. You declare
-what you own and hand the roots to `ContextureApp`; the framework calls your
-code, not the reverse.
+Inversion of control runs the other way from a library: you never dispatch a
+request, parse arguments, or serialize a result. You declare what you own,
+register it, and hand the sealed result to a `ContextureServer`; the framework
+calls your code, not the reverse.
 
 ## Three languages, one behaviour
 
@@ -374,15 +374,40 @@ codex  mcp add                 my-context -- uv run contexture serve
 ```
 
 For a graph served from a process this command does not own — embedded in an
-existing service, or built inside a test — `ContextureApp` is the escape hatch:
+existing service, or built inside a test — write the entry point yourself. It
+is five objects, and every one of them is something you make a decision about:
 
 ```python
-from contexture.server import ContextureApp
+from contexture import ControllerManager
+from contexture.server import (
+    Assembly, ContextureOptions, ContextureServer, Dispatch,
+)
 
-ContextureApp(roots=KubernetesPlatform).run(transport="stdio")
+def main() -> None:
+    manager = ControllerManager(channels=channels)      # what it may reach
+    manager.register_role(KubernetesPlatform)           # what it serves
+
+    dispatch = Dispatch()                               # schemas, and running a tool
+    tree     = manager.sealed(schema_of=dispatch.schema)
+    assembly = Assembly.of(tree, execute=dispatch.execute, published=PUBLISHED)
+
+    ContextureServer(assembly, name="my-context").start(
+        ContextureOptions(transport="stdio")
+    )
 ```
 
+Three phases, and the second one is a wall: `ContextureServer` takes a *sealed*
+assembly and has no way to register anything, so nothing can add a capability to
+a graph that is already being served. Importing this module builds nothing —
+every node comes into existence inside `register_role`.
+
+`dispatch` appearing twice is deliberate. The schema written on a tool's card
+and the check its arguments are measured against come from one derivation, and
+this is where you can see that.
+
 Nothing above imports `mcp`, writes JSON-RPC, or names an agent runtime.
+
+Already have an event loop? `await server.start_async(options)`.
 
 ### Over the network
 
@@ -399,7 +424,7 @@ SDK stops protecting an address it does not recognise as local and nothing
 would say so:
 
 ```python
-app.run(ContextureOptions(
+server.start(ContextureOptions(
     transport="streamable-http",
     host="0.0.0.0",
     port=8080,
@@ -738,10 +763,10 @@ will.
 | Wire format, schema, transport | owns it | never touches it |
 
 The entire dependency is seven imports inside `contexture/server/` and nine SDK
-entry points: the constructor and `run`; `add_tool`, `add_prompt`,
-`add_resource` and `completion` for registration; and `Tool.from_function`,
-`Prompt.from_function` and `FunctionResource.from_function` for deriving what
-each one carries off the wire. `ContextureApp`
+entry points: the constructor and the two async runners; `add_tool`,
+`add_prompt`, `add_resource` and `completion` for registration; and
+`Tool.from_function`, `Prompt.from_function` and `FunctionResource.from_function`
+for deriving what each one carries off the wire. `ContextureServer`
 composes an `MCPServer` rather than subclassing one, so an SDK upgrade cannot
 reach into the object model, and `tests/test_layering.py` fails if any other
 layer imports `mcp`.

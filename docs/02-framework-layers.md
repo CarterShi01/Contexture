@@ -247,8 +247,8 @@ application would implement to serve its declarations, alongside an `MCPClient`
 for calling somebody else's server. Both are gone.
 
 `contexture.server` is the inbound boundary now, and it is not a port but a
-server: `ContextureApp` takes the declared roots, projects them onto the
-official SDK, and runs. It is the only layer that imports `mcp`, which is what
+server: a `ControllerManager` is sealed into an `Assembly`, `ContextureServer`
+projects that onto the official SDK, and runs. It is the only layer that imports `mcp`, which is what
 keeps the object model describable without a wire protocol in the room. ADR 001
 records why the arrow turned around; ADR 003 records why the outbound half was
 removed rather than kept as an option.

@@ -11,8 +11,8 @@ one — the instructions loaded at connect, then `contexture_discover`, then one
 arrived, with what it cost. No transport, no model, no agent in the room.
 
 **It calls the same functions the server does.** `instructions.build`,
-`ContextTree.skeleton`, `ContextTree.open`, `system_api.unresolved`: the five
-gateway functions in `contexture.server.binding` do nothing but forward to
+`ContextTree.skeleton`, `ContextTree.open`, `system_api.unresolved`: the four
+wrappers in `contexture.server.projection.gateway` do nothing but forward to
 these, so a payload printed here is the payload sent there, character for
 character. What this cannot see is the wire — that the process starts under a
 host's launch command, and that nothing but MCP messages reaches stdout. Both
