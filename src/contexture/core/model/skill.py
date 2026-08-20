@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from . import declarative
-from .context import ContextNode
-from .errors import ModelValidationError
-from .types import CompiledContext
+from .node import ContextNode
+from ..errors import ModelValidationError
+from ..types import CompiledContext
 
 
 @dataclass(slots=True, kw_only=True)

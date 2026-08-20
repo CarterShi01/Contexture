@@ -13,20 +13,20 @@ import unittest
 from pathlib import Path
 
 from contexture.core.errors import LookupFailure, NodeNotFoundError
-from contexture.server import contract
+from contexture.core.mcp_interface import tool as gateway
+from contexture.server import messages
 
 SOURCE_ROOT = Path(__file__).resolve().parent.parent / "src"
 
 
 class SurfaceVocabularyTests(unittest.TestCase):
-    def test_the_gateway_is_five_entry_points_stated_once(self) -> None:
-        self.assertEqual(len(contract.GATEWAY), 5)
+    def test_the_gateway_is_four_entry_points_stated_once(self) -> None:
+        self.assertEqual(len(gateway.GATEWAY), 4)
         self.assertEqual(
-            contract.GATEWAY_TOOLS,
+            gateway.GATEWAY_TOOLS,
             (
                 "contexture_discover",
                 "contexture_open",
-                "contexture_read",
                 "contexture_invoke_read_only",
                 "contexture_invoke",
             ),
@@ -35,11 +35,11 @@ class SurfaceVocabularyTests(unittest.TestCase):
     def test_exactly_one_entry_point_is_not_read_only(self) -> None:
         """The write door is the whole reason invoke is split in two."""
 
-        writing = [entry.name for entry in contract.GATEWAY if not entry.read_only]
+        writing = [entry.name for entry in gateway.GATEWAY if not entry.read_only]
         self.assertEqual(writing, ["contexture_invoke"])
 
     def test_every_entry_point_describes_itself(self) -> None:
-        for entry in contract.GATEWAY:
+        for entry in gateway.GATEWAY:
             with self.subTest(tool=entry.name):
                 self.assertGreater(len(entry.description), 60)
 
@@ -54,26 +54,26 @@ class SurfaceVocabularyTests(unittest.TestCase):
         spent a call per tool to be handed back the card it already had.
         """
 
-        described = {entry.name: entry.description for entry in contract.GATEWAY}
+        described = {entry.name: entry.description for entry in gateway.GATEWAY}
 
-        self.assertIn("schema", described[contract.OPEN_TOOL])
-        self.assertNotIn("schema", described[contract.DISCOVER_TOOL])
+        self.assertIn("schema", described[gateway.OPEN_TOOL])
+        self.assertNotIn("schema", described[gateway.DISCOVER_TOOL])
 
 
 class PreambleTests(unittest.TestCase):
     def test_the_opening_fits_the_budget_codex_reads(self) -> None:
         """Codex decides whether to use the server from the first 512 chars."""
 
-        self.assertLessEqual(len(contract.PREAMBLE), 512)
+        self.assertLessEqual(len(messages.PREAMBLE), 512)
 
     def test_the_opening_names_the_tools_it_tells_the_agent_to_call(self) -> None:
         for name in (
-            contract.OPEN_TOOL,
-            contract.INVOKE_TOOL,
-            contract.INVOKE_READ_ONLY_TOOL,
+            gateway.OPEN_TOOL,
+            gateway.INVOKE_TOOL,
+            gateway.INVOKE_READ_ONLY_TOOL,
         ):
             with self.subTest(tool=name):
-                self.assertIn(name, contract.PREAMBLE)
+                self.assertIn(name, messages.PREAMBLE)
 
 
 class UnresolvedTests(unittest.TestCase):
@@ -93,7 +93,7 @@ class UnresolvedTests(unittest.TestCase):
 
         for reason in LookupFailure:
             with self.subTest(reason=reason.value):
-                rendered = contract.unresolved(self._failure(reason))
+                rendered = messages.unresolved(self._failure(reason))
                 self.assertNotIn("could not be resolved", rendered)
                 self.assertGreater(len(rendered), 40)
 
@@ -106,14 +106,14 @@ class UnresolvedTests(unittest.TestCase):
 
         for reason in LookupFailure:
             with self.subTest(reason=reason.value):
-                rendered = contract.unresolved(self._failure(reason))
+                rendered = messages.unresolved(self._failure(reason))
                 self.assertTrue(
-                    any(name in rendered for name in contract.GATEWAY_TOOLS),
+                    any(name in rendered for name in gateway.GATEWAY_TOOLS),
                     f"{reason.value} leaves the agent with no next call",
                 )
 
     def test_a_missing_member_says_what_the_role_does_hold(self) -> None:
-        rendered = contract.unresolved(
+        rendered = messages.unresolved(
             self._failure(LookupFailure.NO_SUCH_MEMBER)
         )
 
@@ -124,7 +124,7 @@ class UnresolvedTests(unittest.TestCase):
     def test_an_empty_role_is_reported_as_empty_rather_than_as_a_blank_list(
         self,
     ) -> None:
-        rendered = contract.unresolved(
+        rendered = messages.unresolved(
             NodeNotFoundError(
                 reason=LookupFailure.NO_SUCH_MEMBER,
                 ref="team/empty/x",
@@ -139,12 +139,12 @@ class UnresolvedTests(unittest.TestCase):
 class WrongDoorTests(unittest.TestCase):
     def test_each_door_names_the_other_one(self) -> None:
         self.assertIn(
-            contract.INVOKE_READ_ONLY_TOOL,
-            contract.wrong_door("a/b", is_read_only=True),
+            gateway.INVOKE_READ_ONLY_TOOL,
+            messages.wrong_door("a/b", is_read_only=True),
         )
         self.assertIn(
-            contract.INVOKE_TOOL,
-            contract.wrong_door("a/b", is_read_only=False),
+            gateway.INVOKE_TOOL,
+            messages.wrong_door("a/b", is_read_only=False),
         )
 
 
@@ -164,7 +164,7 @@ class IndependenceTests(unittest.TestCase):
 
         script = (
             "import sys; sys.path.insert(0, %r);"
-            "import contexture.server.contract;"
+            "import contexture.server.messages;"
             "print(','.join(sorted(m for m in sys.modules "
             "if m == 'mcp' or m.startswith('mcp.'))))" % str(SOURCE_ROOT)
         )

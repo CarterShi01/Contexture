@@ -1,0 +1,29 @@
+"""What this server exposes on the primitives a model does not drive.
+
+MCP splits its three primitives by **who decides when one is used**: a model
+chooses a tool, a host takes up a resource, a person triggers a prompt. Roles,
+skills and tools reach an agent through the gateway — that is the tool
+primitive, and it needs nothing declared here. This file is the other two.
+
+Every entry names a node the tree already holds, so a capability reached this
+way and reached by navigating is one capability with two addresses, never two
+declarations that can drift apart.
+
+Nothing is published on the prompt primitive to begin with. A prompt is worth
+declaring only where **going wrong is expensive** — it buys consistent
+execution and a guardrail, and saved typing is the weakest of the three
+reasons. Declared everywhere, the menu becomes a second copy of the tool list.
+"""
+
+from __future__ import annotations
+
+from contexture.core.mcp_interface import Resource
+
+SURFACE = (
+    Resource(
+        opens="$role_ref/health_runbook",
+        uri="$resource_scheme://runbooks/health",
+        mime_type="text/markdown",
+        description="How to interpret a reachability check, and what not to conclude.",
+    ),
+)

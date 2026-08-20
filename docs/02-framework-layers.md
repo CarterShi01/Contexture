@@ -29,7 +29,7 @@ The one-sentence definition the rest of this document serves — accurate for
 
 ```text
 Contexture is a context framework. An application declares roles, skills,
-tools, and resources once; the framework progressively discloses them and
+and tools once; the framework progressively discloses them and
 translates them into the skill and MCP surfaces different agent runtimes
 consume.
 ```
@@ -59,13 +59,14 @@ a single program and the formats a rendering concern.
 ## 3. Layers
 
 ```text
-Business Layer            declares roles, skills, tools, resources
+Business Layer            declares roles, skills and tools
         │  inherits / composes
-contexture.core           object model, registry, validation, disclosure rules
+core.model                object model, validation, disclosure rules
         │  compile
-        │  navigate
-contexture.tree           the multi-headed tree, disclosed lazily
-        │  project
+core.disclosure           the multi-headed tree, addressed and disclosed lazily
+        │
+core.mcp_interface        what each MCP primitive carries — still no SDK
+        │  bind
 contexture.server         the native MCP server — the only layer importing mcp
         │  MCP
 External Agent Runtime    LLM loop, planning, tool selection  (out of scope)
@@ -136,7 +137,6 @@ class body simply lists them.
 | a `Skill` class or instance | an entry in `skills` |
 | a `Role` class or instance | an entry in `children` |
 | a `Tool` class or instance | an entry in `tools` |
-| a `Resource` class or instance | an entry in `resources` |
 
 Members are collected across the whole MRO, base classes first, so a subclass
 inherits what its parent declared and may replace any member by rebinding its
@@ -287,7 +287,7 @@ first one's clothes.
 2. Every capability a target cannot express produces a note.
 3. Identical declarations render byte-identical artifacts.
 4. An artifact path is relative and stays inside the project tree.
-5. A role's rendered surface lists only that role's own tools and resources.
+5. A role's rendered surface lists only that role's own tools.
 
 ## 9. Deliberate non-goals, restated
 

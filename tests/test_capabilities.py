@@ -16,10 +16,9 @@ from contexture.core.errors import (
     ModelValidationError,
     NodeNotFoundError,
 )
-from contexture.core.resources import Resource
-from contexture.core.role import Role
-from contexture.core.skill import Skill
-from contexture.core.tools import Tool
+from contexture.core.model.role import Role
+from contexture.core.model.skill import Skill
+from contexture.core.model.tool import Tool
 
 
 class ToolDeclarationTests(unittest.TestCase):
@@ -95,63 +94,18 @@ class ToolDeclarationTests(unittest.TestCase):
         self.assertEqual(tool.compile("route")["kind"], "tool")
 
 
-class ResourceDeclarationTests(unittest.TestCase):
-    def test_a_class_body_supplies_the_uri_and_media_type(self) -> None:
-        class Runbook(Resource):
-            """How to diagnose a restart loop."""
-
-            uri = "contexture://runbooks/crash-loop"
-            mime_type = "text/markdown"
-
-            async def read(self) -> str:
-                return "body"
-
-        resource = Runbook()
-        self.assertEqual(resource.uri, "contexture://runbooks/crash-loop")
-        self.assertEqual(resource.mime_type, "text/markdown")
-
-    def test_a_resource_without_a_uri_cannot_be_addressed(self) -> None:
-        class Homeless(Resource):
-            """A resource nobody can reach."""
-
-            async def read(self) -> str:
-                return ""
-
-        with self.assertRaises(DeclarationError):
-            Homeless()
-
-    def test_compiling_a_resource_never_reads_it(self) -> None:
-        """The descriptor/content split, checked where it would be violated."""
-
-        reads: list[int] = []
-
-        class Expensive(Resource):
-            """A document nobody should load while browsing."""
-
-            uri = "contexture://expensive"
-
-            async def read(self) -> str:
-                reads.append(1)
-                return "EXPENSIVE-BODY"
-
-        resource = Expensive()
-        self.assertNotIn("EXPENSIVE-BODY", str(resource.compile("route")))
-        self.assertNotIn("EXPENSIVE-BODY", str(resource.compile("active")))
-        self.assertEqual(reads, [])
-
-        self.assertEqual(asyncio.run(resource.read()), "EXPENSIVE-BODY")
-        self.assertEqual(reads, [1])
-
-
 class RoleCompositionTests(unittest.TestCase):
     def _tool(self, tool_name: str) -> Tool:
         return Tool(name=tool_name, description="A tool.")
 
-    def test_a_role_collects_declared_tools_and_resources(self) -> None:
-        class Runbook(Resource):
+    def test_a_role_collects_declared_tools(self) -> None:
+        class Runbook(Tool):
             """A runbook."""
 
-            uri = "contexture://r"
+            read_only = True
+
+            async def invoke(self) -> str:
+                return "BODY"
 
         class Logs(Tool):
             """Read logs."""
@@ -168,8 +122,9 @@ class RoleCompositionTests(unittest.TestCase):
             runbook = Runbook
 
         role = Responder()
-        self.assertEqual([tool.name for tool in role.tools], ["logs"])
-        self.assertEqual([r.uri for r in role.resources], ["contexture://r"])
+        self.assertEqual(
+            sorted(tool.name for tool in role.tools), ["logs", "runbook"]
+        )
 
     def test_two_tools_with_one_name_are_refused_at_class_creation(self) -> None:
         class First(Tool):
@@ -201,35 +156,22 @@ class RoleCompositionTests(unittest.TestCase):
                 tools=[self._tool("same"), self._tool("same")],
             )
 
-    def test_an_imperative_role_rejects_duplicate_resource_uris(self) -> None:
-        duplicate = [
-            Resource(name="a", description="A.", uri="contexture://x"),
-            Resource(name="b", description="B.", uri="contexture://x"),
-        ]
-        with self.assertRaises(DuplicateNameError):
-            Role(
-                name="r",
-                description="A role.",
-                instructions="Anything.",
-                resources=duplicate,
-            )
-
     def test_a_role_finds_its_own_members_by_name(self) -> None:
         """One cross-kind lookup, because the uniqueness invariant is cross-kind."""
 
         tool = self._tool("get_logs")
-        resource = Resource(name="rb", description="RB.", uri="contexture://rb")
+        skill = Skill(name="rb", description="RB.", instructions="Read it.")
         role = Role(
             name="r",
             description="A role.",
             instructions="Anything.",
             tools=[tool],
-            resources=[resource],
+            skills=[skill],
         )
 
         self.assertIs(role.member("get_logs"), tool)
-        self.assertIs(role.member("rb"), resource)
-        self.assertEqual([node.name for node in role.members()], ["get_logs", "rb"])
+        self.assertIs(role.member("rb"), skill)
+        self.assertEqual([node.name for node in role.members()], ["rb", "get_logs"])
 
     def test_a_missing_member_reports_what_the_role_holds(self) -> None:
         role = Role(
@@ -247,10 +189,6 @@ class RoleCompositionTests(unittest.TestCase):
         self.assertEqual(failure.scope, "r")
         self.assertEqual(failure.known, ("get_logs",))
         self.assertIsNone(failure.ref)  # only the tree knows the whole path
-
-    def test_an_empty_uri_is_refused(self) -> None:
-        with self.assertRaises(ModelValidationError):
-            Resource(name="r", description="R.", uri="   ")
 
 
 if __name__ == "__main__":  # pragma: no cover
@@ -288,13 +226,9 @@ class MemberNameTests(unittest.TestCase):
         self.assertIn("skill", message)
         self.assertIn("tool", message)
 
-    def test_a_sub_role_and_a_resource_may_not_share_a_name(self) -> None:
+    def test_a_sub_role_and_a_tool_may_not_share_a_name(self) -> None:
         child = Role(name="runbook", description="A role.", instructions="Go.")
-        resource = Resource(
-            name="runbook",
-            description="A document.",
-            uri="contexture://runbooks/one",
-        )
+        tool = Tool(name="runbook", description="A document.")
 
         with self.assertRaises(DuplicateNameError):
             Role(
@@ -302,7 +236,7 @@ class MemberNameTests(unittest.TestCase):
                 description="A role.",
                 instructions="Go.",
                 children=[child],
-                resources=[resource],
+                tools=[tool],
             )
 
     def test_distinct_names_across_kinds_are_accepted(self) -> None:

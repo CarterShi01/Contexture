@@ -15,14 +15,12 @@ from contexture.core.errors import (
     ModelValidationError,
     NodeNotFoundError,
 )
-from contexture.core.resources import Resource
-from contexture.core.role import Role
-from contexture.core.skill import Skill
-from contexture.core.tools import Tool
-from contexture.tree import ContextTree
+from contexture.core.model.role import Role
+from contexture.core.model.skill import Skill
+from contexture.core.model.tool import Tool
+from contexture.core.disclosure.tree import ContextTree
 
 PROCEDURE = "Read the status, then the logs, then the events."
-RUNBOOK_URI = "contexture://runbooks/crash-loop"
 
 
 class GetPodLogs(Tool):
@@ -44,13 +42,13 @@ class DeletePod(Tool):
         return "deleted"
 
 
-class CrashLoopRunbook(Resource):
+class CrashLoopRunbook(Tool):
     """How to diagnose a container that keeps restarting."""
 
-    uri = RUNBOOK_URI
-    mime_type = "text/markdown"
+    name = "crash_loop_runbook"
+    read_only = True
 
-    async def read(self) -> str:
+    async def invoke(self) -> str:
         return "RUNBOOK-BODY"
 
 
@@ -186,7 +184,7 @@ class CardTests(unittest.TestCase):
         pending = [card["ref"] for card in cards]
         while pending:
             opened = tree.open(pending.pop())
-            for group in ("sub_roles", "skills", "tools", "resources"):
+            for group in ("sub_roles", "skills", "tools"):
                 cards.extend(opened[group])
             pending.extend(card["ref"] for card in opened["sub_roles"])
 
@@ -204,13 +202,10 @@ class OpenTests(unittest.TestCase):
         self.assertEqual(opened["instructions"], "Inspect before changing anything.")
         self.assertEqual([s["ref"] for s in opened["skills"]],
                          ["team/troubleshooter/diagnose"])
-        tool = opened["tools"][0]
-        self.assertEqual(tool["ref"], "team/troubleshooter/get_pod_logs")
+        by_ref = {tool["ref"]: tool for tool in opened["tools"]}
+        tool = by_ref["team/troubleshooter/get_pod_logs"]
         self.assertTrue(tool["read_only"])
         self.assertEqual(tool["input_schema"], {"tool": "get_pod_logs"})
-        resource = opened["resources"][0]
-        self.assertEqual(resource["uri"], RUNBOOK_URI)
-        self.assertEqual(resource["mime_type"], "text/markdown")
 
     def test_opening_a_role_does_not_recurse_into_sub_roles(self) -> None:
         opened = _tree().open("team")
@@ -231,10 +226,16 @@ class OpenTests(unittest.TestCase):
             tree.open("team/troubleshooter/diagnose")["instructions"],
         )
 
-    def test_opening_a_resource_yields_a_descriptor_and_not_content(self) -> None:
-        opened = _tree().open("team/troubleshooter/crash-loop-runbook")
+    def test_opening_content_yields_its_card_and_not_its_body(self) -> None:
+        """Content is a tool now, so opening one is opening a tool.
 
-        self.assertEqual(opened["uri"], RUNBOOK_URI)
+        The card is complete — a name, a sentence, a ref and a schema — and the
+        document itself arrives only when the tool is run.
+        """
+
+        opened = _tree().open("team/troubleshooter/crash_loop_runbook")
+
+        self.assertTrue(opened["read_only"])
         self.assertNotIn("RUNBOOK-BODY", json.dumps(opened))
 
 
@@ -420,16 +421,6 @@ class ResolutionTests(unittest.TestCase):
         for tool_name in ("contexture_discover", "contexture_open"):
             self.assertNotIn(tool_name, str(caught.exception))
 
-    def test_a_resource_resolves_by_reference_or_by_its_own_uri(self) -> None:
-        """A procedure names a document the way the document names itself."""
-
-        tree = _tree()
-
-        self.assertIs(
-            tree.resource(RUNBOOK_URI),
-            tree.resource("team/troubleshooter/crash-loop-runbook"),
-        )
-
     def test_the_typed_accessors_say_what_the_ref_actually_names(self) -> None:
         tree = _tree()
 
@@ -440,9 +431,9 @@ class ResolutionTests(unittest.TestCase):
         self.assertEqual(caught.exception.wanted, "tool")
 
         with self.assertRaises(NodeNotFoundError) as caught:
-            tree.resource("team/troubleshooter/get_pod_logs")
-        self.assertEqual(caught.exception.kind, "tool")
-        self.assertEqual(caught.exception.wanted, "resource")
+            tree.tool("team/troubleshooter")
+        self.assertEqual(caught.exception.kind, "role")
+        self.assertEqual(caught.exception.wanted, "tool")
 
     def test_resolution_does_not_depend_on_earlier_calls(self) -> None:
         """The surface is stateless, so traversal has to be too."""
@@ -535,7 +526,7 @@ class ReferenceTests(unittest.TestCase):
         self.assertIn("team/troubleshooter", refs)
         self.assertIn("team/troubleshooter/diagnose", refs)
         self.assertIn("team/troubleshooter/get_pod_logs", refs)
-        self.assertIn("team/troubleshooter/crash-loop-runbook", refs)
+        self.assertIn("team/troubleshooter/crash_loop_runbook", refs)
         self.assertIn("team/operator/delete_pod", refs)
 
     def test_a_reference_reaches_a_sibling_branch_containment_cannot(self) -> None:

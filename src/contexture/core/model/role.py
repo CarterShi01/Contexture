@@ -6,23 +6,22 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar, Iterable, Iterator
 
 from . import declarative
-from .context import ContextNode
-from .errors import (
+from .node import ContextNode
+from ..errors import (
     DeclarationError,
     DuplicateNameError,
     LookupFailure,
     ModelValidationError,
     NodeNotFoundError,
 )
-from .resources import Resource
 from .skill import Skill
-from .tools import Tool
-from .types import CompiledContext
+from .tool import Tool
+from ..types import CompiledContext
 
 
 @dataclass(slots=True, kw_only=True)
 class Role(ContextNode):
-    """A responsibility boundary composed from roles, skills, tools, and resources.
+    """A responsibility boundary composed from roles, skills, and tools.
 
     Build one imperatively::
 
@@ -77,13 +76,9 @@ class Role(ContextNode):
     #              the role rather than to the method?
     #   tools      Can the framework execute this deterministically? If the
     #              answer is "the model has to judge", it is a skill.
-    #   resources  Is this content that exists whether or not anybody asks?
-    #              A read-only tool computes an answer from arguments; a
-    #              resource is already there and has its own stable URI.
     children: list[Role] = field(default_factory=list)
     skills: list[Skill] = field(default_factory=list)
     tools: list[Tool] = field(default_factory=list)
-    resources: list[Resource] = field(default_factory=list)
 
     kind: ClassVar[str] = "role"
 
@@ -99,7 +94,7 @@ class Role(ContextNode):
             return
         declaration = declarative.collect(
             cls,
-            member_types=(Role, Skill, Tool, Resource),
+            member_types=(Role, Skill, Tool),
         )
         _validate_declaration(cls, declaration)
         cls.declaration = declaration
@@ -112,25 +107,21 @@ class Role(ContextNode):
                 f"Role {self.name!r} must have active instructions."
             )
         self._require_unique_members()
-        self._require_unique(
-            (resource.uri for resource in self.resources),
-            "resource URIs",
-        )
 
     def members(self) -> Iterator[ContextNode]:
         """Yield everything this role holds, in a stable order.
 
         One definition of "what this role contains", used by the uniqueness
         check below, by `member()`, and by every caller that needs to walk a
-        role without caring which of the four lists a thing came from. The four
-        lists stay as fields because a declaration states them separately and a
-        payload groups them separately; traversal is where they are one thing.
+        role without caring which of the three lists a thing came from. The
+        three lists stay as fields because a declaration states them separately
+        and a payload groups them separately; traversal is where they are one
+        thing.
         """
 
         yield from self.children
         yield from self.skills
         yield from self.tools
-        yield from self.resources
 
     def member(self, name: str) -> ContextNode:
         """Return the one member of this role called `name`.
@@ -237,15 +228,6 @@ def _validate_declaration(
         owner=cls.__name__,
         label="tools",
     )
-    declarative.require_unique(
-        {
-            member.attribute: member.value.uri
-            for member in declaration.members
-            if isinstance(member.value, Resource)
-        },
-        owner=cls.__name__,
-        label="resources",
-    )
 
 
 def _declarative_init(self: Role, **overrides: Any) -> None:
@@ -262,7 +244,6 @@ def _declarative_init(self: Role, **overrides: Any) -> None:
             "children": list(declaration.of_type(Role)),
             "skills": list(declaration.of_type(Skill)),
             "tools": list(declaration.of_type(Tool)),
-            "resources": list(declaration.of_type(Resource)),
             **declaration.stated(),
             **overrides,
         },

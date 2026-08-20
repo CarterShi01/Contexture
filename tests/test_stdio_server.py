@@ -109,7 +109,7 @@ class StdioServerTests(unittest.TestCase):
         self.assertIn(protocol_version, {"2025-11-25", "2025-06-18", "2025-03-26"})
         self.assertEqual(names, set(GATEWAY_TOOLS))
 
-    def test_the_surface_is_five_tools_and_holds_no_capability(self) -> None:
+    def test_the_surface_is_the_gateway_and_holds_no_capability(self) -> None:
         """A capability on the surface is one every session pays for, forever.
 
         Checked on the wire rather than against the projection object, because
@@ -126,7 +126,15 @@ class StdioServerTests(unittest.TestCase):
 
         self.assertEqual(names, set(GATEWAY_TOOLS))
         self.assertEqual(names & {"get_pod_status", "get_pod_logs", "get_pod_events"}, set())
-        self.assertEqual(resources, [])
+        # The demo publishes two documents on the resource primitive, and
+        # nothing else: a capability never reaches a list a host can read.
+        self.assertEqual(
+            sorted(str(entry.uri) for entry in resources),
+            [
+                "contexture://runbooks/crash-loop-backoff",
+                "contexture://runbooks/rollback-policy",
+            ],
+        )
 
     def test_read_only_is_a_door_and_never_an_argument(self) -> None:
         """The approval hole this design is meant to close, checked on the wire.
@@ -191,12 +199,12 @@ class StdioServerTests(unittest.TestCase):
                 "contexture_invoke_read_only",
                 {"ref": f"{role_ref}/get_pod_logs", "arguments": pod},
             )
-            # The procedure names the runbook by its URI, so the agent passes
-            # the URI. That has to work, or the framework's addressing scheme
-            # becomes the skill author's problem to remember.
+            # The runbook is content the model navigated to, so it runs it
+            # like any other read-only tool. The host reaches the same bytes at
+            # a URI of its own; one node, two addresses.
             runbook = await session.call_tool(
-                "contexture_read",
-                {"ref": "contexture://runbooks/crash-loop-backoff"},
+                "contexture_invoke_read_only",
+                {"ref": f"{role_ref}/crash_loop_runbook"},
             )
             return (
                 role.structured_content,
@@ -323,25 +331,25 @@ class StdioServerTests(unittest.TestCase):
         self.assertNotIn(procedure, role)
         self.assertIn(procedure, opened["instructions"])
 
-    def test_resource_content_arrives_only_on_read(self) -> None:
+    def test_published_content_arrives_only_on_read(self) -> None:
         """Listing a resource must stay cheap, however large its content is."""
 
         async def work(session):
-            opened = await session.call_tool(
-                "contexture_open",
-                {"ref": "kubernetes-platform/incident-response/crash-loop-runbook"},
+            listed = await session.list_resources()
+            read = await session.read_resource(
+                "contexture://runbooks/crash-loop-backoff"
             )
-            read = await session.call_tool(
-                "contexture_read",
-                {"ref": "kubernetes-platform/incident-response/crash-loop-runbook"},
+            return (
+                [str(entry.uri) for entry in listed.resources],
+                read.contents[0].text,
             )
-            return opened.structured_content, read.content[0].text
 
-        opened, content = _run(work)
+        listed, content = _run(work)
         marker = "Restarting the Pod does not repair a configuration error"
 
-        self.assertNotIn(marker, str(opened))
-        self.assertEqual(opened["uri"], "contexture://runbooks/crash-loop-backoff")
+        # Listing costs a descriptor; the document arrives only on a read.
+        self.assertIn("contexture://runbooks/crash-loop-backoff", listed)
+        self.assertNotIn(marker, str(listed))
         self.assertIn(marker, content)
 
 
@@ -441,7 +449,7 @@ class StdioCommandPlaneTests(unittest.TestCase):
         result = _run(work)
 
         self.assertIn(
-            "kubernetes-platform/incident-response/crash-loop-runbook",
+            "kubernetes-platform/incident-response/crash_loop_runbook",
             result.completion.values,
         )
         self.assertEqual(result.completion.total, len(result.completion.values))

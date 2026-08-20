@@ -14,7 +14,7 @@ tool behind the writing door.
 from __future__ import annotations
 
 from contexture import Role
-from .resources import CrashLoopRunbook, RollbackPolicy
+from .documents import CrashLoopRunbook, RollbackPolicy
 from .skills import DiagnoseCrashLoopBackOff, RollBackAFailedRelease
 from .tools import (
     GetPodEvents,

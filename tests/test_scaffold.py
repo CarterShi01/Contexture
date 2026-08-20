@@ -26,7 +26,7 @@ from contexture.cli import (
     new_project,
     resolve_target,
 )
-from contexture.tree import ContextTree
+from contexture.core.disclosure.tree import ContextTree
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -101,25 +101,36 @@ class GeneratedProjectTests(unittest.TestCase):
         for name in [m for m in sys.modules if m.startswith("my_context")]:
             del sys.modules[name]
 
-    def test_the_generated_role_imports_and_declares_all_four_kinds(self) -> None:
+    def test_the_generated_role_imports_and_declares_every_kind(self) -> None:
         module = importlib.import_module("my_context.assistant")
         role = module.MyContextAssistant()
 
         self.assertIsInstance(role, Role)
         self.assertEqual(role.name, "my-context-assistant")
         self.assertEqual([s.name for s in role.skills], ["check-target"])
-        self.assertEqual([t.name for t in role.tools], ["ping"])
         self.assertEqual(
-            [r.uri for r in role.resources], ["my-context://runbooks/health"]
+            sorted(t.name for t in role.tools), ["health_runbook", "ping"]
         )
 
-    def test_the_generated_tool_and_resource_execute(self) -> None:
+    def test_the_generated_tools_execute(self) -> None:
         module = importlib.import_module("my_context.assistant")
         role = module.MyContextAssistant()
+        by_name = {tool.name: tool for tool in role.tools}
 
-        result = asyncio.run(role.tools[0].invoke(target="payments-api"))
+        result = asyncio.run(by_name["ping"].invoke(target="payments-api"))
         self.assertIn("payments-api", result)
-        self.assertIn("reachable", asyncio.run(role.resources[0].read()))
+        self.assertIn("reachable", asyncio.run(by_name["health_runbook"].invoke()))
+
+    def test_the_generated_surface_publishes_the_runbook(self) -> None:
+        """The scaffold shows both planes: a tool to navigate to, and a URI."""
+
+        surface = importlib.import_module("my_context.surface").SURFACE
+
+        (published,) = surface
+        self.assertEqual(published.uri, "my-context://runbooks/health")
+        self.assertEqual(
+            published.opens, "my-context-assistant/health_runbook"
+        )
 
     def test_the_generated_graph_discloses_progressively(self) -> None:
         module = importlib.import_module("my_context.assistant")

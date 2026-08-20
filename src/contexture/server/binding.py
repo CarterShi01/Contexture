@@ -15,9 +15,13 @@ What is on the surface is five tools, whatever the declaration contains::
 
     contexture_discover              the root roles, one level
     contexture_open                  one node's detail, plus its members' cards
-    contexture_read                  a resource's content
     contexture_invoke_read_only      run a tool that leaves the world unchanged
     contexture_invoke                run a tool that does not
+
+The other two primitives carry what a model does not drive: prompts a person
+triggers by name, and resources a host may take up on its own. Both are
+declared in `core.mcp_interface` and hung here, and both name a node the tree
+still holds — so nothing on them is a second copy of anything.
 
 **`read_only` is which door, not which argument.** A host cannot see a business
 tool any more, so it cannot be told per tool whether to ask a human first. It
@@ -31,27 +35,29 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Iterable, Sequence
 
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.prompts import Prompt as SDKPrompt
+from mcp.server.mcpserver.resources import FunctionResource
 from mcp.server.mcpserver.tools import Tool as SDKTool
 from mcp_types import Completion, ToolAnnotations
 
-from ..core.errors import ContextureError, NodeNotFoundError
-from ..core.context import Opener
-from ..core.tools import Tool
+from ..core.errors import ContextureError, ModelValidationError, NodeNotFoundError
+from ..core.mcp_interface.prompt import Prompt
+from ..core.mcp_interface.resource import Resource
+from ..core.model.tool import Tool
 from ..core.types import CompiledContext, JsonObject
-from ..tree import SEPARATOR, ContextTree
-from . import contract
-from .contract import (
+from ..core.disclosure.tree import SEPARATOR, ContextTree
+from ..core.mcp_interface.tool import (
     DISCOVER_TOOL,
+    GATEWAY,
     INVOKE_READ_ONLY_TOOL,
     INVOKE_TOOL,
     OPEN_TOOL,
-    READ_TOOL,
 )
+from . import messages
 
 
 @dataclass(slots=True)
@@ -110,6 +116,7 @@ def project(
     *,
     tree: ContextTree,
     dispatch: Dispatch,
+    surface: Sequence[Prompt | Resource] = (),
 ) -> None:
     """Register the five gateway tools against `tree`.
 
@@ -117,13 +124,26 @@ def project(
     with, so a card's schema and the validation a call is checked against
     are derived once, from one place.
 
+    `surface` is what this server puts on the prompt and resource primitives.
+    Empty is the ordinary case: a declaration reaches an agent through the
+    gateway whether or not anybody named a way in for a person.
+
     Returns nothing. It used to return a record of what had been registered,
     from back when that varied with the declaration; behind a fixed gateway it
-    could only ever restate `contract.GATEWAY_TOOLS`, and a caller that wants
+    could only ever restate `GATEWAY_TOOLS`, and a caller that wants
     to know what is on the wire should ask the server rather than be told by
     the function that wrote to it.
     """
 
+
+    # Computed before the entry points are defined, because `contexture_open`
+    # closes over it. A prompt that reserves its node for a person is the only
+    # thing that puts a ref in here.
+    reserved = frozenset(
+        entry.opens
+        for entry in surface
+        if isinstance(entry, Prompt) and not entry.model_may_open
+    )
 
     async def contexture_discover() -> CompiledContext:
         # What the agent is told about this entry point is in `contract`.
@@ -132,18 +152,13 @@ def project(
 
     async def contexture_open(ref: str) -> CompiledContext:
         with _translated(OPEN_TOOL):
-            node = tree.find(ref)
-            if Opener.MODEL not in node.opened_by:
-                # Refused here rather than in the tree, because the tree serves
-                # both doors and only this layer knows which one a call came
-                # through. The same division `wrong_door` rests on.
-                raise ToolError(contract.command_taken_by_a_person(ref))
+            if ref in reserved:
+                # Refused here rather than in the tree, because the tree holds
+                # no opinion about who is asking and only this layer knows
+                # which door a call came through. The same division
+                # `wrong_door` rests on.
+                raise ToolError(messages.command_taken_by_a_person(ref))
             return tree.open(ref)
-
-    async def contexture_read(ref: str) -> str | bytes:
-        with _translated(READ_TOOL):
-            resource = tree.resource(ref)
-        return await resource.read()
 
     async def contexture_invoke_read_only(
         ctx: Context,
@@ -162,7 +177,6 @@ def project(
     implementations = {
         DISCOVER_TOOL: contexture_discover,
         OPEN_TOOL: contexture_open,
-        READ_TOOL: contexture_read,
         INVOKE_READ_ONLY_TOOL: contexture_invoke_read_only,
         INVOKE_TOOL: contexture_invoke,
     }
@@ -170,7 +184,7 @@ def project(
     # Registered from the contract rather than five call sites, so "the surface
     # is exactly these five, described exactly this way" is a fact about one
     # tuple instead of an agreement between ten places.
-    for entry in contract.GATEWAY:
+    for entry in GATEWAY:
         server.add_tool(
             implementations[entry.name],
             name=entry.name,
@@ -178,30 +192,61 @@ def project(
             annotations=ToolAnnotations(read_only_hint=entry.read_only),
         )
 
-    _project_commands(server, tree=tree)
+    _project_surface(server, tree=tree, dispatch=dispatch, surface=surface)
 
 
-def _project_commands(server: MCPServer, *, tree: ContextTree) -> None:
-    """Put every person-opened node on the prompt plane.
+def _project_surface(
+    server: MCPServer,
+    *,
+    tree: ContextTree,
+    dispatch: Dispatch,
+    surface: Sequence[Prompt | Resource],
+) -> None:
+    """Hang the declared surface on the two primitives the model does not drive.
 
-    One prompt per marked node and no more: the count is what somebody wrote
-    down, never what the forest holds, which is what keeps the menu a menu and
-    keeps the surface legal — a server may not vary its prompt list once it is
+    Each entry names a node and the tree keeps holding it, so a capability
+    reached this way and reached by navigating is one capability with two
+    addresses rather than two declarations that can disagree.
+
+    One entry per declaration and no more: the count is what somebody wrote
+    down, never what the forest holds, which is what keeps a menu a menu and
+    keeps the surface legal — a server may not vary these lists once it is
     serving.
 
-    Each prompt takes no arguments. The node it opens is fixed at registration,
-    so there is nothing for a person to fill in and nothing to complete; the
-    command *is* the argument.
+    Every `opens` is resolved here, at startup. A surface naming a node that
+    does not exist must fail on the way up rather than in front of whoever
+    reached for it.
     """
 
-    for ref, node in tree.commands():
-        server.add_prompt(
-            SDKPrompt.from_function(
-                _command(tree, ref),
-                name=ref.rsplit(SEPARATOR, 1)[-1],
-                description=contract.command_description(ref, node.description),
+    _reject_ambiguous_names(surface)
+
+    for entry in surface:
+        name = _surface_name(entry)
+        if isinstance(entry, Prompt):
+            node = _resolve(tree, entry.opens, "prompt")
+            # No arguments: the node is fixed at registration, so there is
+            # nothing for a person to fill in and nothing to complete. The
+            # prompt *is* the argument.
+            server.add_prompt(
+                SDKPrompt.from_function(
+                    _command(tree, entry.opens),
+                    name=name,
+                    description=messages.command_description(
+                        entry.opens, entry.description or node.description
+                    ),
+                )
             )
-        )
+        else:
+            _require_content_tool(tree, dispatch, entry)
+            server.add_resource(
+                FunctionResource.from_function(
+                    _reader(tree, entry.opens),
+                    uri=entry.uri,
+                    name=name,
+                    description=entry.description,
+                    mime_type=entry.mime_type,
+                )
+            )
 
     async def goto(ref: str) -> str:
         return await _open_by_name(tree, ref)
@@ -209,8 +254,8 @@ def _project_commands(server: MCPServer, *, tree: ContextTree) -> None:
     server.add_prompt(
         SDKPrompt.from_function(
             goto,
-            name=contract.GOTO_PROMPT,
-            description=contract.GOTO_DESCRIPTION,
+            name=messages.GOTO_PROMPT,
+            description=messages.GOTO_DESCRIPTION,
         )
     )
 
@@ -228,21 +273,127 @@ def _project_commands(server: MCPServer, *, tree: ContextTree) -> None:
         this server's refs under somebody else's prompt.
         """
 
-        if getattr(ref, "name", None) != contract.GOTO_PROMPT:
+        if getattr(ref, "name", None) != messages.GOTO_PROMPT:
             return None
-        if argument.name != contract.GOTO_ARGUMENT:
+        if argument.name != messages.GOTO_ARGUMENT:
             return None
 
         matches, total = tree.matching_refs(
-            argument.value, limit=contract.COMPLETION_LIMIT
+            argument.value, limit=messages.COMPLETION_LIMIT
         )
         values = list(matches)
         if total > len(values):
             # The protocol carries `total` and `has_more`, and a host may show
             # neither. One value spent saying so is cheaper than a person
             # believing they have seen everything.
-            values[-1] = contract.truncated_completion(len(values), total)
+            values[-1] = messages.truncated_completion(len(values), total)
         return Completion(values=values, total=total, has_more=total > len(matches))
+
+
+def _surface_name(entry: Prompt | Resource) -> str:
+    """The name a host shows, defaulting to the last segment of the ref.
+
+    A second name, independent of position — the same thing a URI has always
+    been for a document, now the only kind of second name in the package.
+    """
+
+    return entry.name or entry.opens.rsplit(SEPARATOR, 1)[-1]
+
+
+def _reject_ambiguous_names(surface: Iterable[Prompt | Resource]) -> None:
+    """Refuse two entries somebody would reach the same way.
+
+    A node's name only has to be unique among its siblings, because a ref
+    supplies the rest of the address. Here there is no such context: these are
+    flat names in a menu, so two `deploy` prompts from two branches produce one
+    name nobody can aim.
+
+    Refused rather than disambiguated. Generating `deploy-2`, or spelling a
+    whole ref into a menu, both answer "which one did you mean" with something
+    nobody would have chosen — and the declaration is right there to be edited.
+    """
+
+    names: dict[tuple[str, str], str] = {}
+    uris: dict[str, str] = {}
+    for entry in surface:
+        key = (entry.kind, _surface_name(entry))
+        if key in names:
+            raise ModelValidationError(
+                f"{names[key]!r} and {entry.opens!r} are both exposed as the "
+                f"{entry.kind} {_surface_name(entry)!r}. A ref tells them "
+                "apart and a name in a menu cannot; rename one."
+            )
+        names[key] = entry.opens
+        if isinstance(entry, Resource):
+            if entry.uri in uris:
+                raise ModelValidationError(
+                    f"{uris[entry.uri]!r} and {entry.opens!r} are both "
+                    f"published at {entry.uri!r}. One address names one thing."
+                )
+            uris[entry.uri] = entry.opens
+
+
+def _resolve(tree: ContextTree, ref: str, kind: str) -> Any:
+    """Resolve one `opens`, turning a miss into a declaration error.
+
+    A failed lookup here has a different audience from one at request time:
+    nobody is waiting on an answer, and the person who can fix it is whoever
+    wrote the declaration. So it does not become `messages.unresolved`.
+    """
+
+    try:
+        return tree.find(ref)
+    except NodeNotFoundError as failure:
+        raise ModelValidationError(
+            f"The {kind} for {ref!r} names a node that does not exist "
+            f"({failure.reason.value}). A surface entry is resolved when the "
+            "server is built so that it fails on the way up rather than in "
+            "front of whoever reached for it."
+        ) from None
+
+
+def _require_content_tool(
+    tree: ContextTree,
+    dispatch: Dispatch,
+    entry: Resource,
+) -> None:
+    """Refuse a resource that does not name content already sitting there.
+
+    A resource is *fetched*, not computed: two reads return the same bytes
+    until the document itself changes. That shape is exactly a read-only tool
+    with no arguments, and both halves are checked — a tool with parameters has
+    no answer to give when a host reads it with none, and a writing tool run by
+    a host that thinks it is fetching a document is the wrong door with nobody
+    at it.
+    """
+
+    _resolve(tree, entry.opens, "resource")
+    tool = tree.tool(entry.opens)
+    if not tool.read_only:
+        raise ModelValidationError(
+            f"Resource {entry.uri!r} names {entry.opens!r}, which is not "
+            "read-only. Reading a resource must leave the world unchanged."
+        )
+    if dispatch.schema(tool).get("properties"):
+        raise ModelValidationError(
+            f"Resource {entry.uri!r} names {entry.opens!r}, which takes "
+            "arguments. A host reads a resource with none, so what it names "
+            "has to answer with none."
+        )
+
+
+def _reader(tree: ContextTree, ref: str) -> Callable[[], Awaitable[Any]]:
+    """Build the function a host calls when it reads this resource.
+
+    Resolved per call rather than captured, for the same reason a command's
+    text is assembled per call: one node reached two ways must not be able to
+    answer two different things.
+    """
+
+    async def read() -> Any:
+        return await tree.tool(ref).invoke()
+
+    return read
 
 
 def _command(tree: ContextTree, ref: str) -> Callable[[], Awaitable[str]]:
@@ -331,14 +482,14 @@ async def _open_by_name(tree: ContextTree, ref: str) -> str:
     capabilities its owner could not read.
     """
 
-    with _translated(contract.GOTO_PROMPT):
+    with _translated(messages.GOTO_PROMPT):
         payload = tree.open(ref)
         levels = tree.signpost(ref)
     sections = [
-        contract.COMMAND_PREAMBLE.format(ref=ref),
-        contract.signpost(levels),
+        messages.COMMAND_PREAMBLE.format(ref=ref),
+        messages.signpost(levels),
         json.dumps(payload, ensure_ascii=False, indent=2),
-        contract.COMMAND_CLOSING,
+        messages.COMMAND_CLOSING,
     ]
     return "\n\n".join(section for section in sections if section)
 
@@ -362,7 +513,7 @@ async def _invoke(
         # The host decided whether to involve a human from the hint on the
         # entry point. Honouring a mismatch would run a write under a
         # read-only approval, so the mismatch is refused instead.
-        raise ToolError(contract.wrong_door(ref, is_read_only=tool.read_only))
+        raise ToolError(messages.wrong_door(ref, is_read_only=tool.read_only))
 
     return await dispatch.run(tool, arguments, context)
 
@@ -392,7 +543,7 @@ class _translated:
         if exc is None or not isinstance(exc, ContextureError):
             return False
         if isinstance(exc, NodeNotFoundError):
-            raise ToolError(contract.unresolved(exc)) from exc
+            raise ToolError(messages.unresolved(exc)) from exc
         # Everything else here is a declaration-time failure with one audience
         # — whoever wrote the declaration — so it already carries its sentence.
         raise ToolError(str(exc)) from exc

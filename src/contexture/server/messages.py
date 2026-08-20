@@ -21,15 +21,20 @@ SDK does.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from ..core.errors import LookupFailure, NodeNotFoundError
 
-DISCOVER_TOOL = "contexture_discover"
-OPEN_TOOL = "contexture_open"
-READ_TOOL = "contexture_read"
-INVOKE_READ_ONLY_TOOL = "contexture_invoke_read_only"
-INVOKE_TOOL = "contexture_invoke"
+# Imported for the sentences below, not re-exported. The five entry points are
+# declared in `core.mcp_interface.tool` — what this server exposes on a
+# primitive is a fact about the surface, not about the wording. What lives here
+# is everything said *to* somebody: an agent that took a wrong turn, or a
+# person reading a command.
+from ..core.mcp_interface.tool import (
+    DISCOVER_TOOL,
+    INVOKE_READ_ONLY_TOOL,
+    INVOKE_TOOL,
+    OPEN_TOOL,
+)
+
 
 #: The one command every server offers, whatever the declaration marked.
 GOTO_PROMPT = "goto"
@@ -41,81 +46,6 @@ GOTO_ARGUMENT = "ref"
 COMPLETION_LIMIT = 100
 
 
-@dataclass(slots=True, frozen=True, kw_only=True)
-class GatewayTool:
-    """One entry point, and everything the agent learns about it.
-
-    The description is stated once, here, rather than once on the function and
-    again at registration. Two copies of a control's label is how the worse one
-    ends up being the one that ships.
-    """
-
-    name: str
-    description: str
-    read_only: bool
-
-
-#: The whole surface, in registration order. A declaration of any size projects
-#: onto exactly this: business capabilities travel inside payloads, never here.
-GATEWAY = (
-    GatewayTool(
-        name=DISCOVER_TOOL,
-        read_only=True,
-        description=(
-            "List the top-level roles this server serves, as short routing "
-            "cards. Start here, then open the one that matches the task; its "
-            "sub-roles arrive with it, one level at a time, so a large tree "
-            "costs only the branch you enter. A role card is a name, a "
-            "sentence, and the ref that opens it — instructions and document "
-            "content arrive on opening, never here."
-        ),
-    ),
-    GatewayTool(
-        name=OPEN_TOOL,
-        read_only=True,
-        description=(
-            "Open one role, skill, tool, or resource by ref. Opening a role "
-            "returns its instructions and a card for every skill, tool, "
-            "resource and sub-role it holds, each with the ref that opens it "
-            "and each tool with the schema needed to call it. Opening a skill "
-            "returns its complete procedure, available here and nowhere else. "
-            "A tool's card is already complete, so run the tool rather than "
-            "opening it. Pass a ref taken from a card; never assemble one."
-        ),
-    ),
-    GatewayTool(
-        name=READ_TOOL,
-        read_only=True,
-        description=(
-            "Return the content of one resource, addressed either by the ref "
-            "from its card or by the resource's own URI — so a procedure that "
-            "names a document the way the document names itself can be "
-            "followed literally."
-        ),
-    ),
-    GatewayTool(
-        name=INVOKE_READ_ONLY_TOOL,
-        read_only=True,
-        description=(
-            "Run a tool that leaves the world unchanged. Use this for every "
-            "tool whose card says read_only: true. The ref and arguments come "
-            "from that card. A tool that is not read-only is refused here."
-        ),
-    ),
-    GatewayTool(
-        name=INVOKE_TOOL,
-        read_only=False,
-        description=(
-            "Run a tool that changes something. Use this for every tool whose "
-            "card says read_only: false. The ref and arguments come from that "
-            "card. A read-only tool is refused here, so that a host can tell "
-            "the two apart before a human is asked to approve anything."
-        ),
-    ),
-)
-
-#: Every tool this server will ever expose, in the order they are registered.
-GATEWAY_TOOLS = tuple(entry.name for entry in GATEWAY)
 
 #: The self-contained opening. Keep this under 512 characters.
 PREAMBLE = f"""\
@@ -177,13 +107,6 @@ def unresolved(failure: NodeNotFoundError) -> str:
             f"{failure.scope!r} to see each member with the ref that opens it."
         )
 
-    if reason is LookupFailure.NO_SUCH_URI:
-        return (
-            f"No resource is published at {ref!r}. Open the role that owns it "
-            f"with {OPEN_TOOL}; its resource cards carry both the ref and the "
-            "URI."
-        )
-
     if reason is LookupFailure.WRONG_KIND:
         # The kind that was actually found decides the recovery, so name the
         # one call that works rather than offering a menu of three.
@@ -192,7 +115,6 @@ def unresolved(failure: NodeNotFoundError) -> str:
                 f"Run it with {INVOKE_READ_ONLY_TOOL} or {INVOKE_TOOL}, "
                 "whichever its card says."
             ),
-            "resource": f"Read it with {READ_TOOL}.",
         }.get(failure.kind, f"Open it with {OPEN_TOOL}.")
         return f"{ref} names a {failure.kind}, not a {failure.wanted}. {recovery}"
 
@@ -246,7 +168,7 @@ SIGNPOST_PREAMBLE = (
 
 #: Closes a command's text, pointing back at the ordinary surface.
 COMMAND_CLOSING = (
-    f"Continue with {OPEN_TOOL}, {READ_TOOL}, {INVOKE_READ_ONLY_TOOL} or "
+    f"Continue with {OPEN_TOOL}, {INVOKE_READ_ONLY_TOOL} or "
     f"{INVOKE_TOOL}, using refs taken from what is above. Nothing listed here "
     "was reached by navigating, so nothing beside it has been shown to you."
 )
@@ -319,24 +241,16 @@ __all__ = [
     "COMMAND_CLOSING",
     "COMPLETION_LIMIT",
     "COMMAND_PREAMBLE",
-    "DISCOVER_TOOL",
     "GOTO_ARGUMENT",
     "GOTO_ARGUMENT_DESCRIPTION",
     "GOTO_DESCRIPTION",
     "GOTO_PROMPT",
-    "GATEWAY",
-    "GATEWAY_TOOLS",
-    "GatewayTool",
-    "INVOKE_READ_ONLY_TOOL",
-    "INVOKE_TOOL",
-    "OPEN_TOOL",
     "SIGNPOST_PREAMBLE",
     "command_description",
     "command_taken_by_a_person",
     "signpost",
     "truncated_completion",
     "PREAMBLE",
-    "READ_TOOL",
     "REF_RULE",
     "unresolved",
     "wrong_door",

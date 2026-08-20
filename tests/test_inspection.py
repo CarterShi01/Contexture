@@ -18,12 +18,11 @@ import json
 import unittest
 
 from contexture import inspection
-from contexture.core.resources import Resource
-from contexture.core.role import Role
-from contexture.core.skill import Skill
-from contexture.core.tools import Tool
+from contexture.core.model.role import Role
+from contexture.core.model.skill import Skill
+from contexture.core.model.tool import Tool
 from contexture.server import DISCOVER_TOOL, OPEN_TOOL, ContextureApp, instructions
-from contexture.tree import ContextTree
+from contexture.core.disclosure.tree import ContextTree
 
 
 class GetPodLogs(Tool):
@@ -36,13 +35,13 @@ class GetPodLogs(Tool):
         return f"{namespace}/{pod} previous={previous}"
 
 
-class Runbook(Resource):
+class Runbook(Tool):
     """How to diagnose a container that keeps restarting."""
 
-    uri = "contexture://runbooks/crash-loop"
-    mime_type = "text/markdown"
+    name = "runbook"
+    read_only = True
 
-    async def read(self) -> str:
+    async def invoke(self) -> str:
         return "RUNBOOK-BODY"
 
 
@@ -214,14 +213,14 @@ class RefusalTests(unittest.TestCase):
         self.assertEqual(len(traced.steps), 4)
         self.assertEqual(len(traced.failures), 2)  # the bad ref, and "x"
 
-    def test_reading_something_that_is_not_a_resource_is_refused_in_words(
+    def test_reading_something_that_is_not_content_is_refused_in_words(
         self,
     ) -> None:
         app = _app()
-        step = inspection.read_step(app.tree, "platform/responder/get_pod_logs")
+        step = inspection.read_step(app.tree, "platform/responder/diagnose")
 
         self.assertTrue(step.refused)
-        self.assertIn("names a tool", step.body)
+        self.assertIn("names a skill", step.body)
 
 
 class SweepTests(unittest.TestCase):

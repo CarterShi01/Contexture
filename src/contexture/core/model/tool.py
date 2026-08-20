@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from . import declarative
-from .context import ContextNode
-from .types import CompiledContext
+from .node import ContextNode
+from ..types import CompiledContext
 
 
 @dataclass(slots=True, kw_only=True)
@@ -41,10 +41,10 @@ class Tool(ContextNode):
     producing it requires judgement, the model must do it and what belongs in
     the declaration is a Skill.
 
-    A read-only Tool and a Resource look alike from outside and are not: this
-    derives an answer from the arguments it is given, while a Resource is
-    content that already exists at a stable URI and is merely fetched. If two
-    calls with no arguments must return the same bytes, it is a Resource.
+    Content this application already holds is a read-only Tool that takes no
+    arguments: two calls return the same bytes, and it computes nothing. A host
+    may publish one at a URI of its own — see `core.mcp_interface.resource` —
+    but that is a second name for it, not a second kind of node.
 
     **One instance serves the whole process, so `invoke` must be re-entrant.**
     A Tool is built once, when the tree is, and every call to it — from every

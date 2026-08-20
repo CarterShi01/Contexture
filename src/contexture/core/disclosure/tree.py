@@ -37,13 +37,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Iterable, Iterator
 
-from .core.context import CompileLevel, ContextNode, Opener
-from .core.errors import LookupFailure, ModelValidationError, NodeNotFoundError
-from .core.resources import Resource
-from .core.role import Role
-from .core.skill import Skill
-from .core.tools import Tool
-from .core.types import CompiledContext, JsonObject
+from ..model.node import CompileLevel, ContextNode
+from ..errors import LookupFailure, ModelValidationError, NodeNotFoundError
+from ..model.role import Role
+from ..model.skill import Skill
+from ..model.tool import Tool
+from ..types import CompiledContext, JsonObject
 
 #: Separates one segment of a reference from the next.
 SEPARATOR = "/"
@@ -108,7 +107,6 @@ class ContextTree:
         # is known to be walkable. The two checks above are what make that
         # walk safe.
         self._reject_unresolvable_uses()
-        self._reject_ambiguous_commands()
 
     # ---- 1. the skeleton -------------------------------------------------
 
@@ -180,20 +178,6 @@ class ContextTree:
 
         for root in self.roots:
             yield from walk(root, root.name)
-
-    def commands(self) -> Iterator[tuple[str, ContextNode]]:
-        """Yield every node a person may open, with its reference.
-
-        The command surface, and its size is **authored rather than derived**:
-        it counts what somebody marked, not what the forest holds. That is the
-        property the protocol needs — a server may not vary its prompt list
-        once it is serving — and the one a person needs, since a menu that grew
-        with the tree would stop being a menu.
-        """
-
-        for ref, node in self.nodes_with_refs():
-            if Opener.PERSON in node.opened_by:
-                yield ref, node
 
     def matching_refs(self, value: str, *, limit: int) -> tuple[tuple[str, ...], int]:
         """Rank addressable refs against what a person has typed so far.
@@ -300,26 +284,6 @@ class ContextTree:
             )
         return node
 
-    def resource(self, ref: str) -> Resource:
-        """Resolve a resource, by reference or by its own URI.
-
-        Both spellings are accepted on purpose. A skill's instructions are
-        written by whoever owns the domain, and they name a document the way
-        the document names itself — `contexture://runbooks/crash-loop-backoff`,
-        not a path through the role tree. Refusing that spelling would make
-        this framework's addressing scheme the author's problem to remember.
-        """
-
-        node = self._by_uri(ref) if "://" in ref else self.find(ref)
-        if not isinstance(node, Resource):
-            raise NodeNotFoundError(
-                reason=LookupFailure.WRONG_KIND,
-                ref=ref,
-                kind=node.kind,
-                wanted=Resource.kind,
-            )
-        return node
-
     # ---- 3. opening one node ---------------------------------------------
 
     def open(self, ref: str) -> CompiledContext:
@@ -363,8 +327,6 @@ class ContextTree:
         node = self.find(ref)
         if isinstance(node, Tool):
             return self._tool_card(node, ref)
-        if isinstance(node, Resource):
-            return _resource_card(node, ref)
         return _card(node, ref)
 
     def _members(self, role: Role, ref: str) -> CompiledContext:
@@ -375,10 +337,6 @@ class ContextTree:
             "sub_roles": [_card(child, at(child.name)) for child in role.children],
             "skills": [_card(skill, at(skill.name)) for skill in role.skills],
             "tools": [self._tool_card(tool, at(tool.name)) for tool in role.tools],
-            "resources": [
-                _resource_card(resource, at(resource.name))
-                for resource in role.resources
-            ],
         }
 
     def _tool_card(self, tool: Tool, ref: str) -> CompiledContext:
@@ -441,31 +399,6 @@ class ContextTree:
                         "that lists them."
                     )
 
-    def _reject_ambiguous_commands(self) -> None:
-        """Refuse two commands a person would type the same way.
-
-        A node's name only has to be unique among its siblings, because a ref
-        supplies the rest of the address. A command has no such context: it is
-        a flat name in a menu, so two `deploy` nodes in two branches produce
-        one name a person cannot aim.
-
-        Refused rather than disambiguated. Generating `deploy-2`, or spelling
-        the whole ref into the menu, both answer "which one did you mean" with
-        something nobody would have chosen — and the declaration is right there
-        to be edited.
-        """
-
-        claimed: dict[str, str] = {}
-        for ref, _ in self.commands():
-            name = ref.rsplit(SEPARATOR, 1)[-1]
-            if name in claimed:
-                raise ModelValidationError(
-                    f"{claimed[name]!r} and {ref!r} are both opened by a "
-                    f"person and would both be the command {name!r}. A ref "
-                    "tells them apart and a command name cannot; rename one."
-                )
-            claimed[name] = ref
-
     def crossings(self) -> Iterator[tuple[str, str, str]]:
         """Yield every reference that leaves the root branch it was made from.
 
@@ -496,13 +429,6 @@ class ContextTree:
             known=sorted(root.name for root in self.roots),
         )
 
-    def _by_uri(self, uri: str) -> Resource:
-        for _, role in self.roles_with_refs():
-            for resource in role.resources:
-                if resource.uri == uri:
-                    return resource
-        raise NodeNotFoundError(reason=LookupFailure.NO_SUCH_URI, ref=uri)
-
 
 def _card(node: ContextNode, ref: str) -> CompiledContext:
     """Render one routing card.
@@ -513,13 +439,6 @@ def _card(node: ContextNode, ref: str) -> CompiledContext:
     """
 
     return {**node.compile(CompileLevel.ROUTE), "ref": ref}
-
-
-def _resource_card(resource: Resource, ref: str) -> CompiledContext:
-    card = {**_card(resource, ref), "uri": resource.uri}
-    if resource.mime_type is not None:
-        card["mime_type"] = resource.mime_type
-    return card
 
 
 def _reject_ambiguous_names(root: Role) -> None:

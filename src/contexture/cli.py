@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 from .core.errors import ContextureError
-from .core.role import Role
+from .core.model.role import Role
 
 #: Templates ship as package data beside this module.
 TEMPLATES = Path(__file__).parent / "templates"
@@ -43,6 +43,11 @@ CONFIG_TABLE = "contexture"
 
 #: The reference application this package ships, for `contexture demo`.
 DEMO_TARGET = "contexture.examples.incident:KubernetesPlatform"
+
+#: What the demo publishes on the resource primitive. Named rather than
+#: imported, for the same reason its roots are: `cli` resolves the example
+#: at run time and does not depend on it.
+DEMO_SURFACE = "contexture.examples.incident.server:SURFACE"
 
 
 class UsageError(ContextureError):
@@ -65,6 +70,7 @@ class Names:
     role_class: str
     role_description: str
     resource_scheme: str
+    role_ref: str
 
     @classmethod
     def derive(cls, raw: str) -> Names:
@@ -88,6 +94,9 @@ class Names:
                 f"Answer requests about {slug.replace('-', ' ')}."
             ),
             resource_scheme=slug,
+            # The reference an agent is handed: a role's node name is
+            # its class name in kebab case, and this role is a root.
+            role_ref=f"{slug}-assistant",
         )
 
     def as_variables(self) -> dict[str, str]:
@@ -97,6 +106,7 @@ class Names:
             "role_class": self.role_class,
             "role_description": self.role_description,
             "resource_scheme": self.resource_scheme,
+            "role_ref": self.role_ref,
         }
 
 
@@ -198,6 +208,11 @@ class ProjectConfig:
     name: str
     roots: tuple[str, ...]
 
+    #: What the project puts on the prompt and resource primitives, as
+    #: `package.module:NAME` targets. Optional: a declaration reaches an agent
+    #: through the gateway whether or not anybody named a way in for a person.
+    surface: tuple[str, ...] = ()
+
     @classmethod
     def load(cls, root: Path) -> ProjectConfig:
         table = _read_toml(root / "pyproject.toml").get("tool", {}).get(
@@ -211,10 +226,14 @@ class ProjectConfig:
                 f"{root / 'pyproject.toml'} has a [tool.contexture] table but no "
                 "`roots`. List at least one, as \"package.module:RoleClass\"."
             )
+        exposed = table.get("surface") or ()
+        if isinstance(exposed, str):
+            exposed = (exposed,)
         return cls(
             root=root,
             name=str(table.get("name") or root.name),
             roots=tuple(str(target) for target in targets),
+            surface=tuple(str(target) for target in exposed),
         )
 
 
@@ -259,14 +278,49 @@ def load_roots(targets: Sequence[str], *, project: Path | None) -> list[Role]:
     return [resolve_target(target) for target in targets]
 
 
+def load_surface(targets: Sequence[str]) -> list[object]:
+    """Resolve each `package.module:NAME` naming a prompt or a resource.
+
+    A target may name one entry or a sequence of them, because a project that
+    declares eight commands should not have to list eight lines here as well.
+    `sys.path` is already set by `load_roots`, which runs first.
+    """
+
+    entries: list[object] = []
+    for target in targets:
+        module_name, separator, attribute = target.partition(":")
+        if not separator or not module_name or not attribute:
+            raise UsageError(
+                f"{target!r} must be written as \"package.module:NAME\"."
+            )
+        try:
+            module = importlib.import_module(module_name)
+        except ModuleNotFoundError as exc:
+            raise UsageError(
+                f"Cannot import {module_name!r} ({exc}). Check `surface` in "
+                "pyproject.toml."
+            ) from exc
+        try:
+            declared = getattr(module, attribute)
+        except AttributeError:
+            raise UsageError(
+                f"{module_name!r} has no attribute {attribute!r}."
+            ) from None
+        if isinstance(declared, (list, tuple)):
+            entries.extend(declared)
+        else:
+            entries.append(declared)
+    return entries
+
+
 def _targets_and_project(
     target: str | None,
-) -> tuple[tuple[str, ...], Path | None, str | None]:
+) -> tuple[tuple[str, ...], Path | None, str | None, tuple[str, ...]]:
     """Resolve what to serve: an explicit target, or the enclosing project."""
 
     project = find_project()
     if target:
-        return (target,), project, None
+        return (target,), project, None, ()
     if project is None:
         raise UsageError(
             "No [tool.contexture] table found in this directory or above it. "
@@ -275,7 +329,7 @@ def _targets_and_project(
             "`contexture new <name>`."
         )
     config = ProjectConfig.load(project)
-    return config.roots, project, config.name
+    return config.roots, project, config.name, config.surface
 
 
 # -------------------------------------------------------------------- commands
@@ -295,9 +349,9 @@ def command_new(args: argparse.Namespace) -> int:
 
 
 def command_list(args: argparse.Namespace) -> int:
-    from .tree import ContextTree
+    from .core.disclosure.tree import ContextTree
 
-    targets, project, _ = _targets_and_project(args.target)
+    targets, project, _, _ = _targets_and_project(args.target)
     tree = ContextTree.of(load_roots(targets, project=project))
 
     # Printed with the reference an agent would actually be handed, so what a
@@ -310,8 +364,6 @@ def command_list(args: argparse.Namespace) -> int:
         for tool in role.tools:
             access = "read-only" if tool.read_only else "needs approval"
             print(f"{indent}  tool      {ref}/{tool.name}  ({access})")
-        for resource in role.resources:
-            print(f"{indent}  resource  {ref}/{resource.name}  ({resource.uri})")
     return 0
 
 
@@ -329,9 +381,12 @@ def command_inspect(args: argparse.Namespace) -> int:
     from .server import ContextureApp
     from .server import instructions as instructions_module
 
-    targets, project, name = _targets_and_project(args.target)
+    targets, project, name, exposed = _targets_and_project(args.target)
+    roots = load_roots(targets, project=project)
     app = ContextureApp(
-        roots=load_roots(targets, project=project), name=name or "contexture"
+        roots=roots,
+        surface=load_surface(exposed),
+        name=name or "contexture",
     )
 
     instructions = instructions_module.build(
@@ -367,7 +422,9 @@ def command_demo(args: argparse.Namespace) -> int:
     from .server import ContextureApp
 
     app = ContextureApp(
-        roots=resolve_target(DEMO_TARGET), name="contexture-demo"
+        roots=resolve_target(DEMO_TARGET),
+        surface=load_surface([DEMO_SURFACE]),
+        name="contexture-demo",
     )
     app.run(transport=args.transport)
     return 0
@@ -378,9 +435,13 @@ def command_serve(args: argparse.Namespace) -> int:
     # environment that has no SDK, and only this command needs one.
     from .server import ContextureApp
 
-    targets, project, name = _targets_and_project(args.target)
+    targets, project, name, exposed = _targets_and_project(args.target)
     roots = load_roots(targets, project=project)
-    app = ContextureApp(roots=roots, name=name or "contexture")
+    app = ContextureApp(
+        roots=roots,
+        surface=load_surface(exposed),
+        name=name or "contexture",
+    )
     app.run(transport=args.transport)
     return 0
 
@@ -395,7 +456,7 @@ def _display_path(path: Path) -> str:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="contexture",
-        description="Declare roles, skills, tools, and resources; serve them over MCP.",
+        description="Declare roles, skills and tools; serve them over MCP.",
     )
     subcommands = parser.add_subparsers(dest="command", required=True)
 
@@ -418,7 +479,7 @@ def build_parser() -> argparse.ArgumentParser:
     new.set_defaults(func=command_new)
 
     listing = subcommands.add_parser(
-        "list", help="print the roles, skills, tools, and resources that would be served"
+        "list", help="print the roles, skills and tools that would be served"
     )
     listing.add_argument("target", nargs="?", help="package.module:RoleClass")
     listing.set_defaults(func=command_list)

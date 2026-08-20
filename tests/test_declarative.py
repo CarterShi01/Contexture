@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from contexture import DeclarationError, Resource, Role, Skill, Tool
+from contexture import DeclarationError, Role, Skill, Tool
 
 
 class GetPods(Tool):
@@ -16,12 +16,13 @@ class GetPods(Tool):
         return namespace
 
 
-class Runbook(Resource):
+class Runbook(Tool):
     """Incident runbook."""
 
-    uri = "k8s://runbook"
+    name = "runbook"
+    read_only = True
 
-    async def read(self) -> str:
+    async def invoke(self) -> str:
         return "runbook"
 
 
@@ -119,8 +120,9 @@ class MemberCollectionTests(unittest.TestCase):
 
         role = Parent()
         self.assertEqual([c.name for c in role.children], ["child"])
-        self.assertEqual([t.name for t in role.tools], ["get-pods"])
-        self.assertEqual([r.uri for r in role.resources], ["k8s://runbook"])
+        self.assertEqual(
+            sorted(t.name for t in role.tools), ["get-pods", "runbook"]
+        )
         self.assertEqual(role.skills, [])
 
     def test_declaration_order_is_preserved(self) -> None:

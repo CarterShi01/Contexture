@@ -24,15 +24,17 @@ from __future__ import annotations
 import logging
 import sys
 from dataclasses import dataclass, field
-from typing import Iterable, Literal
+from typing import Iterable, Literal, Sequence
 
 from mcp.server.mcpserver import MCPServer
 
 from ..core.constants import PACKAGE_VERSION
-from ..core.role import Role
-from ..tree import ContextTree
+from ..core.mcp_interface.prompt import Prompt
+from ..core.mcp_interface.resource import Resource
+from ..core.model.role import Role
+from ..core.disclosure.tree import ContextTree
 from . import instructions as instructions_module
-from .projection import Dispatch, project
+from .binding import Dispatch, project
 
 #: The transports this server offers. HTTP+SSE was the 2024-11-05 two-endpoint
 #: transport; it was replaced by Streamable HTTP and is deprecated in the
@@ -46,6 +48,13 @@ class ContextureApp:
     """A declared capability graph, ready to be served over MCP."""
 
     roots: Role | Iterable[Role]
+
+    #: What this server puts on the prompt and resource primitives.
+    #: Authored, never derived: adding one is a code change and a restart,
+    #: which is what keeps these lists from varying under a live
+    #: connection — something the protocol forbids in any case.
+    surface: Sequence[Prompt | Resource] = ()
+
     name: str = "contexture"
     version: str = PACKAGE_VERSION
     instructions: str | None = None
@@ -68,7 +77,12 @@ class ContextureApp:
             instructions=self.instructions
             or instructions_module.build(self.tree),
         )
-        project(server, tree=self.tree, dispatch=self.dispatch)
+        project(
+            server,
+            tree=self.tree,
+            dispatch=self.dispatch,
+            surface=self.surface,
+        )
         return server
 
     def run(self, transport: Transport = "stdio", **kwargs: object) -> None:

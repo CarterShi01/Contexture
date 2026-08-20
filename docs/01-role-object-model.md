@@ -5,6 +5,17 @@
 > framework built around it (class-syntax declaration, target adapters, the
 > layer boundaries, the server) is [Design 02](02-framework-layers.md).
 
+> **Status note (v0.4.0).** Written when the object model had four kinds. It
+> now has three: `Resource` was deleted, and content is a read-only Tool that
+> takes no arguments — see
+> [ADR 009](adr/009-the-protocol-plane-is-not-the-object-model.md). Read every
+> mention of a `Resource` node below as a record of what the model used to
+> hold. Everything this document says about Role, Skill, Tool, the two compile
+> levels and the boundaries between them is current, and ADR 009 makes it more
+> so: with the fourth kind gone, "two levels and no third" has no exception
+> left. The directory names it uses predate
+> [ADR 010](adr/010-the-directories-are-the-architecture.md).
+
 ## 1. Purpose
 
 This document records the design reasoning behind the object model at the

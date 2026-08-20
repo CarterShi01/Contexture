@@ -5,23 +5,28 @@ declares its context once in `contexture.core`, and every agent runtime —
 Claude Code, Codex, anything else that speaks MCP — connects to the one server
 this package builds, rather than reading a file compiled for it in advance.
 
-Three responsibilities share this package, and they change at three different
-rates, so they are three modules rather than one:
+**What** this server exposes is declared one layer down, in
+`core.mcp_interface`, one module per MCP primitive. This package is **how**:
+the SDK calls, the dispatch, and every sentence said to whoever is reading.
 
-    contract        what the agent reads: the vocabulary, the bootstrap
-                    contract, each entry point's description, and the sentence
-                    a failed lookup becomes. Moves when the way an agent is
+Three responsibilities share it, and they change at three different rates, so
+they are three modules rather than one:
+
+    messages        everything said *to* somebody: the bootstrap text, the
+                    sentence a failed lookup becomes, what a person reads at
+                    the top of a command. Moves when the way an agent is
                     taught to walk the tree changes.
     instructions    fitting that text into one host's budget. Moves when Claude
                     Code or Codex ships.
-    projection      hanging it on the SDK. Moves when the SDK does.
+    binding         hanging the declared surface on the SDK. Moves when the
+                    SDK does.
 
-`app` composes the three; `registration` emits the launch command a host needs
-and belongs to none of them.
+`app` composes the three; `launch` emits the one file a host still needs — the
+command that starts this server — and belongs to none of them.
 
-Only `app` and `projection` import the official MCP SDK, and this facade
-resolves its exports lazily so that the two modules which do not — `contract`
-and `registration` — stay importable, and testable, without a wire in the room.
+Only `app` and `binding` import the official MCP SDK, and this facade resolves
+its exports lazily so that the two modules which do not — `messages` and
+`launch` — stay importable, and testable, without a wire in the room.
 """
 
 from __future__ import annotations
@@ -34,23 +39,28 @@ _EXPORTS = {
     "ContextureApp": ".app",
     "Transport": ".app",
     "configure_logging": ".app",
-    "DISCOVER_TOOL": ".contract",
-    "GATEWAY": ".contract",
-    "GATEWAY_TOOLS": ".contract",
-    "GatewayTool": ".contract",
-    "INVOKE_READ_ONLY_TOOL": ".contract",
-    "INVOKE_TOOL": ".contract",
-    "OPEN_TOOL": ".contract",
-    "PREAMBLE": ".contract",
-    "READ_TOOL": ".contract",
-    "unresolved": ".contract",
-    "Dispatch": ".projection",
-    "project": ".projection",
-    "Launch": ".registration",
-    "claude_code_config": ".registration",
-    "cli_commands": ".registration",
-    "codex_config": ".registration",
-    "cursor_config": ".registration",
+    # The five entry points are declared one layer down, in
+    # `core.mcp_interface`, beside what this server puts on the other two
+    # primitives. They are forwarded here because `contexture.server` is where
+    # a caller looks for what is on the wire — but they are defined there, and
+    # this is a pointer rather than a second copy.
+    "DISCOVER_TOOL": "..core.mcp_interface.tool",
+    "GATEWAY": "..core.mcp_interface.tool",
+    "GATEWAY_TOOLS": "..core.mcp_interface.tool",
+    "GatewayTool": "..core.mcp_interface.tool",
+    "INVOKE_READ_ONLY_TOOL": "..core.mcp_interface.tool",
+    "INVOKE_TOOL": "..core.mcp_interface.tool",
+    "OPEN_TOOL": "..core.mcp_interface.tool",
+    "READ_TOOL": "..core.mcp_interface.tool",
+    "PREAMBLE": ".messages",
+    "unresolved": ".messages",
+    "Dispatch": ".binding",
+    "project": ".binding",
+    "Launch": ".launch",
+    "claude_code_config": ".launch",
+    "cli_commands": ".launch",
+    "codex_config": ".launch",
+    "cursor_config": ".launch",
 }
 
 

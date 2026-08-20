@@ -14,14 +14,15 @@ import unittest
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from contexture.core.resources import Resource
-from contexture.core.role import Role
-from contexture.core.skill import Skill
-from contexture.core.tools import Tool
+from contexture.core.errors import ModelValidationError
+from contexture.core.mcp_interface import Prompt, Resource
+from contexture.core.model.role import Role
+from contexture.core.model.skill import Skill
+from contexture.core.model.tool import Tool
 from mcp.server.mcpserver import Context, MCPServer
 from contexture.server import instructions
-from contexture.server.projection import Dispatch, project
-from contexture.tree import SEPARATOR, ContextTree
+from contexture.server.binding import Dispatch, project
+from contexture.core.disclosure.tree import SEPARATOR, ContextTree
 from contexture.server import (
     DISCOVER_TOOL,
     Launch,
@@ -29,7 +30,6 @@ from contexture.server import (
     INVOKE_READ_ONLY_TOOL,
     INVOKE_TOOL,
     OPEN_TOOL,
-    READ_TOOL,
     ContextureApp,
     claude_code_config,
     cli_commands,
@@ -58,14 +58,24 @@ class DeletePod(Tool):
         return f"deleted {namespace}/{pod}"
 
 
-class Runbook(Resource):
+class Runbook(Tool):
     """How to diagnose a container that keeps restarting."""
 
-    uri = "contexture://runbooks/crash-loop"
-    mime_type = "text/markdown"
+    name = "runbook"
+    read_only = True
 
-    async def read(self) -> str:
+    async def invoke(self) -> str:
         return "RUNBOOK-BODY"
+
+
+#: What the fixture publishes on the resource primitive: one node the tree
+#: already holds, at an address that does not move when the node does.
+RUNBOOK_RESOURCE = Resource(
+    opens="responder/runbook",
+    uri="contexture://runbooks/crash-loop",
+    mime_type="text/markdown",
+    description="How to diagnose a container that keeps restarting.",
+)
 
 
 class Diagnose(Skill):
@@ -90,6 +100,24 @@ def _server():
     return ContextureApp(roots=Responder(), name="test").build_server()
 
 
+def _published():
+    """The same graph, with the runbook published on the resource primitive."""
+
+    return ContextureApp(
+        roots=Responder(), surface=(RUNBOOK_RESOURCE,), name="test"
+    ).build_server()
+
+
+def _published_with(opens: str, uri: str):
+    """Build a server publishing one node, for the refusals worth checking."""
+
+    return ContextureApp(
+        roots=Responder(),
+        surface=(Resource(opens=opens, uri=uri, description="Content."),),
+        name="test",
+    ).build_server()
+
+
 def _call(server, name, arguments=None):
     return asyncio.run(server.call_tool(name, arguments or {}))
 
@@ -99,7 +127,7 @@ def _text(result):
 
 
 class SurfaceTests(unittest.TestCase):
-    def test_the_surface_is_the_five_gateway_tools_and_nothing_else(self) -> None:
+    def test_the_surface_is_the_gateway_tools_and_nothing_else(self) -> None:
         server = _server()
 
         listed = tuple(tool.name for tool in asyncio.run(server.list_tools()))
@@ -117,6 +145,8 @@ class SurfaceTests(unittest.TestCase):
         self.assertNotIn("delete_pod", rendered)
         self.assertNotIn(PROCEDURE, rendered)
 
+        # Nothing is published on the resource primitive unless a declaration
+        # asked for it, and this fixture's server is built without a surface.
         resources = asyncio.run(server.list_resources())
         self.assertEqual(resources, [])
 
@@ -128,7 +158,7 @@ class SurfaceTests(unittest.TestCase):
         }
 
         self.assertEqual(hints[INVOKE_TOOL], False)
-        for name in (DISCOVER_TOOL, OPEN_TOOL, READ_TOOL, INVOKE_READ_ONLY_TOOL):
+        for name in (DISCOVER_TOOL, OPEN_TOOL, INVOKE_READ_ONLY_TOOL):
             with self.subTest(tool=name):
                 self.assertTrue(hints[name])
 
@@ -264,8 +294,14 @@ class InvocationTests(unittest.TestCase):
         self.assertIn("skill", str(caught.exception))
 
 
-class ResourceTests(unittest.TestCase):
-    def test_content_arrives_only_when_it_is_read(self) -> None:
+class ContentTests(unittest.TestCase):
+    """Content is a read-only tool taking no arguments, reachable two ways.
+
+    A model navigates to it and runs it; a host takes it up at a URI. Both
+    reach one node, which is what stops the two from ever disagreeing.
+    """
+
+    def test_content_arrives_only_when_it_is_run(self) -> None:
         server = _server()
 
         opened = json.loads(
@@ -274,16 +310,45 @@ class ResourceTests(unittest.TestCase):
         self.assertNotIn("RUNBOOK-BODY", json.dumps(opened))
         self.assertIn(
             "RUNBOOK-BODY",
-            _text(_call(server, READ_TOOL, {"ref": "responder/runbook"})),
+            _text(
+                _call(server, INVOKE_READ_ONLY_TOOL, {"ref": "responder/runbook"})
+            ),
         )
 
-    def test_a_resource_reads_by_its_own_uri_as_well_as_by_ref(self) -> None:
-        server = _server()
+    def test_a_published_node_is_listed_on_the_resource_primitive(self) -> None:
+        listed = asyncio.run(_published().list_resources())
 
-        result = _call(
-            server, READ_TOOL, {"ref": "contexture://runbooks/crash-loop"}
+        self.assertEqual(
+            [(str(entry.uri), entry.name) for entry in listed],
+            [("contexture://runbooks/crash-loop", "runbook")],
         )
-        self.assertIn("RUNBOOK-BODY", _text(result))
+
+    def test_reading_the_uri_returns_what_the_node_returns(self) -> None:
+        contents = asyncio.run(
+            _published().read_resource("contexture://runbooks/crash-loop")
+        )
+
+        self.assertIn("RUNBOOK-BODY", "".join(str(e.content) for e in contents))
+
+    def test_publishing_something_that_takes_arguments_is_refused(self) -> None:
+        """A host reads with no arguments, so what it names must answer with none."""
+
+        with self.assertRaises(ModelValidationError) as caught:
+            _published_with("responder/get_pod_logs", "contexture://logs")
+
+        self.assertIn("takes arguments", str(caught.exception))
+
+    def test_publishing_a_writing_tool_is_refused(self) -> None:
+        with self.assertRaises(ModelValidationError) as caught:
+            _published_with("responder/delete_pod", "contexture://remove")
+
+        self.assertIn("not read-only", str(caught.exception))
+
+    def test_publishing_a_node_that_does_not_exist_fails_on_the_way_up(self) -> None:
+        with self.assertRaises(ModelValidationError) as caught:
+            _published_with("responder/nope", "contexture://nope")
+
+        self.assertIn("does not exist", str(caught.exception))
 
 
 class RegistrationTests(unittest.TestCase):
@@ -373,7 +438,7 @@ class StatelessnessTests(unittest.TestCase):
             refs.append(ref)
             refs.extend(
                 f"{ref}/{member.name}"
-                for member in (*role.skills, *role.tools, *role.resources)
+                for member in (*role.skills, *role.tools)
             )
         return refs
 
@@ -398,7 +463,11 @@ class StatelessnessTests(unittest.TestCase):
             {"ref": "responder/get_pod_logs",
              "arguments": {"namespace": "prod", "pod": "api"}},
         )
-        _call(server, READ_TOOL, {"ref": "responder/runbook"})
+        _call(
+            server,
+            INVOKE_READ_ONLY_TOOL,
+            {"ref": "responder/runbook"},
+        )
 
     def test_history_never_changes_an_answer(self) -> None:
         """Repetition, and the order refs are opened in, change nothing."""
@@ -520,28 +589,6 @@ def _listed(text: str) -> list[str]:
     """The refs a roster actually names, ignoring its truncation line."""
 
     return re.findall(r"^- ([^:.][^:]*):", text, re.MULTILINE)
-
-
-class ResourceDisclosureTests(unittest.TestCase):
-    """A resource is reachable two ways, and both must name its fields alike.
-
-    The card a role hands out spelled it `mime_type`; opening the resource
-    spelled it `mimeType`, because that payload had been modelled on the
-    protocol's resource descriptor instead of on the card beside it. One field,
-    two key names, decided by which way the agent arrived.
-    """
-
-    def test_both_ways_to_a_resource_name_the_same_fields(self) -> None:
-        app = ContextureApp(roots=Responder(), name="test")
-
-        card = app.tree.open("responder")["resources"][0]
-        opened = app.tree.open("responder/runbook")
-
-        shared = set(card) & set(opened)
-        self.assertEqual({key: card[key] for key in shared},
-                         {key: opened[key] for key in shared})
-        self.assertEqual(set(card), set(opened))
-        self.assertEqual(opened["mime_type"], "text/markdown")
 
 
 class ToolDisclosureTests(unittest.TestCase):
@@ -792,16 +839,32 @@ class CommandPlaneTests(unittest.IsolatedAsyncioTestCase):
     MCP splits its primitives by who decides, and until this existed Contexture
     occupied only the model's side of that split. Nothing about progressive
     disclosure changes here — what grows is the set of who may trigger it.
+
+    The tree says nothing about any of this. Who may trigger a disclosure is a
+    fact about the protocol surface, so it is declared beside it and never on
+    the node: the object model does not know that people exist.
     """
 
+    #: The one node this fixture puts on the prompt primitive.
+    SHIP = "oc/publishing/compose-and-ship"
+
+    @classmethod
+    def _surface(cls, *, model_may_open: bool = False) -> tuple[Prompt, ...]:
+        return (
+            Prompt(
+                opens=cls.SHIP,
+                description="Assemble the weekly letter and send it.",
+                model_may_open=model_may_open,
+            ),
+        )
+
     @staticmethod
-    def _tree(**marks: tuple[str, ...]) -> ContextTree:
+    def _tree() -> ContextTree:
         ship = Skill(
             name="compose-and-ship",
             description="Assemble the weekly letter and send it.",
             instructions="1. Generate the cover.\n2. Ship it.",
             uses=("oc/assets/generate_cover",),
-            opened_by=marks.get("skill", ("person",)),
         )
         assets = Role(
             name="assets",
@@ -825,9 +888,18 @@ class CommandPlaneTests(unittest.IsolatedAsyncioTestCase):
             schema_of=Dispatch().schema,
         )
 
-    def _server(self, tree: ContextTree) -> MCPServer:
+    def _server(
+        self,
+        tree: ContextTree,
+        surface: tuple[Prompt, ...] | None = None,
+    ) -> MCPServer:
         server = MCPServer(name="oc", version="0", instructions="x")
-        project(server, tree=tree, dispatch=Dispatch())
+        project(
+            server,
+            tree=tree,
+            dispatch=Dispatch(),
+            surface=self._surface() if surface is None else surface,
+        )
         return server
 
     async def test_only_a_marked_node_reaches_the_prompt_plane(self) -> None:
@@ -853,7 +925,7 @@ class CommandPlaneTests(unittest.IsolatedAsyncioTestCase):
         convention elsewhere.
         """
 
-        prompts = await self._server(self._tree(skill=("model",))).list_prompts()
+        prompts = await self._server(self._tree(), surface=()).list_prompts()
 
         self.assertEqual([prompt.name for prompt in prompts], ["goto"])
 
@@ -932,18 +1004,20 @@ class CommandPlaneTests(unittest.IsolatedAsyncioTestCase):
         """A guardrail that lets the model point beats one that only hides.
 
         The model may not enter, but it can see that the capability exists and
-        say which command reaches it — which it cannot do if the card is gone.
+        say which prompt reaches it — which it cannot do if the card is gone.
+        The card is the tree's and says nothing about who may open it: the
+        object model does not know that people exist.
         """
 
         opened = self._tree().open("oc/publishing")
 
         (card,) = opened["skills"]
         self.assertEqual(card["name"], "compose-and-ship")
-        self.assertEqual(card["opened_by"], ["person"])
+        self.assertEqual(card["ref"], self.SHIP)
 
     async def test_a_node_on_both_planes_is_open_to_both(self) -> None:
-        tree = self._tree(skill=("model", "person"))
-        server = self._server(tree)
+        tree = self._tree()
+        server = self._server(tree, self._surface(model_may_open=True))
 
         prompts = await server.list_prompts()
         opened = await server.call_tool(

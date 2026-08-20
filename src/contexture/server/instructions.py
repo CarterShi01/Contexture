@@ -1,6 +1,6 @@
 """Fitting the contract into one host's budget.
 
-What this text *says* is `contexture.server.contract`'s business. What fits is
+What this text *says* is `contexture.server.messages`'s business. What fits is
 this module's, and the two are separated because they change for unrelated
 reasons: the contract moves when the navigation model does, these numbers move
 when a host ships a release.
@@ -47,9 +47,10 @@ from __future__ import annotations
 
 from typing import Iterator
 
-from ..core.role import Role
-from ..tree import SEPARATOR, ContextTree
-from .contract import DISCOVER_TOOL, PREAMBLE, REF_RULE
+from ..core.model.role import Role
+from ..core.disclosure.tree import SEPARATOR, ContextTree
+from ..core.mcp_interface.tool import DISCOVER_TOOL
+from .messages import PREAMBLE, REF_RULE
 
 #: Claude Code truncates server instructions at 2KB; leave room for the rest.
 ROSTER_BUDGET = 1200

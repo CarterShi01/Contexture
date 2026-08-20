@@ -34,7 +34,6 @@ class LookupFailure(str, Enum):
     NO_SUCH_ROOT = "no_such_root"
     NOT_A_CONTAINER = "not_a_container"
     NO_SUCH_MEMBER = "no_such_member"
-    NO_SUCH_URI = "no_such_uri"
     WRONG_KIND = "wrong_kind"
 
 
@@ -49,7 +48,7 @@ class NodeNotFoundError(ContextureError):
     next — so this error carries neither sentence. It carries the facts, and
     each audience renders its own.
 
-    The agent's rendering lives in `contexture.server.contract`, which is the
+    The agent's rendering lives in `contexture.server.messages`, which is the
     only place that knows the gateway tool names the good sentence has to name.
     That is why the facts travel instead of the prose: the layer that hits the
     failure cannot write the sentence, and the layer that can write it is not

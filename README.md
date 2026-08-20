@@ -9,7 +9,7 @@ into a capability graph an agent can navigate — one with responsibility
 boundaries, procedural knowledge, and a context bill you pay only for what gets
 selected.
 
-Declare your roles, skills, tools, and resources once. Contexture serves them as
+Declare your roles, skills and tools once. Contexture serves them as
 a native MCP server that Claude Code, Codex, and anything else speaking MCP
 connect to directly.
 
@@ -22,8 +22,8 @@ Everything in this repository follows from two sentences.
 
 **The runtime model — what Contexture *is* while it runs.**
 
-> Contexture organizes Role, Skill, Tool, and Resource into a single MCP server
-> surface, and discloses them progressively over the course of the interaction.
+> Contexture organizes Role, Skill and Tool into a single MCP server surface,
+> and discloses them progressively over the course of the interaction.
 
 **The framework model — how a developer *uses* it.**
 
@@ -58,7 +58,6 @@ from the class it decorates:
 ```python
 class GetPodLogs(Tool):            # a capability you own
 class DiagnoseCrashLoop(Skill):    # a procedure you own
-class CrashLoopRunbook(Resource):  # content you own
 class IncidentResponder(Role):     # the boundary that holds them
 ```
 
@@ -74,9 +73,9 @@ on the first request that happens to touch it.
 itself what its routing card says and what its opened form says. Nothing central
 holds a table of node kinds, so adding a kind does not edit a renderer.
 
-**Polymorphism is what makes progressive disclosure uniform.** Role, Skill,
-Tool, and Resource have nothing else in common, yet discovery calls
-`node.compile(level)` on all four and never asks what it is holding.
+**Polymorphism is what makes progressive disclosure uniform.** Role, Skill and
+Tool have nothing else in common, yet discovery calls `node.compile(level)` on
+all three and never asks what it is holding.
 
 **Composition, not inheritance, models the team.** Subclassing states what one
 node *is*; it never states containment. A role that coordinates other roles
@@ -121,7 +120,7 @@ Cursor ──────┘
 ## Declare once
 
 ```python
-from contexture import Resource, Role, Skill, Tool
+from contexture import Role, Skill, Tool
 
 class InspectPodFailure(Skill):
     """Diagnose why a Pod is crashing, restarting, or failing to become ready."""
@@ -141,12 +140,12 @@ class K8sTroubleshooter(Role):
 
     pod_logs = GetPodLogs
     events = GetEvents
-    runbook = CrashLoopRunbook
+    runbook = CrashLoopRunbook       # content is a read-only tool
 ```
 
 The class name becomes `k8s-troubleshooter`, the docstring becomes the routing
-description, and the declared members become the role's skills, tools, and
-resources. Nothing here names an agent runtime.
+description, and the declared members become the role's skills and tools.
+Nothing here names an agent runtime.
 
 Imperative construction still works exactly as before, and a declared role is
 an ordinary `Role`, so anything that accepts one accepts the other.
@@ -157,7 +156,7 @@ A tool is a typed Python method. Nothing writes a JSON Schema — the one in
 `tools/list` is derived from this signature:
 
 ```python
-from contexture import Resource, Tool
+from contexture import Tool
 
 class GetPodLogs(Tool):
     """Return recent container logs for one Pod."""
@@ -168,13 +167,13 @@ class GetPodLogs(Tool):
     async def invoke(self, namespace: str, pod: str) -> str:
         return await kubernetes.logs(namespace, pod)
 
-class CrashLoopRunbook(Resource):
+class CrashLoopRunbook(Tool):
     """How to diagnose a container that keeps restarting."""
 
-    uri = "contexture://runbooks/crash-loop-backoff"
-    mime_type = "text/markdown"
+    name = "crash_loop_runbook"
+    read_only = True
 
-    async def read(self) -> str:
+    async def invoke(self) -> str:
         return RUNBOOK
 ```
 
@@ -219,13 +218,15 @@ Nothing above imports `mcp`, writes JSON-RPC, or names an agent runtime.
 ## Layers
 
 ```text
-your application          declares roles, skills, tools, resources
+your application            declares roles, skills and tools
         │  inherits / composes
-contexture.core           the object model — no I/O, no wire, no SDK
+core.model                  the object model — no I/O, no wire, no SDK
         │  compile
-contexture.tree           the multi-headed tree, disclosed lazily
-        │  project
-contexture.server         the five-tool gateway — the only layer importing mcp
+core.disclosure             the multi-headed tree, disclosed lazily
+        │
+core.mcp_interface          what each MCP primitive carries — still no SDK
+        │  bind
+contexture.server           the only layer importing mcp
         │  run
 contexture.cli            `contexture new` scaffolds, `contexture serve` runs
         │  MCP
@@ -240,8 +241,7 @@ fails rather than quietly reshaping the package.
 
 ## Progressive disclosure
 
-Every `ContextNode` — role, skill, tool, resource — answers the same two
-questions:
+Every `ContextNode` — role, skill, tool — answers the same two questions:
 
 ```python
 node.compile("route")   # what is this, and when should it be picked?
@@ -253,8 +253,8 @@ node.compile("active")  # the detail, now that it has been picked
 ```text
 contexture_discover()        → the root roles, one card each
 contexture_open(role)        → its instructions, and a card for each sub-role,
-                               skill, tool and resource it holds — tools with
-                               the schema needed to call them
+                               skill and tool it holds — tools with the
+                               schema needed to call them
 contexture_open(skill)       → the full procedure, here and nowhere else
 ```
 
@@ -271,7 +271,7 @@ route for its whole subtree**, because an agent choosing among siblings cannot
 see the grandchildren.
 
 A roster of roles also ships inside the server's instructions, because a gateway
-whose five tool names all begin `contexture_` otherwise tells a host nothing
+whose four tool names all begin `contexture_` otherwise tells a host nothing
 about what the server is for. That roster costs no round trip, so it keeps going
 while there is budget — breadth-first, so a forest too large for it is cut after
 the levels that route rather than after one deep spine.
@@ -285,9 +285,10 @@ Opening a ref is a pure function of that ref. An agent never assembles one:
 cards are built by a function that takes the reference as an argument, so a card
 that can be seen can always be opened.
 
-Resources are the exception that proves the rule: their boundary is not route
-versus active but **descriptor versus content**. Opening one yields metadata.
-Only `contexture_read` returns bytes.
+There is no exception to this. Every node — role, skill, tool — answers the
+same two questions, which is what lets one function walk all of them. Content
+that is simply *there* is a read-only tool taking no arguments: its card costs
+a line, and the document arrives only when the tool is run.
 
 ## Disclosure is not authorization
 
@@ -336,11 +337,11 @@ ships the runner:
 my-context/
 ├── pyproject.toml       dependencies, and one [tool.contexture] table
 └── my_context/
-    └── assistant/       one role and everything it owns
-        ├── role.py      the responsibility boundary
-        ├── skills.py    procedures — disclosed only when asked for
-        ├── tools.py     capabilities — typed Python methods
-        └── resources.py content — read only when read
+    ├── assistant/       one role and everything it owns
+    │   ├── role.py      the responsibility boundary
+    │   ├── skills.py    procedures — disclosed only when asked for
+    │   └── tools.py     capabilities, and content, as typed Python methods
+    └── surface.py       what the prompt and resource primitives carry
 ```
 
 It is a project, not a package: no build system, never installed into the
@@ -382,12 +383,14 @@ for a recorded run against both hosts.
 
 ```text
 src/contexture/
-├── core/            object model: context, role, skill, tools, resources,
-│                    errors, declarative
-├── tree.py          the multi-headed tree: skeleton, resolution, opening
-├── server/          the MCP server: contract (what the agent reads), instructions
-│                    (fitting it to a host), projection (hanging it on the SDK),
-│                    app, registration
+├── core/
+│   ├── model/       what a capability is: node, role, skill, tool, declarative
+│   ├── disclosure/  where it hangs, and how much arrives per call
+│   └── mcp_interface/  what each of MCP's three primitives carries
+│   └── errors.py, types.py, constants.py — shared by all three
+├── server/          the MCP server: messages (what is said to somebody),
+│                    instructions (fitting it to a host), binding (hanging the
+│                    surface on the SDK), app, launch
 ├── inspection.py    replaying the disclosure for a developer to read
 ├── cli.py           the `contexture` command: new / list / inspect / serve / demo
 ├── templates/       project templates, rendered by `contexture new`
@@ -420,6 +423,13 @@ inspector — and `scripts/`, the playbooks for driving a real host against it.
 - [`docs/adr/006-errors-carry-facts-and-the-contract-is-one-module.md`](docs/adr/006-errors-carry-facts-and-the-contract-is-one-module.md)
   — why a failed lookup carries facts instead of a sentence, why everything an
   agent reads moved into one module, and why `Role` took back its own lookup.
+- [`docs/adr/009-the-protocol-plane-is-not-the-object-model.md`](docs/adr/009-the-protocol-plane-is-not-the-object-model.md)
+  — why `core.Resource` was deleted, why the three MCP primitives are declared
+  in one directory that imports no SDK, and why `opened_by` moved out of the
+  object model.
+- [`docs/adr/010-the-directories-are-the-architecture.md`](docs/adr/010-the-directories-are-the-architecture.md)
+  — the move itself, and why the layering test had to be hardened before a
+  single file could be moved.
 - [`docs/adr/007-the-role-axis-is-lazy-too.md`](docs/adr/007-the-role-axis-is-lazy-too.md)
   — why the role skeleton stopped being delivered whole: the argument for it
   was about one level of siblings and got applied to all of them, which is
@@ -458,13 +468,17 @@ composes an `MCPServer` rather than subclassing one, so an SDK upgrade cannot
 reach into the object model, and `tests/test_layering.py` fails if any other
 layer imports `mcp`.
 
-Two things the SDK offers and Contexture deliberately declines:
+One thing the SDK offers and Contexture declines: **the decorator style
+(`@server.tool()`).** Capabilities are runtime objects walked out of a graph,
+not functions known at import time in one module.
 
-- **`add_prompt`, never called.** MCP prompts are user-triggered templates. A
-  Skill is agent-selected procedural knowledge. Mapping one onto the other hands
-  the selection back to a human, which is the opposite of the point.
-- **The decorator style (`@server.tool()`).** Capabilities are runtime objects
-  walked out of a graph, not functions known at import time in one module.
+All three primitives are used, and split the way the protocol splits them — by
+**who decides when one is used**. Roles, skills and tools reach a model through
+the tool primitive. A `Prompt` is not a Skill wearing a protocol's clothes: it
+names a node a *person* triggers, and declaring one is worth it only where
+going wrong is expensive. What each primitive carries is declared in
+[`core/mcp_interface/`](src/contexture/core/mcp_interface/README.md), which
+imports no SDK — that is `server`'s job.
 
 ### Not the agent runtime — Claude Code and Codex stay in charge
 
@@ -482,7 +496,7 @@ asks and never blocks — it only refuses a call whose door disagrees with its
 ref, because the host made its decision from that door.
 
 Host configuration is not Contexture's either. It emits the launch command
-through `contexture.server.registration` and stops there; what the host does
+through `contexture.server.launch` and stops there; what the host does
 with sampling, permissions, or its own memory files is outside the boundary.
 
 ### Not your business system — it describes one, it does not become one
@@ -515,7 +529,7 @@ would be claiming to order.
 ### One rule this does leave you: declared objects are shared
 
 Holding none of your state does not mean holding none of your objects.
-Contexture builds each Role, Skill, Tool, and Resource once, when the tree is
+Contexture builds each Role, Skill and Tool once, when the tree is
 built, and every call reaches that same instance — from every session, and from
 the parallel calls a single host issues on one connection, which the SDK
 dispatches as concurrent tasks.

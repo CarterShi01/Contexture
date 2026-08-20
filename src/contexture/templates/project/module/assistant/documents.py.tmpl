@@ -1,0 +1,30 @@
+"""The content this role can consult.
+
+Content that is already there is a read-only tool that takes no arguments: two
+runs return the same bytes, and nothing is computed from an argument. Listing
+one costs a line of description; the body runs only when something reads it.
+
+`$package_name/surface.py` also publishes this on MCP's resource primitive, at a
+URI that does not move when the node does — a second address for one thing,
+never a second copy of it.
+"""
+
+from __future__ import annotations
+
+from contexture import Tool
+
+
+class HealthRunbook(Tool):
+    """How to interpret a reachability check, and what not to conclude."""
+
+    name = "health_runbook"
+    read_only = True
+
+    async def invoke(self) -> str:
+        return (
+            "# Reading a reachability check\n\n"
+            "- **reachable** - the target answered. Nothing to do.\n"
+            "- **unreachable** - the target did not answer. Check name\n"
+            "  resolution before concluding the service is down.\n\n"
+            "Reachable is not the same as healthy.\n"
+        )

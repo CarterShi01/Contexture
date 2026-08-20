@@ -11,8 +11,8 @@ one — the instructions loaded at connect, then `contexture_discover`, then one
 arrived, with what it cost. No transport, no model, no agent in the room.
 
 **It calls the same functions the server does.** `instructions.build`,
-`ContextTree.skeleton`, `ContextTree.open`, `contract.unresolved`: the five
-gateway functions in `contexture.server.projection` do nothing but forward to
+`ContextTree.skeleton`, `ContextTree.open`, `messages.unresolved`: the five
+gateway functions in `contexture.server.binding` do nothing but forward to
 these, so a payload printed here is the payload sent there, character for
 character. What this cannot see is the wire — that the process starts under a
 host's launch command, and that nothing but MCP messages reaches stdout. Both
@@ -21,7 +21,7 @@ are only visible from outside the process, which is what
 
 Two things are deliberately not replayed. `contexture_invoke` is not, because
 running a business tool is not disclosure and a debugging command should not
-change anything. `contexture_read` is, but only when asked for: a resource's
+change anything. Reading content is, but only when asked for: a document's
 content is often the largest single thing an agent receives, so its cost
 belongs in the accounting, while reading it runs business code that may want
 credentials nobody supplied.
@@ -37,16 +37,23 @@ first 512 characters.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 from dataclasses import dataclass, field
 from typing import Iterable, Iterator, Sequence
 
 from .core.errors import ContextureError, NodeNotFoundError
-from .core.resources import Resource
+from .core.mcp_interface.tool import (
+    DISCOVER_TOOL,
+    GATEWAY,
+    INVOKE_READ_ONLY_TOOL,
+    OPEN_TOOL,
+)
+from .core.model.tool import Tool
 from .core.types import JsonObject
-from .server import contract
+from .server import messages
 from .server.instructions import INSTRUCTIONS_LIMIT, SELF_CONTAINED_PREFIX
-from .tree import SEPARATOR, ContextTree
+from .core.disclosure.tree import SEPARATOR, ContextTree
 
 #: The label for the one step that is not a call: what the host loads before
 #: it has asked this server anything.
@@ -206,9 +213,9 @@ def connect_step(tree: ContextTree, instructions: str) -> Step:
             ),
         ),
         Check(
-            ok=contract.OPEN_TOOL in opening,
+            ok=OPEN_TOOL in opening,
             note=(
-                f"{contract.OPEN_TOOL} named in the first "
+                f"{OPEN_TOOL} named in the first "
                 f"{SELF_CONTAINED_PREFIX} characters — that is how far Codex "
                 "reads while deciding whether to use this server"
             ),
@@ -228,7 +235,7 @@ def connect_step(tree: ContextTree, instructions: str) -> Step:
         payload={"instructions": instructions, "gateway": _gateway()},
         checks=tuple(checks),
         aside=(
-            f"the {len(contract.GATEWAY)} gateway tool descriptions arrive "
+            f"the {len(GATEWAY)} gateway tool descriptions arrive "
             f"here too, costing {_gateway_cost().tokens} more estimated "
             "tokens; they are fixed, so they are not counted below"
         ),
@@ -240,7 +247,7 @@ def discover_step(tree: ContextTree) -> Step:
 
     payload = tree.skeleton()
     return Step(
-        call=contract.DISCOVER_TOOL,
+        call=DISCOVER_TOOL,
         body=_wire(payload),
         payload=payload,
     )
@@ -258,9 +265,9 @@ def open_step(tree: ContextTree, ref: str) -> Step:
         payload = tree.open(ref)
     except NodeNotFoundError as failure:
         return Step(
-            call=contract.OPEN_TOOL,
+            call=OPEN_TOOL,
             ref=ref,
-            body=contract.unresolved(failure),
+            body=messages.unresolved(failure),
             refused=True,
             aside="this sentence is all the agent gets; it recovers from it",
         )
@@ -268,47 +275,63 @@ def open_step(tree: ContextTree, ref: str) -> Step:
         # A declaration-time failure. It carries its own sentence, and its
         # audience is whoever wrote the declaration — which is this reader.
         return Step(
-            call=contract.OPEN_TOOL, ref=ref, body=str(failure), refused=True
+            call=OPEN_TOOL, ref=ref, body=str(failure), refused=True
         )
 
     aside = None
-    if isinstance(tree.find(ref), Resource):
+    if _is_content(tree.find(ref)):
         aside = (
-            "the document itself is not here — an agent reads it with "
-            f"{contract.READ_TOOL}; pass --read to include it and its cost"
+            "the document itself is not here — an agent runs it with "
+            f"{INVOKE_READ_ONLY_TOOL}; pass --read to include it and its cost"
         )
     return Step(
-        call=contract.OPEN_TOOL, ref=ref, body=_wire(payload), payload=payload,
+        call=OPEN_TOOL, ref=ref, body=_wire(payload), payload=payload,
         aside=aside,
     )
 
 
+def _is_content(node: object) -> bool:
+    """Whether this node is content already sitting there, rather than a call.
+
+    A read-only tool that takes no arguments: two runs return the same bytes
+    and nothing is computed from an argument. It is also exactly what may be
+    published on the resource primitive, which is why the same test decides
+    both.
+    """
+
+    return (
+        isinstance(node, Tool)
+        and node.read_only
+        and not inspect.signature(node.invoke).parameters
+    )
+
+
 def read_step(tree: ContextTree, ref: str) -> Step:
-    """One `contexture_read`, which runs the resource's own `read()`."""
+    """One `contexture_invoke_read_only` against content that takes no arguments."""
 
     try:
-        resource = tree.resource(ref)
-        content = asyncio.run(resource.read())
+        tool = tree.tool(ref)
+        content = asyncio.run(tool.invoke())
     except NodeNotFoundError as failure:
         return Step(
-            call=contract.READ_TOOL,
+            call=INVOKE_READ_ONLY_TOOL,
             ref=ref,
-            body=contract.unresolved(failure),
+            body=messages.unresolved(failure),
             refused=True,
         )
     except ContextureError as failure:
         return Step(
-            call=contract.READ_TOOL, ref=ref, body=str(failure), refused=True
+            call=INVOKE_READ_ONLY_TOOL, ref=ref, body=str(failure), refused=True
         )
 
     if isinstance(content, bytes):
         return Step(
-            call=contract.READ_TOOL,
+            call=INVOKE_READ_ONLY_TOOL,
             ref=ref,
-            body=f"<{len(content)} bytes of {resource.mime_type or 'binary'}>",
+            body=f"<{len(content)} bytes of binary>",
             aside="binary content is described rather than printed",
         )
-    return Step(call=contract.READ_TOOL, ref=ref, body=content)
+    return Step(call=INVOKE_READ_ONLY_TOOL, ref=ref, body=str(content))
 
 
 # ----------------------------------------------------------------- the replay
@@ -327,7 +350,7 @@ def every_ref(tree: ContextTree) -> Iterator[str]:
         # Sub-roles are skipped here rather than filtered out of `members()`:
         # the walk yields each of them at its own level, with its own members
         # under it, and listing one twice would double every deep branch.
-        for member in (*role.skills, *role.tools, *role.resources):
+        for member in (*role.skills, *role.tools):
             yield f"{ref}{SEPARATOR}{member.name}"
 
 
@@ -347,7 +370,7 @@ def trace(
     for ref in refs:
         step = open_step(tree, ref)
         steps.append(step)
-        if read and not step.refused and isinstance(tree.find(ref), Resource):
+        if read and not step.refused and _is_content(tree.find(ref)):
             steps.append(read_step(tree, ref))
     return Trace(steps=tuple(steps))
 
@@ -444,13 +467,13 @@ def _gateway() -> list[JsonObject]:
             "description": entry.description,
             "read_only": entry.read_only,
         }
-        for entry in contract.GATEWAY
+        for entry in GATEWAY
     ]
 
 
 def _gateway_cost() -> Cost:
     return Cost.of(
-        "".join(entry.name + entry.description for entry in contract.GATEWAY)
+        "".join(entry.name + entry.description for entry in GATEWAY)
     )
 
 

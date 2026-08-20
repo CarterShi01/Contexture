@@ -1,5 +1,15 @@
 # Host verification
 
+> **All three records predate v0.4.0 and are kept as recorded, not updated.**
+> They show a surface of five gateway tools in which `contexture_read` returned
+> a document and a resource could be addressed by its own URI through that
+> gateway. Since ADR 009 the gateway is four tools, content is a read-only tool
+> that takes no arguments, and a URI is served on MCP's own resource primitive
+> instead. What these runs verify — that a model navigates a gateway rather
+> than giving up, one `open` per level, no assembled refs — is unaffected by
+> that change, which is why they are kept. A re-run against the four-tool
+> surface has not been recorded.
+
 Three records, newest first. Each verified a different navigation model, and
 none is an update of the one below it: v0.0.4 had business tools on the wire,
 v0.2.0 put them behind a gateway whose `discover` returned the whole forest,
