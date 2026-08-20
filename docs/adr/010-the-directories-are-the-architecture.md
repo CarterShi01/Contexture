@@ -8,8 +8,14 @@ which made the decisions. This one moves files and renames modules and changes
 no behaviour: every test that passed before it passes after it, unchanged.
 
 > `declarative.py` was deleted in v0.5.0; see
-> [ADR 013](013-a-constructor-is-the-declaration.md). The directory rule this
-> ADR decided is unchanged — `model/` simply holds one file fewer.
+> [ADR 013](013-a-constructor-is-the-declaration.md).
+>
+> **Section 2 is superseded by [ADR 014](014-navigation-is-part-of-the-kernel.md).**
+> `core/disclosure/` no longer exists: `tree.py` sits in `model/`, beside the
+> nodes it discloses, because navigation turned out to be part of the kernel
+> rather than a layer above it. `core` is two directories and a shared base.
+> The rest of this ADR — the directory rule itself, the renames in `server/`,
+> and the order in which a move is done — stands.
 
 ## Context
 

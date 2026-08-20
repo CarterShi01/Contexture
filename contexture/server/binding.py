@@ -52,14 +52,8 @@ from ..core.model.tool import Tool
 from ..core.principal import bound
 from .identity import principal_of
 from ..core.types import CompiledContext, JsonObject
-from ..core.disclosure.tree import SEPARATOR, ContextTree
-from ..core.mcp_interface.tool import (
-    DISCOVER_TOOL,
-    GATEWAY,
-    INVOKE_READ_ONLY_TOOL,
-    INVOKE_TOOL,
-    OPEN_TOOL,
-)
+from ..core.model.tree import SEPARATOR, ContextTree
+from ..core.model.system_api import GATEWAY, SystemAPI
 from . import messages
 
 
@@ -139,54 +133,51 @@ def project(
     """
 
 
-    # Computed before the entry points are defined, because `contexture_open`
-    # closes over it. A prompt that reserves its node for a person is the only
-    # thing that puts a ref in here.
-    reserved = frozenset(
-        entry.opens
-        for entry in publish
-        if isinstance(entry, Prompt) and not entry.model_may_open
-    )
+    api = system_api(tree, dispatch, publish)
 
+    # Four wrappers holding no rules of their own. Each exists for one thing
+    # the kernel cannot have: an SDK `Context` to thread through, and a
+    # signature for the SDK to derive this entry point's own schema from.
     async def contexture_discover() -> CompiledContext:
-        # What the agent is told about this entry point is in `contract`.
-        with _translated(DISCOVER_TOOL):
-            return tree.skeleton()
+        with _translated():
+            return await api.discover()
 
     async def contexture_open(ref: str) -> CompiledContext:
-        with _translated(OPEN_TOOL):
-            if ref in reserved:
-                # Refused here rather than in the tree, because the tree holds
-                # no opinion about who is asking and only this layer knows
-                # which door a call came through. The same division
-                # `wrong_door` rests on.
-                raise ToolError(messages.command_taken_by_a_person(ref))
-            return tree.open(ref)
+        with _translated():
+            return await api.open(ref)
 
     async def contexture_invoke_read_only(
         ctx: Context,
         ref: str,
         arguments: dict[str, Any] | None = None,
     ) -> Any:
-        return await _invoke(tree, dispatch, ctx, ref, arguments, read_only=True)
+        with _translated():
+            return await api.invoke_read_only(ref, arguments, context=ctx)
 
     async def contexture_invoke(
         ctx: Context,
         ref: str,
         arguments: dict[str, Any] | None = None,
     ) -> Any:
-        return await _invoke(tree, dispatch, ctx, ref, arguments, read_only=False)
+        with _translated():
+            return await api.invoke(ref, arguments, context=ctx)
 
     implementations = {
-        DISCOVER_TOOL: contexture_discover,
-        OPEN_TOOL: contexture_open,
-        INVOKE_READ_ONLY_TOOL: contexture_invoke_read_only,
-        INVOKE_TOOL: contexture_invoke,
+        entry.name: implementation
+        for entry, implementation in zip(
+            GATEWAY,
+            (
+                contexture_discover,
+                contexture_open,
+                contexture_invoke_read_only,
+                contexture_invoke,
+            ),
+        )
     }
 
-    # Registered from the contract rather than four call sites, so "the surface
-    # is exactly these four, described exactly this way" is a fact about one
-    # tuple instead of an agreement between eight places.
+    # Registered from the kernel's own list rather than four call sites, so
+    # "the surface is exactly these four, described exactly this way" is a fact
+    # about one tuple instead of an agreement between eight places.
     for entry in GATEWAY:
         server.add_tool(
             implementations[entry.name],
@@ -195,7 +186,54 @@ def project(
             annotations=ToolAnnotations(read_only_hint=entry.read_only),
         )
 
-    _project_published(server, tree=tree, dispatch=dispatch, publish=publish)
+    _project_published(
+        server, tree=tree, dispatch=dispatch, publish=publish, api=api
+    )
+
+
+def system_api(
+    tree: ContextTree,
+    dispatch: Dispatch,
+    publish: Sequence[Prompt | Resource] = (),
+) -> SystemAPI:
+    """Bind the kernel's four calls to this server's two seams.
+
+    `execute` is where a business tool actually runs, and it is the SDK's
+    validated path rather than a bare call: arguments are checked against the
+    model derived from `invoke`'s hints before the body sees them.
+
+    It is also the one place in the package where a caller's identity is put
+    where a capability can read it. Here, and not around the whole call,
+    because this is the one point at which business code runs — discovering and
+    opening reach no declaration's own code, so binding around them would widen
+    the scope of a global for nobody's benefit.
+
+    `reserved` is assembled from the published list: a prompt that reserves its
+    node for a person is the only thing that puts a ref in it.
+    """
+
+    async def execute(
+        tool: Tool,
+        arguments: dict[str, Any] | None,
+        context: Any,
+    ) -> Any:
+        # The translation goes through `AccessToken` rather than a side table
+        # kept by the verifier, so a deployment that installs an SDK-native
+        # verifier instead of `Auth` still gets a working `current_principal()`.
+        # Unsecured transports bind `None`, which is the honest answer and the
+        # one every capability that cares must already handle.
+        with bound(principal_of(get_access_token())):
+            return await dispatch.run(tool, arguments, context)
+
+    return SystemAPI(
+        tree=tree,
+        execute=execute,
+        reserved=frozenset(
+            entry.opens
+            for entry in publish
+            if isinstance(entry, Prompt) and not entry.model_may_open
+        ),
+    )
 
 
 def _project_published(
@@ -204,6 +242,7 @@ def _project_published(
     tree: ContextTree,
     dispatch: Dispatch,
     publish: Sequence[Prompt | Resource],
+    api: SystemAPI,
 ) -> None:
     """Hang the declared list on the two primitives the model does not drive.
 
@@ -232,7 +271,7 @@ def _project_published(
             # prompt *is* the argument.
             server.add_prompt(
                 SDKPrompt.from_function(
-                    _command(tree, entry.opens),
+                    _command(api, entry.opens),
                     name=name,
                     description=messages.command_description(
                         entry.opens, entry.description or node.description
@@ -252,7 +291,7 @@ def _project_published(
             )
 
     async def goto(ref: str) -> str:
-        return await _open_by_name(tree, ref)
+        return await _open_by_name(api, ref)
 
     server.add_prompt(
         SDKPrompt.from_function(
@@ -341,7 +380,7 @@ def _resolve(tree: ContextTree, ref: str, kind: str) -> Any:
 
     A failed lookup here has a different audience from one at request time:
     nobody is waiting on an answer, and the person who can fix it is whoever
-    wrote the declaration. So it does not become `messages.unresolved`.
+    wrote the declaration. So it does not become `system_api.unresolved`.
     """
 
     try:
@@ -399,7 +438,7 @@ def _reader(tree: ContextTree, ref: str) -> Callable[[], Awaitable[Any]]:
     return read
 
 
-def _command(tree: ContextTree, ref: str) -> Callable[[], Awaitable[str]]:
+def _command(api: SystemAPI, ref: str) -> Callable[[], Awaitable[str]]:
     """Build the one prompt that opens `ref`.
 
     The text is assembled per call rather than at registration, so a command
@@ -413,7 +452,7 @@ def _command(tree: ContextTree, ref: str) -> Callable[[], Awaitable[str]]:
     """
 
     async def command() -> str:
-        return await _open_by_name(tree, ref)
+        return await _open_by_name(api, ref)
 
     return command
 
@@ -471,7 +510,7 @@ def _without_titles(schema: JsonObject) -> JsonObject:
     return cleaned
 
 
-async def _open_by_name(tree: ContextTree, ref: str) -> str:
+async def _open_by_name(api: SystemAPI, ref: str) -> str:
     """Render one node for a person who named it rather than navigated to it.
 
     Shared by `goto` and by every declared command, which is what makes them
@@ -479,15 +518,17 @@ async def _open_by_name(tree: ContextTree, ref: str) -> str:
     its registration, `goto` carries it in an argument, and a person gets the
     same answer either way.
 
-    No plane check. `Prompt.model_may_open` reserves a node *from a model*,
-    and nothing reserves one from a person: both callers here are the person's
-    plane, and refusing would mean the tree held capabilities its owner could
-    not read.
+    It goes through the kernel's own `open`, by the door reserved for a person.
+    That is what keeps the two planes from drifting: a command and
+    `contexture_open` are one call with two sets of people allowed to make it,
+    and `Prompt.model_may_open` reserves a node from a model while nothing
+    reserves one from a person — a tree holding capabilities its owner could
+    not read would be a strange thing to have built.
     """
 
-    with _translated(messages.GOTO_PROMPT):
-        payload = tree.open(ref)
-        levels = tree.signpost(ref)
+    with _translated():
+        payload = await api.open_for_a_person(ref)
+        levels = api.tree.signpost(ref)
     sections = [
         messages.COMMAND_PREAMBLE.format(ref=ref),
         messages.signpost(levels),
@@ -497,59 +538,22 @@ async def _open_by_name(tree: ContextTree, ref: str) -> str:
     return "\n\n".join(section for section in sections if section)
 
 
-async def _invoke(
-    tree: ContextTree,
-    dispatch: Dispatch,
-    context: Context,
-    ref: str,
-    arguments: dict[str, Any] | None,
-    *,
-    read_only: bool,
-) -> Any:
-    """Resolve, check the door, then run."""
-
-    entry = INVOKE_READ_ONLY_TOOL if read_only else INVOKE_TOOL
-    with _translated(entry):
-        tool = tree.tool(ref)
-
-    if tool.read_only is not read_only:
-        # The host decided whether to involve a human from the hint on the
-        # entry point. Honouring a mismatch would run a write under a
-        # read-only approval, so the mismatch is refused instead.
-        raise ToolError(messages.wrong_door(ref, is_read_only=tool.read_only))
-
-    # The one place in the package where a caller's identity is put where a
-    # capability can read it, and it is here because this is the one place
-    # business code runs. Discovering and opening do not reach a declaration's
-    # own code, so binding around them would widen the scope of a global for
-    # nobody's benefit.
-    #
-    # The translation goes through `AccessToken` rather than a side table kept
-    # by the verifier, so a deployment that installs an SDK-native verifier
-    # instead of `Auth` still gets a working `current_principal()`. Unsecured
-    # transports bind `None`, which is the honest answer and the one every
-    # capability that cares must already handle.
-    with bound(principal_of(get_access_token())):
-        return await dispatch.run(tool, arguments, context)
-
-
 class _translated:
-    """Turn Contexture's own failures into a message an agent can act on.
+    """Put a Contexture failure on the wire as the protocol's own error.
 
-    A wrong ref is a routine, recoverable mistake — the agent should read what
-    was wrong and try a different one — so it must arrive as a legible sentence
-    rather than a repr of an internal exception type.
+    One branch, and that is the point: every failure that reaches here already
+    carries the sentence its audience needs. A `Refused` was composed by the
+    kernel, which is the only layer that knows both what went wrong and the
+    name of the call that recovers from it; anything else is a
+    declaration-time failure whose audience is whoever wrote the declaration,
+    and it carries its own sentence too.
 
-    This is the single point where a failure raised anywhere below becomes
-    something an agent reads, which is why the sentence is composed here from
-    the facts the failure carries rather than pre-written at the raise site.
-    The tree that hits the failure cannot name the tool that recovers from it.
+    This used to compose the agent's sentence itself, from facts, because the
+    tree could not name the tool that recovers from a wrong ref. Since ADR 014
+    it can, and what is left here is the wrapping.
     """
 
-    __slots__ = ("_tool",)
-
-    def __init__(self, tool: str) -> None:
-        self._tool = tool
+    __slots__ = ()
 
     def __enter__(self) -> None:
         return None
@@ -557,11 +561,7 @@ class _translated:
     def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> bool:
         if exc is None or not isinstance(exc, ContextureError):
             return False
-        if isinstance(exc, NodeNotFoundError):
-            raise ToolError(messages.unresolved(exc)) from exc
-        # Everything else here is a declaration-time failure with one audience
-        # — whoever wrote the declaration — so it already carries its sentence.
         raise ToolError(str(exc)) from exc
 
 
-__all__ = ["Dispatch", "project"]
+__all__ = ["Dispatch", "project", "system_api"]

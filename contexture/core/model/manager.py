@@ -15,7 +15,7 @@ is served:
 
 **Controller**, because that is what these objects are: a caller names one and
 it decides what happens. The name is chosen against MVC deliberately — the
-model is the declaration, the view is `disclosure` compiling a node for an
+model is the declaration, the view is `ContextTree` compiling a node for an
 agent, and this layer is the C that both of those have been quietly doing
 without a home. Nothing here renders anything, and nothing here touches a wire.
 
@@ -411,6 +411,33 @@ class ControllerManager:
 
         yield from self._by_path.items()
 
+    # ---- sealing ---------------------------------------------------------
+
+    def sealed(self, *, schema_of: Any = None) -> Any:
+        """Close this registry and return the view an agent is disclosed.
+
+        Registration is additive and mutable; disclosure is neither. Sealing is
+        the line between the two phases, and it is the moment the checks that
+        need the **whole** forest can finally run — a skill in the first root
+        may name a capability in the third, so `uses` has no answer until
+        nothing more is coming.
+
+        Nothing is frozen by this call. `ContextTree` is frozen, and a manager
+        that is registered into afterwards simply yields a different view the
+        next time it is sealed; what must not happen is a graph changing under
+        a tree that is already serving, which is `Role`'s rule and not this
+        method's to enforce.
+        """
+
+        # Imported here rather than at the top because the view imports this
+        # module: a registry has to exist before there is anything to seal, so
+        # the dependency runs that way round and only the return trip is local.
+        from .tree import ContextTree
+
+        if schema_of is None:
+            return ContextTree(manager=self)
+        return ContextTree(manager=self, schema_source=schema_of)
+
     def __len__(self) -> int:
         return len(self._by_path)
 
@@ -418,4 +445,23 @@ class ControllerManager:
         return isinstance(path, tuple) and path in self._by_path
 
 
-__all__ = ["ControllerManager"]
+def register_root(registry: ControllerManager, root: Any) -> None:
+    """Send one root to the registration method that matches its kind.
+
+    Three explicit methods are the door a declaration goes through, because
+    naming the kind at the call site says what may hang beneath it where a
+    reader is looking. This is for the one caller that cannot name it: an
+    application handing over a list it was given, where what kind each root is
+    is only knowable at run time.
+    """
+
+    built = root() if isinstance(root, type) else root
+    if isinstance(built, Tool):
+        registry.register_tool(built)
+    elif isinstance(built, Skill):
+        registry.register_skill(built)
+    else:
+        registry.register_role(built)
+
+
+__all__ = ["ControllerManager", "register_root"]

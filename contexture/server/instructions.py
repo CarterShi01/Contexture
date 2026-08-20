@@ -48,8 +48,8 @@ from __future__ import annotations
 from typing import Iterator
 
 from ..core.model.node import ContextNode
-from ..core.disclosure.tree import SEPARATOR, ContextTree
-from ..core.mcp_interface.tool import DISCOVER_TOOL
+from ..core.model.tree import SEPARATOR, ContextTree
+from ..core.constants import DISCOVER_TOOL
 from .messages import PREAMBLE, REF_RULE
 
 #: Claude Code truncates server instructions at 2KB; leave room for the rest.

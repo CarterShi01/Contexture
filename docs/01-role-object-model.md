@@ -718,7 +718,7 @@ into a secure progressive Agent Host without invalidating the early concepts.
 | Skill | `contexture/core/model/skill.py` |
 | Tool | `contexture/core/model/tool.py` |
 | Registration: where a node comes into existence | `contexture/core/model/manager.py` |
-| The tree: skeleton, resolution, opening | `contexture/core/disclosure/tree.py` |
+| The tree: skeleton, resolution, opening | `contexture/core/model/tree.py` |
 | What each MCP primitive carries | `contexture/core/mcp_interface/` |
 | The MCP server | `contexture/server/` |
 | Complete example | `contexture/demo/` |

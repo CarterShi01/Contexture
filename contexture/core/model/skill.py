@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
-from .node import ContextNode
+from .node import ContextNode, Disclosure
 from ..errors import ModelValidationError
 from ..types import CompiledContext
 
@@ -84,6 +84,7 @@ class Skill(ContextNode):
     uses: tuple[str, ...] = ()
 
     kind: ClassVar[str] = "skill"
+    group: ClassVar[str] = "skills"
 
     def __post_init__(self) -> None:
         ContextNode.__post_init__(self)
@@ -106,8 +107,20 @@ class Skill(ContextNode):
                 "`uses`; a second card for one capability says there are two."
             )
 
-    def _compile_active(self) -> CompiledContext:
-        return {
-            **self._compile_route(),
+    def _compile_active(self, view: Disclosure) -> CompiledContext:
+        """The whole procedure, plus a card for each capability it names.
+
+        The cards are at ROUTE, and that is what makes a reference cycle safe
+        to declare (ADR 008): `diagnose -> remediate -> diagnose` renders as two
+        cards naming each other rather than as a walk that does not terminate.
+        Rendering a referenced skill at ACTIVE here is the one change that
+        would make this unbounded.
+        """
+
+        payload = {
+            **self.card(view),
             "instructions": self.instructions,
         }
+        if self.uses:
+            payload["uses"] = [view.card_for(ref) for ref in self.uses]
+        return payload

@@ -18,7 +18,7 @@ from contexture.core.errors import (
 from contexture.core.model.role import Role
 from contexture.core.model.skill import Skill
 from contexture.core.model.tool import Tool
-from contexture.core.disclosure.tree import ContextTree
+from contexture.core.model.tree import ContextTree
 
 PROCEDURE = "Read the status, then the logs, then the events."
 

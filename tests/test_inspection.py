@@ -22,7 +22,7 @@ from contexture.core.model.role import Role
 from contexture.core.model.skill import Skill
 from contexture.core.model.tool import Tool
 from contexture.server import DISCOVER_TOOL, OPEN_TOOL, ContextureApp, instructions
-from contexture.core.disclosure.tree import ContextTree
+from contexture.core.model.tree import ContextTree
 
 
 class GetPodLogs(Tool):
@@ -221,6 +221,60 @@ class RefusalTests(unittest.TestCase):
 
         self.assertTrue(step.refused)
         self.assertIn("names a skill", step.body)
+
+
+class RoutingSentenceTests(unittest.TestCase):
+    """The one disclosure rule nothing refuses, measured rather than enforced.
+
+    A description answers "should I go here" and never "what will I find
+    inside". `core` cannot police that: past "not empty" the rule is about
+    wording, and a framework with an opinion about English would be wrong in
+    Chinese and wrong again in a Go port. So it is reported here, to the
+    developer who can act on it, and nothing is blocked.
+    """
+
+    def test_the_bundled_declaration_passes_its_own_rule(self) -> None:
+        step = inspection.open_step(ContextTree.of(Platform), "platform")
+
+        for check in step.checks:
+            with self.subTest(note=check.note):
+                self.assertTrue(check.ok, check.note)
+
+    def test_a_sentence_that_describes_the_inside_is_reported(self) -> None:
+        role = Role(
+            name="r",
+            description="A role.",
+            instructions="Go.",
+            skills=[Skill(name="diagnose", description="A procedure.", instructions="Go.")],
+            tools=[Tool(name="get_logs", description="Read the diagnose output.")],
+        )
+
+        step = inspection.open_step(ContextTree.of(role), "r")
+        failed = [check for check in step.checks if not check.ok]
+
+        self.assertEqual(len(failed), 1)
+        self.assertIn("get_logs", failed[0].note)
+
+    def test_a_routing_sentence_that_runs_long_is_reported(self) -> None:
+        role = Role(
+            name="r",
+            description="A role.",
+            instructions="Go.",
+            tools=[Tool(name="wordy", description="A capability. " * 40)],
+        )
+
+        step = inspection.open_step(ContextTree.of(role), "r")
+        failed = [check for check in step.checks if not check.ok]
+
+        self.assertEqual(len(failed), 1)
+        self.assertIn("wordy", failed[0].note)
+
+    def test_nothing_is_reported_for_a_node_that_holds_nothing(self) -> None:
+        """A leaf has no cards to check, so it makes no claim either way."""
+
+        step = inspection.open_step(ContextTree.of(Platform), "platform/responder/diagnose")
+
+        self.assertEqual(step.checks, ())
 
 
 class SweepTests(unittest.TestCase):

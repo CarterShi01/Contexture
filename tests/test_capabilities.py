@@ -308,12 +308,18 @@ class MemberNameTests(unittest.TestCase):
 
 
 class RoleSelfDescriptionTests(unittest.TestCase):
-    def test_an_opened_role_describes_itself_and_not_its_members(self) -> None:
-        """Listing members here would list them without references.
+    def test_an_opened_role_hands_out_a_card_for_every_member(self) -> None:
+        """Opening a role is where its members become visible, and openable.
 
-        `core.model` cannot know what a reference looks like, so a member listed
-        at this level could be seen and never opened. `core.disclosure` lists
-        them instead, where the reference exists.
+        A role used to describe only itself, because a member listed without a
+        reference could be seen and never opened. It hands out references now
+        without knowing how one is spelled: it asks the view it is compiled
+        against, so every card it renders is openable by construction.
+
+        Compiled with no view at all here, which is the standalone case — an
+        unregistered node reads as its own root. That is what keeps
+        `core.model` able to disclose a declaration on its own, with no tree
+        and no server in the room.
         """
 
         role = Role(
@@ -329,10 +335,52 @@ class RoleSelfDescriptionTests(unittest.TestCase):
         compiled = role.compile("active")
 
         self.assertEqual(compiled["instructions"], "Work from evidence.")
+        self.assertEqual(compiled["ref"], "responder")
         self.assertEqual(
             set(compiled),
-            {"kind", "name", "description", "instructions"},
+            {
+                "kind",
+                "name",
+                "description",
+                "ref",
+                "instructions",
+                "roles",
+                "skills",
+                "tools",
+            },
         )
+        self.assertEqual(compiled["roles"], [])
+        self.assertEqual([card["ref"] for card in compiled["skills"]], ["diagnose"])
+        self.assertEqual([card["ref"] for card in compiled["tools"]], ["get_pod_logs"])
+
+    def test_a_member_arrives_as_a_card_and_never_as_its_own_detail(self) -> None:
+        """One level. The procedure inside a skill is a separate call.
+
+        This is progressive disclosure on the containment axis, asserted at the
+        one place it could be broken by accident: rendering a member at ACTIVE
+        rather than ROUTE would deliver the whole subtree from the top.
+        """
+
+        procedure = "Never state what you have not read."
+        role = Role(
+            name="responder",
+            description="A role.",
+            instructions="Work from evidence.",
+            skills=[
+                Skill(
+                    name="diagnose",
+                    description="A procedure.",
+                    instructions=procedure,
+                )
+            ],
+        )
+
+        compiled = role.compile("active")
+
+        self.assertEqual(
+            set(compiled["skills"][0]), {"kind", "name", "description", "ref"}
+        )
+        self.assertNotIn(procedure, str(compiled))
 
 
 class ProtocolPlaneTests(unittest.TestCase):

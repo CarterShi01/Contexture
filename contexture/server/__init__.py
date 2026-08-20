@@ -51,20 +51,20 @@ _EXPORTS = {
     "Auth": ".identity",
     "TokenVerifier": ".identity",
     "principal_of": ".identity",
-    # The four entry points are declared one layer down, in
-    # `core.mcp_interface`, beside what this server puts on the other two
-    # primitives. They are forwarded here because `contexture.server` is where
-    # a caller looks for what is on the wire — but they are defined there, and
-    # this is a pointer rather than a second copy.
-    "DISCOVER_TOOL": "..core.mcp_interface.tool",
-    "GATEWAY": "..core.mcp_interface.tool",
-    "GATEWAY_TOOLS": "..core.mcp_interface.tool",
-    "GatewayTool": "..core.mcp_interface.tool",
-    "INVOKE_READ_ONLY_TOOL": "..core.mcp_interface.tool",
-    "INVOKE_TOOL": "..core.mcp_interface.tool",
-    "OPEN_TOOL": "..core.mcp_interface.tool",
+    # The four entry points are the kernel's since ADR 014: their names sit on
+    # the shared ground, and their descriptions and behaviour in
+    # `core.model.system_api`. They are forwarded here because
+    # `contexture.server` is where a caller looks for what is on the wire — but
+    # they are defined there, and this is a pointer rather than a second copy.
+    "DISCOVER_TOOL": "..core.constants",
+    "GATEWAY": "..core.model.system_api",
+    "GATEWAY_TOOLS": "..core.model.system_api",
+    "SystemTool": "..core.model.system_api",
+    "INVOKE_READ_ONLY_TOOL": "..core.constants",
+    "INVOKE_TOOL": "..core.constants",
+    "OPEN_TOOL": "..core.constants",
     "PREAMBLE": ".messages",
-    "unresolved": ".messages",
+    "unresolved": "..core.model.system_api",
     "Dispatch": ".binding",
     "project": ".binding",
     "Launch": ".launch",

@@ -29,7 +29,7 @@ from contexture.cli import (
     new_project,
     resolve_target,
 )
-from contexture.core.disclosure.tree import ContextTree
+from contexture.core.model.tree import ContextTree
 from contexture.core.mcp_interface import Resource
 from contexture.core.model.manager import ControllerManager
 

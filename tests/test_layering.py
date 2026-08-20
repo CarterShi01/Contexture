@@ -44,12 +44,12 @@ ALLOWED: dict[str, set[str]] = {
     # it stands on nothing, which is what lets the sibling layers below stay
     # independent of each other without duplicating an exception hierarchy.
     "core.__base__": set(),
-    # What a capability *is*. It does not know where it hangs, what a reference
-    # looks like, or that a protocol exists.
+    # What a capability *is*, where it hangs, and how much of it one call
+    # answers with. The reference, the level and the four system entry points
+    # all live here: since ADR 014 navigation is part of the kernel rather than
+    # a layer above it, so there is no seam left to draw between a node and the
+    # call that discloses one.
     "core.model": {"core.__base__"},
-    # Where it hangs, and how much of it one call answers with. The reference
-    # and the level are invented here and exist nowhere below.
-    "core.disclosure": {"core.__base__", "core.model"},
     # What this server exposes on each of MCP's three primitives. The
     # load-bearing part of this entry is what it *omits*: `core.model`. The
     # protocol plane must not know the object model — it holds names and
@@ -60,7 +60,6 @@ ALLOWED: dict[str, set[str]] = {
     "server": {
         "core.__base__",
         "core.model",
-        "core.disclosure",
         "core.mcp_interface",
     },
     # The bundled reference application sits above everything and is imported
@@ -80,7 +79,6 @@ ALLOWED: dict[str, set[str]] = {
     "inspection": {
         "core.__base__",
         "core.model",
-        "core.disclosure",
         "core.mcp_interface",
         "server",
     },
@@ -88,7 +86,6 @@ ALLOWED: dict[str, set[str]] = {
     "cli": {
         "core.__base__",
         "core.model",
-        "core.disclosure",
         "core.mcp_interface",
         "server",
         "inspection",

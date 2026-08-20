@@ -48,11 +48,11 @@ class NodeNotFoundError(ContextureError):
     next — so this error carries neither sentence. It carries the facts, and
     each audience renders its own.
 
-    The agent's rendering lives in `contexture.server.messages`, which is the
-    only place that knows the gateway tool names the good sentence has to name.
-    That is why the facts travel instead of the prose: the layer that hits the
-    failure cannot write the sentence, and the layer that can write it is not
-    in the call.
+    The agent's rendering is `core.model.system_api.unresolved`, beside the
+    calls whose names the good sentence has to name. The facts travel rather
+    than the prose because the lookup that fails is several frames below the
+    call that was made, and only the call knows which entry point an agent
+    should try next.
     """
 
     def __init__(

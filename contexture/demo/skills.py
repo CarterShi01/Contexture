@@ -39,19 +39,32 @@ Constraints:
         )
 
 
+#: The procedure this one cannot perform and must not duplicate.
+#:
+#: A ref, not a sentence. The instructions below used to say "using the
+#: incident-response role", which reads the same to a person and gives an agent
+#: nothing: no address, nothing to open, and no way for anything to check that
+#: what it names still exists. Declared, it is resolved when the server is
+#: built, it arrives as a card when this skill is opened, and `tree.crossings()`
+#: can list it if it ever leaves this branch.
+DIAGNOSIS = "kubernetes-platform/incident-response/diagnose-crash-loop-backoff"
+
+
 class RollBackAFailedRelease(Skill):
     def __init__(self) -> None:
         super().__init__(
             name="roll-back-a-failed-release",
             description="Decide whether to roll a release back, and what to capture first.",
+            uses=(DIAGNOSIS,),
             instructions="""\
 A rollback destroys the evidence it was called for. Work in this order.
 
 1. Read contexture://runbooks/rollback-policy before doing anything else.
 2. Call get_rollout_status. Compare the current and previous image: if they
    differ only in a tag, the cause may not be in the image at all.
-3. Establish the cause first, using the incident-response role. A rollback that
-   follows a guess will be needed again on the next release.
+3. Establish the cause first, by opening the procedure listed under `uses` and
+   following it. A rollback that follows a guess will be needed again on the
+   next release.
 4. Only then call roll_back_deployment, and say plainly what evidence is lost.
 
 Constraints:
@@ -64,4 +77,4 @@ Constraints:
         )
 
 
-__all__ = ["DiagnoseCrashLoopBackOff", "RollBackAFailedRelease"]
+__all__ = ["DIAGNOSIS", "DiagnoseCrashLoopBackOff", "RollBackAFailedRelease"]

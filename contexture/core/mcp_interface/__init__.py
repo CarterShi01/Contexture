@@ -3,7 +3,8 @@
 One module per primitive, so that the answer to *what does this server put in
 front of a host?* is a directory listing rather than a search.
 
-    tool.py       the four entry points every declaration projects onto
+    tool.py       which four entry points occupy this plane; a business
+                  adds none, and `core.model.system_api` implements them
     resource.py   content a host may take up on its own
     prompt.py     capabilities a person triggers by name
 
@@ -17,7 +18,7 @@ putting it on a wire are two jobs, and only the second belongs to `server`.
 from ..errors import DeclarationError
 from .prompt import Prompt
 from .resource import Resource
-from .tool import GATEWAY, GATEWAY_TOOLS, GatewayTool
+from .tool import PUBLISHED
 
 
 def published(entry: object) -> Prompt | Resource:
@@ -41,9 +42,7 @@ def published(entry: object) -> Prompt | Resource:
 
 
 __all__ = [
-    "GATEWAY",
-    "GATEWAY_TOOLS",
-    "GatewayTool",
+    "PUBLISHED",
     "Prompt",
     "Resource",
     "published",

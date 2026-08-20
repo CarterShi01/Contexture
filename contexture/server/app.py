@@ -49,11 +49,11 @@ from ..core.errors import ContextureError, ModelValidationError
 from ..core.mcp_interface import published
 from ..core.mcp_interface.prompt import Prompt
 from ..core.mcp_interface.resource import Resource
-from ..core.disclosure.tree import register_root as _register
+from ..core.model.manager import register_root as _register
 from ..core.model.manager import ControllerManager
 from ..core.model.node import ContextNode
 from ..core.model.role import Role
-from ..core.disclosure.tree import ContextTree
+from ..core.model.tree import ContextTree
 from . import instructions as instructions_module
 from .binding import Dispatch, project
 from .identity import Auth

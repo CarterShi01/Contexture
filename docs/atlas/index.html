@@ -382,11 +382,8 @@
                     <li><div class="row"><span class="path">tool.py</span><span class="desc">125 行 — <strong>Tool</strong>,自己实现的可执行能力;schema 从 <code>invoke</code> 签名推导。<strong>无参只读 Tool 就是"已经在那儿的内容"</strong></span></div></li>
                     <li><div class="row"><span class="path">role.py</span><span class="desc">196 行 — <strong>Role</strong>,递归组合的团队树;成员在构造函数里建,成员名跨种类唯一,这是 ref 能变成纯路径的前提</span></div></li>
                   </ul>
-                </li>
-                <li>
-                  <div class="row"><span class="path dir">disclosure/</span><span class="desc">它<strong>在哪</strong>,一次露出<strong>多少</strong>。<strong>ref 和"层级"是在这里发明的</strong>,下面任何一层都没有</span></div>
-                  <ul>
-                    <li><div class="row"><span class="path">tree.py</span><span class="desc">492 行 · <strong>1 类</strong> — <strong>ContextTree</strong>:<code>skeleton()</code> 根卡片 · <code>find()</code> 解析 · <code>open()</code> 打开一层 · <code>signpost()</code> 直达时的路标 · <code>matching_refs()</code> 补全</span></div></li>
+                    <li><div class="row"><span class="path">tree.py</span><span class="desc"><strong>ContextTree</strong>:<code>skeleton()</code> 根卡片 · <code>find()</code> 解析 · <code>open()</code> 打开一层 · <code>signpost()</code> 直达时的路标 · <code>matching_refs()</code> 补全。<strong>它是一个 <code>Disclosure</code> 视图</strong>——节点向它要地址和 schema,自己渲染自己</span></div></li>
+                    <li><div class="row"><span class="path">system_api.py</span><span class="desc"><strong>四个入口</strong>:名字 · 描述 · 行为 · 每一句拒绝,都在这里。门检查(read_only 是门不是参数)与 reserved 检查也在。<strong>不是 Tool 节点</strong>,是声明之前就存在的写死逻辑</span></div></li>
                   </ul>
                 </li>
                 <li>
@@ -466,8 +463,7 @@
 flowchart TB
     biz["<b>你的应用</b><br/>声明 Role · Skill · Tool"]
     base["<b>core.__base__</b><br/>errors · types · constants · principal<br/><i>共享地基:谁都能站,它谁也不站</i>"]
-    model["<b>core.model</b><br/>Role · Skill · Tool · ContextNode<br/><i>不知道自己挂在哪,不知道 ref 是什么</i>"]
-    disc["<b>core.disclosure</b><br/>ContextTree:骨架 · 解析 · 打开<br/><i>ref 与层级在这里被发明出来</i>"]
+    model["<b>core.model</b><br/>Role · Skill · Tool · ContextTree · system_api<br/><i>内核:是什么 · 在哪 · 能做什么</i>"]
     mcpi["<b>core.mcp_interface</b><br/>tool · resource · prompt<br/><i>三个原语的声明 · 仍然不 import SDK</i>"]
     srv["<b>contexture.server</b><br/>binding · messages · identity · app · launch<br/><i>唯一 import 官方 SDK 的层</i>"]
     cli["<b>contexture.cli</b><br/>new · serve · list · inspect<br/><i>骑在最上面,谁都不许 import 它</i>"]
@@ -476,8 +472,7 @@ flowchart TB
     biz -->|继承 / 组合| model
     base --> model
     base --> mcpi
-    model -->|compile| disc
-    disc -->|bind| srv
+    model -->|bind| srv
     mcpi -->|bind| srv
     srv -->|run| cli
     cli -->|MCP| agent
@@ -487,7 +482,7 @@ flowchart TB
     style srv stroke-width:3px
     style agent stroke-dasharray: 5 5
         </pre>
-        <figcaption>每层一个问题:<code>model</code> 是"节点怎么描述自己",<code>disclosure</code> 是"编译谁、编译到哪一档",<code>mcp_interface</code> 是"在三个原语上摆什么",<code>server</code> 是"怎么挂到 SDK 上"。<strong>注意 <code>mcpi</code> 只有一条入边,来自共享地基</strong>——它跟 <code>model</code> 之间没有箭头,两个平面在类型系统里连一条 import 边都没有。<code>cli</code> 骑在最上面,业务项目因此连一个入口文件都不用写:根角色写在 <code>pyproject.toml</code> 的 <code>[tool.contexture]</code> 里,<code>contexture serve</code> 去读。图上<strong>只有一条路</strong>:声明进来,一个 MCP Server 出去。没有渲染文件的副路,也没有反向调用别人服务器的出站腿——那是宿主的活,不是提供方的。最右边那个虚线框<strong>不属于 Contexture</strong>。依赖规则由 <code>tests/test_layering.py</code> 强制:既查 AST,也在子进程里真跑一次——<code>import contexture.core</code> 之后 <code>sys.modules</code> 里不许出现 <code>mcp</code> 或 <code>mcp_types</code>,两个发行包都查,只查前一个会把间接 import 那条路留着没人看。</figcaption>
+        <figcaption>每层一个问题:<code>model</code> 是"一个能力是什么、在哪、agent 能对它做什么"——节点自己描述自己,<code>ContextTree</code> 决定一次调用问谁,<code>system_api</code> 是那四个入口;<code>mcp_interface</code> 是"在三个原语上摆什么",而业务只在 prompt 和 resource 两面上加东西,tool 那面被内核占满;<code>server</code> 是"怎么挂到 SDK 上"。<strong>注意 <code>mcpi</code> 只有一条入边,来自共享地基</strong>——它跟 <code>model</code> 之间没有箭头,两个平面在类型系统里连一条 import 边都没有。<code>cli</code> 骑在最上面,业务项目因此连一个入口文件都不用写:根角色写在 <code>pyproject.toml</code> 的 <code>[tool.contexture]</code> 里,<code>contexture serve</code> 去读。图上<strong>只有一条路</strong>:声明进来,一个 MCP Server 出去。没有渲染文件的副路,也没有反向调用别人服务器的出站腿——那是宿主的活,不是提供方的。最右边那个虚线框<strong>不属于 Contexture</strong>。依赖规则由 <code>tests/test_layering.py</code> 强制:既查 AST,也在子进程里真跑一次——<code>import contexture.core</code> 之后 <code>sys.modules</code> 里不许出现 <code>mcp</code> 或 <code>mcp_types</code>,两个发行包都查,只查前一个会把间接 import 那条路留着没人看。</figcaption>
       </figure>
     </div>
 
@@ -520,15 +515,13 @@ flowchart TB
         skill["skill.py<br/>Skill · uses"]
         tool["tool.py<br/>Tool"]
         role["role.py<br/>Role"]
-    end
-
-    subgraph DISC["core.disclosure — 它在哪,一次露多少"]
         tree["tree.py<br/>ContextTree<br/><i>skeleton · find · open · signpost</i>"]
+        sysapi["system_api.py<br/>四个入口 · 每一句拒绝"]
     end
 
     subgraph MCPI["core.mcp_interface — 三个原语上摆什么"]
         direction TB
-        mtool["tool.py<br/>四个网关入口"]
+        mtool["tool.py<br/>只有四个名字"]
         mres["resource.py<br/>Resource"]
         mprompt["prompt.py<br/>Prompt"]
     end
@@ -1096,7 +1089,7 @@ flowchart LR
       一个调不动某能力的人,<strong>照样看得见它的卡片</strong>:名字、描述、参数 schema。
       公网部署时,<strong>能力图谱是公开的</strong>。<br><br>
       这是取舍不是疏漏:框架自带一套策略词汇,就是框架在替业务决定业务拥有的东西。
-      真要堵,需要 <code>core.disclosure</code> 上一道缝,外加 instructions 里那份 roster
+      真要堵,需要 <code>ContextTree</code> 上一道缝,外加 instructions 里那份 roster
       ——它在启动时算一次、所有人拿到同一份,不一起改的话过滤等于白做。
     </div>
   </section>

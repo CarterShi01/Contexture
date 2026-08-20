@@ -22,7 +22,7 @@ from contexture.core.model.tool import Tool
 from mcp.server.mcpserver import Context, MCPServer
 from contexture.server import instructions
 from contexture.server.binding import Dispatch, project
-from contexture.core.disclosure.tree import SEPARATOR, ContextTree
+from contexture.core.model.tree import SEPARATOR, ContextTree
 from contexture.server import (
     DISCOVER_TOOL,
     Launch,

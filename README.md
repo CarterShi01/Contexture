@@ -138,13 +138,16 @@ name, reuse and give a common base.
 **Encapsulation keeps the disclosure decision local.** Every node decides for
 itself what its routing card says and what its opened form says, so changing
 what a Role discloses is an edit to `Role` and to nothing else. What that buys
-is locality, not extensibility: the three kinds are a closed set — `ContextTree`
-names them one at a time — and a fourth would be quietly ignored rather than
-served.
+is locality, not extensibility: the three kinds are a closed set, and a fourth
+is a breaking change to the framework rather than something a business adds.
 
 **Polymorphism is what makes progressive disclosure uniform.** Role, Skill and
-Tool have nothing else in common, yet discovery calls `node.compile(level)` on
-all three and never asks what it is holding.
+Tool have nothing else in common, yet one call — `node.compile(level, view=…)` —
+serves all three and never asks what it is holding. A node reaches what it
+cannot work out for itself, its own address and its own schema, by asking the
+view it is compiled against; that is the whole of what the tree contributes.
+Opening a node is therefore one line with no mention of any kind, which it was
+not before ADR 014.
 
 **Composition, not inheritance, models the team.** Subclassing states what one
 node *is*; it never states containment. A role that coordinates other roles
@@ -415,9 +418,8 @@ balancer needs to be sticky.
 ```text
 your application            subclasses Role/Skill/Tool, constructs Prompt/Resource
         │  one import: `from contexture import ...`
-core.model                  the object model — no I/O, no wire, no SDK
-        │  compile
-core.disclosure             the multi-headed tree, disclosed lazily
+core.model                  the kernel — the object model, the forest, and the
+        │                   four calls an agent makes; no wire, no SDK
         │
 core.mcp_interface          what each MCP primitive carries — still no SDK
         │  bind
@@ -634,10 +636,12 @@ for a recorded run against both hosts.
 ```text
 contexture/
 ├── core/
-│   ├── model/       what a capability is: node, role, skill, tool, manager
-│   ├── disclosure/  where it hangs, and how much arrives per call
-│   └── mcp_interface/  what each of MCP's three primitives carries
-│   └── errors.py, types.py, constants.py — shared by all three
+│   ├── model/       the kernel: node, role, skill, tool, manager, tree, and
+│   │                system_api — what a capability is, where it hangs, how
+│   │                much arrives per call, and the four entry points
+│   └── mcp_interface/  what each of MCP's three primitives carries; a
+│                    business extends prompt and resource, never tool
+│   └── errors.py, types.py, constants.py — shared by both
 ├── server/          the MCP server: messages (what is said to somebody),
 │                    instructions (fitting it to a host), binding (hanging the
 │                    surface on the SDK), app, launch
@@ -693,6 +697,10 @@ visual map.
 - [`docs/adr/010-the-directories-are-the-architecture.md`](docs/adr/010-the-directories-are-the-architecture.md)
   — the move itself, and why the layering test had to be hardened before a
   single file could be moved.
+- [`docs/adr/014-navigation-is-part-of-the-kernel.md`](docs/adr/014-navigation-is-part-of-the-kernel.md)
+  — why the four entry points, the forest and the nodes ended up in one
+  directory, why a node now hands out addresses it cannot spell, and why
+  registration and disclosure stayed two types rather than one.
 - [`docs/adr/007-the-role-axis-is-lazy-too.md`](docs/adr/007-the-role-axis-is-lazy-too.md)
   — why the role skeleton stopped being delivered whole: the argument for it
   was about one level of siblings and got applied to all of them, which is

@@ -218,6 +218,10 @@ class StdioServerTests(unittest.TestCase):
         role, schemas, skill, status, logs, runbook = _run(work)
 
         self.assertEqual(role["skills"][0]["name"], "diagnose-crash-loop-backoff")
+        # A skill that names a capability outside its own parent carries a card
+        # for it, at ROUTE and never deeper — which is what makes a reference
+        # cycle a pair of cards rather than a walk that does not terminate.
+        self.assertNotIn("uses", skill)
         self.assertEqual(schemas["get_pod_status"]["required"], ["namespace", "pod"])
         self.assertIn("get_pod_status", skill["instructions"])
         self.assertEqual(status["container_state"], "CrashLoopBackOff")
@@ -394,23 +398,48 @@ class StdioCommandPlaneTests(unittest.TestCase):
     happens to hold the right attributes.
     """
 
-    def test_the_generic_entrance_is_offered_and_takes_a_reference(self) -> None:
-        """The demo marks nothing, so `goto` is the whole prompt surface.
+    def test_the_menu_is_what_was_declared_plus_the_generic_entrance(
+        self,
+    ) -> None:
+        """One declared command, and `goto` beside it.
 
-        That is the design working, not a gap: the default plane is the
-        model's, so a declaration that says nothing about people gets exactly
-        one entrance and no menu to maintain.
+        The count is authored: the demo declares exactly one prompt, and the
+        menu holds it whatever the forest grows to. `goto` is always there,
+        because the nodes nobody marked still need a door a person can use.
         """
 
         async def work(session):
             return await session.list_prompts()
 
         listed = _run(work)
+        by_name = {prompt.name: prompt for prompt in listed.prompts}
 
-        self.assertEqual([prompt.name for prompt in listed.prompts], ["goto"])
-        (argument,) = listed.prompts[0].arguments or []
+        self.assertEqual(sorted(by_name), ["goto", "roll-back-a-release"])
+        # A declared command takes no argument: the node it opens was fixed
+        # when it was registered, so there is nothing for a person to fill in.
+        self.assertFalse(by_name["roll-back-a-release"].arguments)
+        (argument,) = by_name["goto"].arguments or []
         self.assertEqual(argument.name, "ref")
         self.assertTrue(argument.required)
+
+    def test_a_declared_command_opens_its_node_for_a_person(self) -> None:
+        """The shape a business reaches for: a command pointing at one skill.
+
+        It answers with the payload `contexture_open` would have returned, so
+        the two doors differ in who may knock and in nothing else.
+        """
+
+        async def work(session):
+            return await session.get_prompt("roll-back-a-release", {})
+
+        (message,) = _run(work).messages
+        text = message.content.text
+
+        self.assertIn("A rollback destroys the evidence", text)
+        # The reference it declares arrives as a card, and a card only: the
+        # procedure it names is a separate call.
+        self.assertIn("diagnose-crash-loop-backoff", text)
+        self.assertNotIn("Do not recommend restarting", text)
 
     def test_a_person_reaches_depth_three_without_spending_a_model_turn(self) -> None:
         """What the whole plane is for.

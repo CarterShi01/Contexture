@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import ClassVar, Iterator
 
-from .node import ContextNode
+from .node import ContextNode, Disclosure, group_cards
 from ..errors import (
     DuplicateNameError,
     LookupFailure,
@@ -86,6 +86,7 @@ class Role(ContextNode):
     tools: list[Tool] = field(default_factory=list)
 
     kind: ClassVar[str] = "role"
+    group: ClassVar[str] = "roles"
 
     def __post_init__(self) -> None:
         ContextNode.__post_init__(self)
@@ -95,6 +96,16 @@ class Role(ContextNode):
             )
         self._require_built_members()
         self._require_unique_members()
+
+    def branches(self) -> tuple[ContextNode, ...]:
+        """The sub-roles a session enters *instead of* one another.
+
+        Only the children: a skill and a tool are things this role holds, not
+        ways on from it. What asks is anything that has to say how many choices
+        remain — `signpost`, and the breadth-first roster.
+        """
+
+        return tuple(self.children)
 
     def members(self) -> Iterator[ContextNode]:
         """Yield everything this role holds, in a stable order.
@@ -184,13 +195,26 @@ class Role(ContextNode):
         if len(materialized) != len(set(materialized)):
             raise DuplicateNameError(f"A role contains duplicate {label}.")
 
-    def _compile_active(self) -> CompiledContext:
-        """Describe this role, and nothing around it.
+    def _compile_active(self, view: Disclosure) -> CompiledContext:
+        """Describe this role, and hand back a card for each member it holds.
 
-        A role does not list its members here. It cannot list them completely:
-        a member is only reachable through a reference, references belong to
-        `core.disclosure`, and `core.model` must not know they exist. A half-listed
-        member is worse than an unlisted one — it can be seen and not opened.
+        A role used to describe only itself, on the grounds that it could not
+        list a member *completely*: a member is reachable only through a
+        reference, and a half-listed member — visible and not openable — is
+        worse than an unlisted one. The reasoning was right and the conclusion
+        was too strong. A role does not have to know how an address is spelled
+        in order to hand out addresses; it asks the view for one, and every
+        card it renders is therefore openable by construction.
+
+        **One level, and cards.** The members arrive at ROUTE, so opening a
+        role delivers what it holds without delivering what *they* hold: a
+        sub-role is a card here and a separate call when it is actually chosen.
+        That is the whole of the laziness on the role axis (ADR 007), and it
+        lives in this method.
         """
 
-        return {**self._compile_route(), "instructions": self.instructions}
+        return {
+            **self.card(view),
+            "instructions": self.instructions,
+            **group_cards(self.members(), view),
+        }

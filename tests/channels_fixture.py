@@ -127,7 +127,7 @@ def build() -> ContextureApp:
     """
 
     manager = ControllerManager(channels=_channels())
-    manager.register(Operations)
+    manager.register_role(Operations)
     return ContextureApp(roots=manager, publish=PUBLISHED, name="channels-fixture")
 
 
@@ -159,7 +159,7 @@ def build_provisioned() -> ContextureApp:
             mark("close")
 
     manager = ControllerManager(provision=open_channels)
-    manager.register(Operations)
+    manager.register_role(Operations)
     return ContextureApp(roots=manager, publish=PUBLISHED, name="channels-fixture")
 
 

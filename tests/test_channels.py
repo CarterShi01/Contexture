@@ -117,7 +117,7 @@ class HandOffTests(unittest.TestCase):
 
     def test_a_manager_and_channels_together_are_refused(self) -> None:
         manager = ControllerManager(channels=object())
-        manager.register(fixture.Operations)
+        manager.register_role(fixture.Operations)
         with self.assertRaises(Exception) as caught:
             ContextureApp(roots=manager, channels=object())
         self.assertIn("two answers", str(caught.exception))
@@ -148,7 +148,7 @@ class LifecycleTests(unittest.TestCase):
                 marks.append("close")
 
         manager = ControllerManager(provision=open_channels)
-        manager.register(fixture.Operations)
+        manager.register_role(fixture.Operations)
         return manager
 
     def test_a_handle_is_open_only_while_it_is_being_served(self) -> None:
@@ -222,7 +222,7 @@ class LifecycleTests(unittest.TestCase):
 
     def test_something_that_opens_nothing_is_refused(self) -> None:
         manager = ControllerManager(provision=lambda: object())
-        manager.register(fixture.Operations)
+        manager.register_role(fixture.Operations)
 
         async def serve() -> None:
             async with manager.provisioned():
@@ -242,7 +242,7 @@ class LifecycleTests(unittest.TestCase):
 
         channels = object()
         manager = ControllerManager(channels=channels)
-        manager.register(fixture.Operations)
+        manager.register_role(fixture.Operations)
 
         async def serve() -> object:
             async with manager.provisioned() as opened:

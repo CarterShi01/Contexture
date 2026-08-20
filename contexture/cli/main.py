@@ -45,7 +45,7 @@ def command_new(args: argparse.Namespace) -> int:
 
 
 def command_list(args: argparse.Namespace) -> int:
-    from ..core.disclosure.tree import ContextTree
+    from ..core.model.tree import ContextTree
 
     targets, project, _, _ = _targets_and_project(args.target)
     tree = ContextTree.of(load_roots(targets, project=project))

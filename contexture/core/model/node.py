@@ -5,10 +5,11 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Iterable, Iterator, Protocol
 
+from ..constants import SEPARATOR
 from ..errors import ModelValidationError
-from ..types import CompiledContext
+from ..types import CompiledContext, JsonObject
 
 
 class CompileLevel(str, Enum):
@@ -28,6 +29,38 @@ class CompileLevel(str, Enum):
 
     ROUTE = "route"
     ACTIVE = "active"
+
+
+class Disclosure(Protocol):
+    """What a node asks for while it is compiling itself.
+
+    A node knows what it is and what it holds. It does not know how an address
+    is spelled, which of its neighbours are being rendered, or what JSON Schema
+    looks like — it is constructed long before it is registered and knows
+    nothing about the forest it will hang in. So it asks.
+
+    This is the seam ADR 014 put here in place of the type switch the tree used
+    to carry. The tree asked each node what kind it was and rendered it on the
+    node's behalf, which meant a fifth kind of node would have been five edits
+    in a file that owns none of them. Now each node renders itself and asks
+    only for the two things the tree alone can answer: an address, and a
+    schema.
+
+    `ContextTree` is the implementation that answers from a whole registered
+    forest. `_Alone` answers for a node nobody has registered.
+    """
+
+    def ref_of(self, node: ContextNode) -> str:
+        """The address that opens `node`."""
+
+    def card_of(self, node: ContextNode) -> CompiledContext:
+        """One routing card for a node this view already holds."""
+
+    def card_for(self, ref: str) -> CompiledContext:
+        """One routing card for a node named by address rather than held."""
+
+    def schema_of(self, tool: ContextNode) -> JsonObject:
+        """The input schema an agent needs in order to call `tool`."""
 
 
 @dataclass(slots=True, kw_only=True)
@@ -54,10 +87,8 @@ class ContextNode(ABC):
     #: has registered it. A node still cannot *work out* where it hangs — it is
     #: told, once, by the one object that holds the whole graph.
     #:
-    #: Segments and never a joined string, and that is a layer boundary rather
-    #: than a preference: which character spells a separator is `disclosure`'s
-    #: business, and a tuple carries the position without carrying the
-    #: spelling.
+    #: Segments and never a joined string: a tuple carries the position without
+    #: committing to the spelling, and the spelling is the tree's to choose.
     path: tuple[str, ...] = field(default=(), compare=False, repr=False)
 
     #: The application's handle on whatever lives outside this process — a
@@ -74,6 +105,16 @@ class ContextNode(ABC):
 
     kind: ClassVar[str] = "context_node"
 
+    #: Which bucket this kind occupies in a rendered sibling set.
+    #:
+    #: Three buckets and no more, because the three kinds are closed: a payload
+    #: carrying `roles`, `skills` and `tools` is three named fields in Go and in
+    #: TypeScript, where an open map of kinds would be neither checkable nor
+    #: translatable. Adding a fourth kind is a breaking change to the framework,
+    #: which is the honest price and the reason this is a ClassVar rather than
+    #: something a subclass is invited to invent.
+    group: ClassVar[str] = "nodes"
+
     def __post_init__(self) -> None:
         if not self.name.strip():
             raise ModelValidationError("Context node name must not be empty.")
@@ -85,13 +126,57 @@ class ContextNode(ABC):
     def compile(
         self,
         level: CompileLevel | str = CompileLevel.ROUTE,
+        *,
+        view: Disclosure | None = None,
     ) -> CompiledContext:
-        """Compile the node into the requested disclosure surface."""
+        """Compile the node into the requested disclosure surface.
+
+        `view` is how the node reaches what it cannot work out for itself. It
+        is optional so that a node can still be compiled on its own — by a
+        test, or by `contexture list` — and what fills in then answers from the
+        node's own `path`; see `_Alone`.
+        """
 
         normalized = CompileLevel(level)
         if normalized is CompileLevel.ROUTE:
             return self._compile_route()
-        return self._compile_active()
+        return self._compile_active(view if view is not None else _ALONE)
+
+    def card(self, view: Disclosure) -> CompiledContext:
+        """Render one routing card: what this node is, and how to open it.
+
+        Taking a view rather than a bare reference is what makes the card
+        impossible to build wrong: a card that can be seen can always be
+        opened, because the address on it came from the same object that would
+        resolve it.
+
+        **This is the only place a `description` is produced.** Every active
+        payload starts from a card and adds to it, so the rule that a
+        description answers "should I go here" and never "what is inside" has
+        one place to be true rather than three renderers to agree.
+        """
+
+        return {**self._compile_route(), "ref": view.ref_of(self)}
+
+    def branches(self) -> tuple[ContextNode, ...]:
+        """The sub-roles below this node: the choices a session picks between.
+
+        Empty for everything but a `Role`. A caller that needs to say *how many
+        ways there are on from here* — a signpost, a breadth-first roster —
+        asks this rather than testing what kind of node it is holding.
+        """
+
+        return ()
+
+    def members(self) -> Iterator[ContextNode]:
+        """Everything this node holds, one level down and in declared order.
+
+        Empty for everything but a `Role`. A leaf holds nothing, and saying so
+        here is what lets a walk over the forest stay a walk rather than a
+        chain of kind tests.
+        """
+
+        yield from ()
 
     def _compile_route(self) -> CompiledContext:
         """Return the minimal surface that is safe for broad routing."""
@@ -103,7 +188,72 @@ class ContextNode(ABC):
         }
 
     @abstractmethod
-    def _compile_active(self) -> CompiledContext:
+    def _compile_active(self, view: Disclosure) -> CompiledContext:
         """Return the detailed surface for an explicitly activated node."""
 
         raise NotImplementedError
+
+
+@dataclass(frozen=True, slots=True)
+class _Alone:
+    """The view a node gets when nobody supplied one.
+
+    `Role(...).compile("active")` has to answer something, and a node that has
+    never been registered still knows its own name and what it holds. So this
+    answers from `path` where there is one, and from the node's own name where
+    there is not — a standalone node reads as its own root, which is exactly
+    what it becomes the moment somebody registers it.
+
+    Two things it cannot invent, and both fail in the direction that says so.
+    A schema needs a JSON Schema library `core` does not import, so a tool card
+    built this way carries an empty one. A reference needs a forest to resolve
+    against, so `card_for` refuses rather than returning a card that addresses
+    nothing. Both are why this is the fallback for a test and for `contexture
+    list`, and never what a served payload is built from.
+    """
+
+    def ref_of(self, node: ContextNode) -> str:
+        return SEPARATOR.join(node.path) if node.path else node.name
+
+    def card_of(self, node: ContextNode) -> CompiledContext:
+        return node.card(self)
+
+    def card_for(self, ref: str) -> CompiledContext:
+        raise ModelValidationError(
+            f"Nothing here can resolve {ref!r}: this node is being compiled on "
+            "its own, outside any forest. Build a `ContextTree` from the root "
+            "that holds it and open it through that."
+        )
+
+    def schema_of(self, tool: ContextNode) -> JsonObject:
+        return {}
+
+
+#: One instance is enough: it holds nothing and answers from its argument.
+_ALONE = _Alone()
+
+
+def group_cards(
+    nodes: Iterable[ContextNode],
+    view: Disclosure,
+) -> CompiledContext:
+    """Render one sibling set, grouped by kind.
+
+    The **one** payload shape in this package: what a `discover` call answers
+    with and what opening a role puts under it are the same three keys, because
+    they are the same question asked at two depths. One shape is one golden
+    fixture per depth instead of two, which is what keeps three implementations
+    saying the same thing.
+
+    The three keys are always present, empty ones included. A role that holds
+    no tools says so with `[]` rather than by omitting the key, so a consumer
+    reads one shape whatever it opened.
+    """
+
+    grouped: CompiledContext = {"roles": [], "skills": [], "tools": []}
+    for node in nodes:
+        grouped[node.group].append(node.card(view))
+    return grouped
+
+
+__all__ = ["CompileLevel", "ContextNode", "Disclosure", "group_cards"]

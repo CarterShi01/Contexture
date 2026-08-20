@@ -1,8 +1,13 @@
-"""Tests for everything a connected agent reads.
+"""Tests for the two planes of text that are still `server`'s.
 
-These run without the MCP SDK installed, and that is the point: what the agent
-is told is decided a layer above the object model and a layer below the wire,
-and it should be readable, assertable, and reviewable on its own.
+What one call answers with, refusals included, moved to the kernel with the
+calls themselves; `tests/test_system_api.py` holds it. What is left here is the
+text shaped by its audience rather than by the model — the opening a host loads
+before calling anything, and what a person reads in a command menu.
+
+These run without the MCP SDK installed, and that is the point: what a host is
+told is decided a layer below the wire, and it should be readable, assertable
+and reviewable on its own.
 """
 
 from __future__ import annotations
@@ -12,52 +17,36 @@ import sys
 import unittest
 from pathlib import Path
 
-from contexture.core.errors import LookupFailure, NodeNotFoundError
-from contexture.core.mcp_interface import tool as gateway
+from contexture.core.mcp_interface import tool as primitive
 from contexture.server import messages
 
 SOURCE_ROOT = Path(__file__).resolve().parent.parent
 
 
-class SurfaceVocabularyTests(unittest.TestCase):
-    def test_the_gateway_is_four_entry_points_stated_once(self) -> None:
-        self.assertEqual(len(gateway.GATEWAY), 4)
-        self.assertEqual(
-            gateway.GATEWAY_TOOLS,
-            (
-                "contexture_discover",
-                "contexture_open",
-                "contexture_invoke_read_only",
-                "contexture_invoke",
-            ),
-        )
+class ToolPrimitiveTests(unittest.TestCase):
+    def test_the_business_adds_nothing_to_this_plane(self) -> None:
+        """Four names, whatever the declaration contains.
 
-    def test_exactly_one_entry_point_is_not_read_only(self) -> None:
-        """The write door is the whole reason invoke is split in two."""
-
-        writing = [entry.name for entry in gateway.GATEWAY if not entry.read_only]
-        self.assertEqual(writing, ["contexture_invoke"])
-
-    def test_every_entry_point_describes_itself(self) -> None:
-        for entry in gateway.GATEWAY:
-            with self.subTest(tool=entry.name):
-                self.assertGreater(len(entry.description), 60)
-
-    def test_only_the_call_that_delivers_schemas_talks_about_them(self) -> None:
-        """Five descriptions are one document, and it has to agree with itself.
-
-        `contexture_discover` said cards never carry tool schemas and that
-        opening is what delivers them. Both halves misled: the cards *it*
-        returns are role cards, which have no schema to carry, while the tool
-        cards `contexture_open` returns have carried the schema since the card
-        and the tool's own ref were made to agree. An agent that believed it
-        spent a call per tool to be handed back the card it already had.
+        The other two primitives grow an entry per declared `Prompt` or
+        `Resource`. This one cannot: a listed capability is one every session
+        pays for forever, so the plane is the framework's own and a business
+        extends it by extending nothing.
         """
 
-        described = {entry.name: entry.description for entry in gateway.GATEWAY}
+        self.assertEqual(len(primitive.PUBLISHED), 4)
+        self.assertEqual(primitive.PUBLISHED[0], primitive.DISCOVER_TOOL)
 
-        self.assertIn("schema", described[gateway.OPEN_TOOL])
-        self.assertNotIn("schema", described[gateway.DISCOVER_TOOL])
+    def test_the_names_here_are_the_names_that_are_implemented(self) -> None:
+        """Two modules, one list, and no way for them to drift apart.
+
+        Which names occupy the plane is declared here; what they do is in
+        `core.model.system_api`. Both take the strings from the shared ground,
+        so this asserts that neither has grown a fifth of its own.
+        """
+
+        from contexture.core.model.system_api import GATEWAY_TOOLS
+
+        self.assertEqual(set(primitive.PUBLISHED), set(GATEWAY_TOOLS))
 
 
 class PreambleTests(unittest.TestCase):
@@ -68,84 +57,12 @@ class PreambleTests(unittest.TestCase):
 
     def test_the_opening_names_the_tools_it_tells_the_agent_to_call(self) -> None:
         for name in (
-            gateway.OPEN_TOOL,
-            gateway.INVOKE_TOOL,
-            gateway.INVOKE_READ_ONLY_TOOL,
+            primitive.OPEN_TOOL,
+            primitive.INVOKE_TOOL,
+            primitive.INVOKE_READ_ONLY_TOOL,
         ):
             with self.subTest(tool=name):
                 self.assertIn(name, messages.PREAMBLE)
-
-
-class UnresolvedTests(unittest.TestCase):
-    def _failure(self, reason: LookupFailure) -> NodeNotFoundError:
-        return NodeNotFoundError(
-            reason=reason,
-            ref="team/troubleshooter/banana",
-            segment="banana",
-            scope="troubleshooter",
-            kind="skill",
-            wanted="tool",
-            known=("diagnose", "get_pod_logs"),
-        )
-
-    def test_every_lookup_failure_has_a_rendering(self) -> None:
-        """A reason with no branch is a failure an agent is told nothing about."""
-
-        for reason in LookupFailure:
-            with self.subTest(reason=reason.value):
-                rendered = messages.unresolved(self._failure(reason))
-                self.assertNotIn("could not be resolved", rendered)
-                self.assertGreater(len(rendered), 40)
-
-    def test_every_rendering_names_the_call_that_recovers_from_it(self) -> None:
-        """The half a wrong ref most needs is what to do next.
-
-        This is the sentence the tree cannot write: it does not know these
-        names, and must not.
-        """
-
-        for reason in LookupFailure:
-            with self.subTest(reason=reason.value):
-                rendered = messages.unresolved(self._failure(reason))
-                self.assertTrue(
-                    any(name in rendered for name in gateway.GATEWAY_TOOLS),
-                    f"{reason.value} leaves the agent with no next call",
-                )
-
-    def test_a_missing_member_says_what_the_role_does_hold(self) -> None:
-        rendered = messages.unresolved(
-            self._failure(LookupFailure.NO_SUCH_MEMBER)
-        )
-
-        self.assertIn("banana", rendered)
-        self.assertIn("diagnose", rendered)
-        self.assertIn("get_pod_logs", rendered)
-
-    def test_an_empty_role_is_reported_as_empty_rather_than_as_a_blank_list(
-        self,
-    ) -> None:
-        rendered = messages.unresolved(
-            NodeNotFoundError(
-                reason=LookupFailure.NO_SUCH_MEMBER,
-                ref="team/empty/x",
-                segment="x",
-                scope="empty",
-            )
-        )
-
-        self.assertIn("holds nothing", rendered)
-
-
-class WrongDoorTests(unittest.TestCase):
-    def test_each_door_names_the_other_one(self) -> None:
-        self.assertIn(
-            gateway.INVOKE_READ_ONLY_TOOL,
-            messages.wrong_door("a/b", is_read_only=True),
-        )
-        self.assertIn(
-            gateway.INVOKE_TOOL,
-            messages.wrong_door("a/b", is_read_only=False),
-        )
 
 
 class IndependenceTests(unittest.TestCase):

@@ -1,27 +1,31 @@
-"""The Contexture object model.
+"""The Contexture kernel.
 
-This layer is pure declaration: no I/O, no wire protocol, no agent runtime, and
-no knowledge that MCP exists. It owns what a role is, what it declares, and how
-much of that becomes visible at each disclosure level. Everything above it
-depends on this package, and this package depends on none of them.
+No wire protocol, no agent runtime, and no knowledge that MCP exists. It owns
+what a capability is, where it hangs, how much of it arrives at a time, and the
+four calls an agent may make against it. Everything above depends on this
+package, and this package depends on none of them.
 
-Three directories live here, because they answer three different questions:
+It does own a lifecycle: a handle is opened before the first request and closed
+after the last. A node can only be told where it hangs and what it may reach at
+the moment it is registered, so registration and provisioning are one event.
+What `core` does not have is a *wire*.
 
-    model            what a capability *is* — role, skill, tool, resource
-    disclosure       where it sits, and how much of it arrives at a time
+Two directories live here, because they answer two different questions:
+
+    model            what a capability is, where it hangs, what may be done to it
     mcp_interface    what this server exposes on each of MCP's primitives
 
 `errors`, `types`, `constants` and `principal` sit directly here as shared
-ground: all three
-directories may stand on them, and they stand on nothing. That is what lets the
-three stay independent of *each other* without each growing its own copy of an
-exception hierarchy.
+ground: both directories may stand on them, and they stand on nothing. That is
+what lets the two stay independent of *each other* without each growing its own
+copy of an exception hierarchy — and it is why the separator and the four entry
+point names live there too.
 
 This facade re-exports the object model, which is what a business developer
 declares against, and resolves each name on first use. Eager re-exports would
 make this file import its own sub-layers, which is the one dependency the
-shared ground is not allowed to have — and would quietly load `disclosure` for
-a project that only wanted to declare a Role.
+shared ground is not allowed to have — and would quietly load the forest for a
+project that only wanted to declare a Role.
 """
 
 from __future__ import annotations

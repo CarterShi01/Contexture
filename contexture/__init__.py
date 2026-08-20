@@ -9,16 +9,16 @@ to the runtime that connects.
 
 The package is layered, and the layering is the architecture:
 
-    contexture.core.model          what a capability is; no I/O, no wire, no SDK
-    contexture.core.disclosure     the multi-headed tree, disclosed lazily
+    contexture.core.model          the kernel: what a capability is, where it
+                                   hangs, and the four calls an agent makes
     contexture.core.mcp_interface  what each MCP primitive carries; still no SDK
     contexture.server              the native MCP server; the only layer importing mcp
 
 Each layer may import the ones below it and never the reverse. This facade
 exports what a business developer *declares* with, and nothing the framework
-*runs* with: importing it loads neither `contexture.core.disclosure` nor
-`contexture.server` nor the SDK, so a project that only models context pays
-for only that.
+*runs* with: importing it loads neither the forest, nor the four entry points,
+nor `contexture.server`, nor the SDK, so a project that only models context
+pays for only that.
 """
 
 from .core.constants import PACKAGE_VERSION as __version__

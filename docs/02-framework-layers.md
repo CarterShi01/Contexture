@@ -63,9 +63,8 @@ a single program and the formats a rendering concern.
 ```text
 Business Layer            declares roles, skills and tools
         │  inherits / composes
-core.model                object model, validation, disclosure rules
+core.model                object model, validation, the forest, the four entry points
         │  compile
-core.disclosure           the multi-headed tree, addressed and disclosed lazily
         │
 core.mcp_interface        what each MCP primitive carries — still no SDK
         │  bind

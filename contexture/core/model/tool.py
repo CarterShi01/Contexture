@@ -6,7 +6,7 @@ import inspect
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
-from .node import ContextNode
+from .node import ContextNode, Disclosure
 from ..types import CompiledContext
 
 
@@ -79,6 +79,7 @@ class Tool(ContextNode):
     """
 
     kind: ClassVar[str] = "tool"
+    group: ClassVar[str] = "tools"
 
     #: Whether running this tool leaves the world unchanged.
     #:
@@ -114,12 +115,33 @@ class Tool(ContextNode):
             not in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD)
         )
 
-    def _compile_active(self) -> CompiledContext:
-        # No parameter list. `core` reads the signature and cannot tell a
-        # model-filled argument from a framework-filled one; the input schema
-        # can, and `ContextTree.open` attaches the same one the tool's card
-        # carries, so the two ways of reaching a tool now agree.
+    def card(self, view: Disclosure) -> CompiledContext:
+        """A tool's card is the fuller one: it has to be callable from itself.
+
+        Every other kind is a name, a sentence and an address, because opening
+        it is the next step. A tool is not opened — it is run — so a card that
+        did not carry its schema would send an agent back for a second call to
+        fetch something it was always going to need.
+
+        `read_only` is a trusted host classification reported so a host can act
+        on it, and never an argument a model could fill in. No parameter list:
+        `core` reads a signature and cannot tell a model-filled argument from a
+        framework-filled one, while the schema the view supplies can.
+        """
+
+        # `ContextNode.card` explicitly rather than `super()`: a slotted
+        # dataclass is rebuilt by the decorator, so the zero-argument form
+        # closes over a class object that is no longer this one.
         return {
-            **self._compile_route(),
+            **ContextNode.card(self, view),
             "read_only": self.read_only,
+            "input_schema": view.schema_of(self),
         }
+
+    def _compile_active(self, view: Disclosure) -> CompiledContext:
+        # The card, exactly. Reaching a capability two ways and being told two
+        # different things about how to call it is worse than either answer
+        # alone, so opening a tool and seeing its card in a role's payload are
+        # one method with one result rather than two that have to be kept in
+        # agreement.
+        return self.card(view)

@@ -9,7 +9,7 @@ particular agent runtime. Claude Code and Codex run this same command.
 
 from __future__ import annotations
 
-from contexture import Resource
+from contexture import Prompt, Resource
 from contexture.server import ContextureApp
 from .role import KubernetesPlatform
 
@@ -18,11 +18,6 @@ from .role import KubernetesPlatform
 #: Both name a node the tree already holds, so a procedure can cite a document
 #: by the name the document gives itself, and a model can reach the same bytes
 #: by navigating to it. One capability, two addresses — not two declarations.
-#:
-#: Nothing is published on the prompt primitive here. This demo has no
-#: operation where going wrong is expensive enough to be worth reserving for a
-#: person, and marking one anyway would make the example teach the opposite of
-#: what the rule says.
 class CrashLoopRunbookDocument(Resource):
     def __init__(self) -> None:
         super().__init__(
@@ -48,7 +43,36 @@ class RollbackPolicyDocument(Resource):
         )
 
 
-PUBLISHED = (CrashLoopRunbookDocument, RollbackPolicyDocument)
+#: What this demo publishes on MCP's prompt primitive.
+#:
+#: One command, and the rule it passes is the rule `Prompt` states: declare one
+#: only where going wrong is expensive. A rollback destroys the evidence that
+#: would have shown whether it was the right move, so it is the one operation
+#: here a person may want to start themselves — and starting it means putting
+#: the procedure in context, not running anything.
+#:
+#: `model_may_open` is left at its default. Reserving this node would take the
+#: procedure away from an agent that was asked to perform a rollback, while
+#: `deployment-ops` goes on telling it to follow that procedure — a guardrail
+#: that contradicts the instructions around it is a bug, not a guardrail. The
+#: command is a second way in for a person, not a fence.
+class RollBackARelease(Prompt):
+    def __init__(self) -> None:
+        super().__init__(
+            opens="kubernetes-platform/deployment-ops/roll-back-a-failed-release",
+            name="roll-back-a-release",
+            description=(
+                "Put the rollback procedure in context: what to capture "
+                "before a release is reversed, and what reversing it destroys."
+            ),
+        )
+
+
+PUBLISHED = (
+    CrashLoopRunbookDocument,
+    RollbackPolicyDocument,
+    RollBackARelease,
+)
 
 app = ContextureApp(
     roots=KubernetesPlatform,

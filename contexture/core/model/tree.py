@@ -1,9 +1,9 @@
 """The multi-headed tree, disclosed lazily.
 
 Below this module sits `ContextNode.compile()`, which every node answers for
-itself. Above it sit the four entry points `contexture.server` puts on the
-wire. This module is the whole of what joins them, and the whole of the
-navigation model.
+itself. Above it sit the four system entry points `core.model.system_api`
+puts in front of an agent. This module is the whole of what joins them, and the
+whole of the navigation model.
 
 **One call shows one level of siblings.** Choosing between siblings requires
 seeing all of them — what cannot be seen together is guessed between rather
@@ -23,8 +23,14 @@ role axis is as lazy as every other axis; see ADR 007.
 No kind prefix, no second separator. The members of one role are uniquely
 named, so resolution can simply look rather than be told where to look, and the
 address reads like something a person could have written. An agent never has to
-write one: every card carries the reference that opens it, because `_card`
-cannot be called without one.
+write one: every card carries the reference that opens it, because `card`
+cannot be called without a view to take one from.
+
+**This is a view, not a second registry.** `ControllerManager` owns what
+exists; this owns what one call answers with. The two are one object's worth of
+state split across two phases of time — registration is additive and mutable,
+disclosure is sealed and frozen — and the split is why a skill in the first
+registered root may name a capability in the second. See ADR 014.
 
 **Nothing here is remembered.** Every method is a pure function of its
 argument, which is what keeps traversal legal on a protocol that, since the
@@ -35,18 +41,18 @@ a consequence of an earlier call.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable, Iterator
+from typing import Any, Callable, Iterator
 
-from ..model.node import CompileLevel, ContextNode
+from ..constants import SEPARATOR
 from ..errors import LookupFailure, ModelValidationError, NodeNotFoundError
-from ..model.manager import ControllerManager
-from ..model.role import Role
-from ..model.skill import Skill
-from ..model.tool import Tool
 from ..types import CompiledContext, JsonObject
+from .manager import ControllerManager, register_root
+from .node import ContextNode, CompileLevel, group_cards
+from .role import Role
+from .skill import Skill
+from .tool import Tool
 
-#: Separates one segment of a reference from the next.
-SEPARATOR = "/"
+__all__ = ["ContextTree", "SEPARATOR", "register_root"]
 
 
 def _no_schema(tool: Tool) -> JsonObject:
@@ -62,26 +68,35 @@ def _no_schema(tool: Tool) -> JsonObject:
 
 @dataclass(frozen=True, slots=True)
 class ContextTree:
-    """A forest of roles, and everything a server needs to disclose it.
+    """A sealed view of one registry, and everything needed to disclose it.
 
-    Built once from the declared roots::
+    Built from the declared roots::
 
         tree = ContextTree.of(KubernetesPlatform(), schema_of=...)
+
+    or, where the application had channels to hand out before anything was
+    served, from the manager that already holds them::
+
+        tree = manager.sealed(schema_of=...)
 
     `schema_of` is how a tool's input schema arrives without this module
     knowing what JSON Schema is. The server layer passes one backed by the MCP
     SDK; nothing here imports it.
+
+    It satisfies `Disclosure`, which is how a node reaches the two things it
+    cannot work out for itself: the address that opens it, and the schema an
+    agent needs in order to call it.
     """
 
-    roots: tuple[ContextNode, ...]
-    schema_of: Callable[[Tool], JsonObject] = field(default=_no_schema)
+    #: The registry this view is sealed over. There is no second copy of the
+    #: roots here: two answers to "what is being served" is one answer too
+    #: many, and the one that can be registered into is the manager's.
+    manager: ControllerManager
 
-    #: The registry these roots are registered in. An application that built
-    #: one — because it had channels to hand out before anything was served —
-    #: passes it; a caller that only wants to navigate a declaration lets this
-    #: build its own, which is what keeps `of(SomeRole())` working for a test
-    #: and for `contexture list`.
-    manager: ControllerManager | None = None
+    #: Where a tool's input schema comes from. Named apart from the `schema_of`
+    #: method so that the thing supplying schemas and the question asked of
+    #: this view do not collide.
+    schema_source: Callable[[Tool], JsonObject] = field(default=_no_schema)
 
     @classmethod
     def of(
@@ -90,56 +105,90 @@ class ContextTree:
         *,
         schema_of: Callable[[Tool], JsonObject] = _no_schema,
     ) -> ContextTree:
-        """Accept a manager, one root, or many, and return the tree either way.
+        """Accept a manager, one root, or many, and return the sealed view.
 
         A root arrives as a **class** in the ordinary case, and a class is only
         ever turned into a node by a `ControllerManager` — so one is built here
-        and the tree is made from what it registered. That keeps a single
+        and the view is sealed over what it registered. That keeps a single
         answer to "when does a node come into existence" whether a caller went
         through `ContextureApp`, through a test, or through `contexture list`.
         """
 
         if isinstance(roots, ControllerManager):
-            return cls(roots=roots.roots, schema_of=schema_of, manager=roots)
+            return roots.sealed(schema_of=schema_of)
         given = (roots,) if _is_one_root(roots) else tuple(roots)
         registry = ControllerManager()
         for root in given:
             register_root(registry, root)
-        return cls(roots=registry.roots, schema_of=schema_of, manager=registry)
+        return registry.sealed(schema_of=schema_of)
 
     def __post_init__(self) -> None:
         if not self.roots:
             raise ModelValidationError("A context tree needs at least one root role.")
 
-        if self.manager is None:
-            # Registration is the walk: it assigns every address, refuses a
-            # cycle, refuses one object held at two of them, and refuses two
-            # roots with the same name. None of that is repeated here.
-            registry = ControllerManager()
-            for root in self.roots:
-                register_root(registry, root)
-            object.__setattr__(self, "manager", registry)
-        elif self.manager.roots != self.roots:
-            raise ModelValidationError(
-                "This tree was given roots its manager has not registered. A "
-                "tree discloses what a manager holds; two answers to what is "
-                "being served is one answer too many."
-            )
-
+        # Registration is the walk: it assigns every address, refuses a cycle,
+        # refuses one object held at two of them, and refuses two roots with
+        # the same name. None of that is repeated here.
+        #
         # Two checks are left, and both are here rather than in registration
-        # because both are about how an address is *spelled*, which is this
-        # module's decision and not the model's.
+        # because both need the **whole** forest in hand. Registration is
+        # additive, so a skill in the first root may legitimately name a
+        # capability in a root that has not been registered yet; sealing is the
+        # earliest moment either question has an answer.
         self._reject_ambiguous_names()
         self._reject_unresolvable_uses()
 
     @property
-    def registry(self) -> ControllerManager:
-        """The manager backing this tree; never None once constructed."""
+    def roots(self) -> tuple[ContextNode, ...]:
+        """Everything registered at the top, in registration order."""
 
-        assert self.manager is not None  # __post_init__ builds one if given none
+        return self.manager.roots
+
+    @property
+    def registry(self) -> ControllerManager:
+        """The manager this view is sealed over."""
+
         return self.manager
 
-    # ---- 1. the skeleton -------------------------------------------------
+    # ---- 1. answering as a view ------------------------------------------
+
+    def ref_of(self, node: ContextNode) -> str:
+        """The address that opens `node`, spelled.
+
+        The manager holds the segments and this joins them, which is the whole
+        of the division: a node carries its position and never its spelling, so
+        that changing the separator is one edit here rather than one per node.
+        """
+
+        address = self.manager.address_of(node)
+        if address is None:
+            raise ModelValidationError(
+                f"{node.name!r} is not registered in this tree, so nothing can "
+                "say where it hangs. A card without a working address is worse "
+                "than no card: it can be seen and not opened."
+            )
+        return SEPARATOR.join(address)
+
+    def card_of(self, node: ContextNode) -> CompiledContext:
+        return node.card(self)
+
+    def card_for(self, ref: str) -> CompiledContext:
+        """Render one capability a procedure names but does not own.
+
+        A **card**, at ROUTE, and this is the invariant the whole reference
+        overlay rests on: a card carries a kind, a sentence and a ref, and
+        never the `uses` of the node it describes. So one level is rendered and
+        that is the end of it, exactly as opening a role stops at its members,
+        and a reference cycle is two cards pointing at each other rather than
+        something to traverse.
+        """
+
+        return self.find(ref).card(self)
+
+    def schema_of(self, tool: ContextNode) -> JsonObject:
+        return self.schema_source(tool)  # type: ignore[arg-type]
+
+    # ---- 2. the skeleton -------------------------------------------------
 
     def skeleton(self) -> CompiledContext:
         """The roots, as cards. One level, like every other call.
@@ -150,7 +199,7 @@ class ContextTree:
         number of roots, not the size of the forest.
         """
 
-        return self._by_kind(self.roots, lambda node: node.name)
+        return group_cards(self.roots, self)
 
     def roles_with_refs(self) -> Iterator[tuple[str, Role]]:
         """Walk the whole role axis depth-first, yielding each role's reference.
@@ -181,7 +230,7 @@ class ContextTree:
             ref, role = queue.pop(0)
             yield ref, role
             queue.extend(
-                (f"{ref}{SEPARATOR}{child.name}", child) for child in role.children
+                (f"{ref}{SEPARATOR}{child.name}", child) for child in role.branches()
             )
 
     def nodes_with_refs(self) -> Iterator[tuple[str, ContextNode]]:
@@ -199,7 +248,7 @@ class ContextTree:
         cannot.
         """
 
-        for path, node in self.registry.walk():
+        for path, node in self.manager.walk():
             yield SEPARATOR.join(path), node
 
     def matching_refs(self, value: str, *, limit: int) -> tuple[tuple[str, ...], int]:
@@ -260,13 +309,10 @@ class ContextTree:
         levels: list[tuple[str, int]] = []
         for depth in range(1, len(segments)):
             ancestor = SEPARATOR.join(segments[:depth])
-            node = self.find(ancestor)
-            levels.append(
-                (ancestor, len(node.children) if isinstance(node, Role) else 0)
-            )
+            levels.append((ancestor, len(self.find(ancestor).branches())))
         return tuple(levels)
 
-    # ---- 2. resolution ---------------------------------------------------
+    # ---- 3. resolution ---------------------------------------------------
 
     def find(self, ref: str) -> ContextNode:
         """Resolve a reference to the one node it addresses."""
@@ -278,7 +324,7 @@ class ContextTree:
         # index rather than by walking. The whole reference is attached here
         # because only this side ever had it.
         try:
-            return self.registry.find(segments)
+            return self.manager.find(segments)
         except NodeNotFoundError as failure:
             raise failure.within(ref) from None
 
@@ -295,109 +341,49 @@ class ContextTree:
             )
         return node
 
-    # ---- 3. opening one node ---------------------------------------------
+    # ---- 4. opening one node ---------------------------------------------
 
     def open(self, ref: str) -> CompiledContext:
         """Return one node's own detail, plus a card for each member it holds.
 
-        This is the only path by which a Skill's instructions reach an agent.
-        Opening a role delivers that role's members and does not recurse into
-        sub-roles: a sub-role is a card here and a separate call when it is
-        actually chosen.
-
-        A tool opened directly answers with the same `input_schema` its card
-        carries. Reaching a capability two ways and being told two different
-        things about how to call it is worse than either answer alone.
+        One line, and every kind-specific decision that used to live here now
+        lives on the kind: opening a role delivers its members, opening a skill
+        delivers its procedure and the cards of what it references, opening a
+        tool delivers the same card the tool would have shown anywhere else.
+        Adding a fourth kind would not touch this method — see ADR 014.
         """
 
-        node = self.find(ref)
-        payload = {**node.compile(CompileLevel.ACTIVE), "ref": ref}
-        if isinstance(node, Role):
-            payload.update(self._members(node, ref))
-        elif isinstance(node, Tool):
-            payload["input_schema"] = self.schema_of(node)
-        elif isinstance(node, Skill) and node.uses:
-            payload["uses"] = [self._reference_card(ref) for ref in node.uses]
-        return payload
-
-    def _reference_card(self, ref: str) -> CompiledContext:
-        """Render one capability a procedure names but does not own.
-
-        A **card**, at ROUTE, and this is the invariant the whole reference
-        overlay rests on: a card carries a kind, a sentence and a ref, and
-        never the `uses` of the node it describes. So the server renders one
-        level and stops, exactly as `open` does for sub-roles, and a reference
-        cycle is two cards pointing at each other rather than something to
-        traverse. Expanding to ACTIVE here would make `A -> B -> A` unbounded.
-
-        A tool card is the fuller `_tool_card`, because a tool reached this way
-        must be callable from what arrives — sending an agent for a second call
-        to fetch a schema it was always going to need buys nothing.
-        """
-
-        node = self.find(ref)
-        if isinstance(node, Tool):
-            return self._tool_card(node, ref)
-        return _card(node, ref)
-
-    def _members(self, role: Role, ref: str) -> CompiledContext:
-        return self._by_kind(
-            list(role.members()), lambda node: f"{ref}{SEPARATOR}{node.name}"
-        )
-
-    def _by_kind(
-        self,
-        nodes: Iterable[ContextNode],
-        ref_of: Callable[[ContextNode], str],
-    ) -> CompiledContext:
-        """Render one sibling set, grouped by kind.
-
-        The **one** payload shape in this package: what `discover` answers with
-        and what `open` puts under a role are the same three keys, because they
-        are the same question asked at two depths. One shape is one golden
-        fixture per depth instead of two, which is what keeps three
-        implementations saying the same thing.
-        """
-
-        grouped: CompiledContext = {"roles": [], "skills": [], "tools": []}
-        for node in nodes:
-            ref = ref_of(node)
-            if isinstance(node, Tool):
-                grouped["tools"].append(self._tool_card(node, ref))
-            elif isinstance(node, Skill):
-                grouped["skills"].append(_card(node, ref))
-            else:
-                grouped["roles"].append(_card(node, ref))
-        return grouped
-
-    def _tool_card(self, tool: Tool, ref: str) -> CompiledContext:
-        # read_only is a host classification, reported so a host can act on it
-        # and never accepted as an argument a model could fill in.
-        return {
-            **_card(tool, ref),
-            "read_only": tool.read_only,
-            "input_schema": self.schema_of(tool),
-        }
+        return self.find(ref).compile(CompileLevel.ACTIVE, view=self)
 
     # ---- internals -------------------------------------------------------
+
+    def _skills(self) -> Iterator[tuple[str, Skill]]:
+        """Every registered procedure, with the reference that opens it.
+
+        From the registry's flat index rather than a walk of the forest: it is
+        already kept, and asking a question about one kind should not cost a
+        traversal of every other.
+        """
+
+        for node in self.manager.of_kind(Skill.kind):
+            assert isinstance(node, Skill)  # `of_kind` is keyed by `Skill.kind`
+            yield self.ref_of(node), node
 
     def _reject_unresolvable_uses(self) -> None:
         """Refuse a procedure that names something the forest cannot answer for.
 
-        Checked when the tree is built, beside the cycle and separator checks,
-        because the alternative is discovering it when a person presses a key.
-        A reference is late-bound by necessity — a skill is constructed before
-        it knows where it hangs, and long before the branch it names exists —
-        and build time is the earliest moment the binding *can* be checked.
+        Checked when the tree is sealed, beside the separator check, because
+        the alternative is discovering it when a person presses a key. A
+        reference is late-bound by necessity — a skill is constructed before it
+        knows where it hangs, and long before the branch it names exists — and
+        sealing is the earliest moment the binding *can* be checked.
 
         Reference cycles are deliberately not checked. `diagnose -> remediate
         -> diagnose` is a real workflow shape, and it costs nothing here: cards
         render at ROUTE, so a cycle is two cards naming each other. See ADR 008.
         """
 
-        for ref, node in self.nodes_with_refs():
-            if not isinstance(node, Skill):
-                continue
+        for ref, node in self._skills():
             for target in node.uses:
                 if target == ref:
                     raise ModelValidationError(
@@ -441,9 +427,7 @@ class ContextTree:
         precisely that a crossing can be listed, tested and linted.
         """
 
-        for ref, node in self.nodes_with_refs():
-            if not isinstance(node, Skill):
-                continue
+        for ref, node in self._skills():
             home = ref.split(SEPARATOR, 1)[0]
             for target in node.uses:
                 root = target.split(SEPARATOR, 1)[0]
@@ -455,40 +439,26 @@ class ContextTree:
 
         A reference is a path and a node's name is one segment of it, so a name
         containing the separator silently splits into two. The card is still
-        built — `_card` takes the ref it is given — and the ref on it addresses
-        nothing. That is the exact failure `_card`'s signature exists to
-        prevent, arriving from the other side: not a card without a ref, but a
-        ref without a node.
+        built — `card` takes the address the view gives it — and the ref on it
+        addresses nothing. That is the exact failure the view's signature
+        exists to prevent, arriving from the other side: not a card without a
+        ref, but a ref without a node.
 
-        Checked here rather than in the model because the separator is this
+        Checked here rather than in registration because the separator is this
         module's decision. A node has no way to know what character will be
-        used to join it to its neighbours; the tree that does the joining does.
+        used to join it to its neighbours; the view that does the joining does.
 
         It rides the registry's walk rather than doing its own. Registration
         has already refused a cycle, which is what makes any walk here safe.
         """
 
-        for _, node in self.registry.walk():
+        for _, node in self.manager.walk():
             if SEPARATOR in node.name:
                 raise ModelValidationError(
                     f"{node.kind} name {node.name!r} contains {SEPARATOR!r}, "
                     "which separates one segment of a reference from the next. "
                     "A card for it would carry a ref that resolves to nothing."
                 )
-
-
-def _card(node: ContextNode, ref: str) -> CompiledContext:
-    """Render one routing card.
-
-    Taking the reference as an argument is the point: a card cannot be built
-    without one, so a card that can be seen can always be opened. That was not
-    true while roles rendered their own members.
-    """
-
-    return {**node.compile(CompileLevel.ROUTE), "ref": ref}
-
-
-__all__ = ["ContextTree", "SEPARATOR", "register_root"]
 
 
 def _is_one_root(given: Any) -> bool:
@@ -498,15 +468,3 @@ def _is_one_root(given: Any) -> bool:
     return isinstance(given, kinds) or (
         isinstance(given, type) and issubclass(given, kinds)
     )
-
-
-def register_root(registry: ControllerManager, root: Any) -> None:
-    """Send one root to the registration method that matches its kind."""
-
-    built = root() if isinstance(root, type) else root
-    if isinstance(built, Tool):
-        registry.register_tool(built)
-    elif isinstance(built, Skill):
-        registry.register_skill(built)
-    else:
-        registry.register_role(built)

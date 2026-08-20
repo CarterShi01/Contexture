@@ -11,7 +11,7 @@ one — the instructions loaded at connect, then `contexture_discover`, then one
 arrived, with what it cost. No transport, no model, no agent in the room.
 
 **It calls the same functions the server does.** `instructions.build`,
-`ContextTree.skeleton`, `ContextTree.open`, `messages.unresolved`: the five
+`ContextTree.skeleton`, `ContextTree.open`, `system_api.unresolved`: the five
 gateway functions in `contexture.server.binding` do nothing but forward to
 these, so a payload printed here is the payload sent there, character for
 character. What this cannot see is the wire — that the process starts under a
@@ -53,17 +53,17 @@ from dataclasses import dataclass, field
 from typing import Iterable, Iterator, Sequence
 
 from .core.errors import ContextureError, NodeNotFoundError
-from .core.mcp_interface.tool import (
+from .core.constants import (
     DISCOVER_TOOL,
-    GATEWAY,
     INVOKE_READ_ONLY_TOOL,
     OPEN_TOOL,
 )
+from .core.model.system_api import GATEWAY, unresolved
 from .core.model.tool import Tool
 from .core.types import JsonObject
 from .server import messages
 from .server.instructions import INSTRUCTIONS_LIMIT, SELF_CONTAINED_PREFIX
-from .core.disclosure.tree import SEPARATOR, ContextTree
+from .core.model.tree import SEPARATOR, ContextTree
 
 #: The label for the one step that is not a call: what the host loads before
 #: it has asked this server anything.
@@ -277,7 +277,7 @@ def open_step(tree: ContextTree, ref: str) -> Step:
         return Step(
             call=OPEN_TOOL,
             ref=ref,
-            body=messages.unresolved(failure),
+            body=unresolved(failure),
             refused=True,
             aside="this sentence is all the agent gets; it recovers from it",
         )
@@ -296,7 +296,85 @@ def open_step(tree: ContextTree, ref: str) -> Step:
         )
     return Step(
         call=OPEN_TOOL, ref=ref, body=_wire(payload), payload=payload,
+        checks=_routing_checks(payload),
         aside=aside,
+    )
+
+
+#: How long a routing sentence may run before it has stopped routing.
+#:
+#: A description answers "should I go here". Past a certain length it has
+#: started answering "what will I find inside", which is what opening delivers
+#: — and the two copies are then free to disagree.
+DESCRIPTION_BUDGET = 200
+
+
+def _routing_checks(payload: JsonObject) -> tuple[Check, ...]:
+    """Measure the one disclosure rule nothing refuses.
+
+    `core` rejects a description that is structurally unusable — empty, or
+    carrying a separator — and stops there deliberately: past that the rule is
+    about wording, and a framework with an opinion about English would be wrong
+    in Chinese and wrong again in Go. So it is measured here instead, where the
+    audience is the developer who can act on it and nothing is being blocked.
+
+    Two signals, both cheap and both specific:
+
+    * a routing sentence that runs long has usually started describing the
+      inside;
+    * a card that spells the name of something the node holds *is* describing
+      the inside, and that name is already in this same payload one line down.
+    """
+
+    cards = [
+        card
+        for group in ("roles", "skills", "tools")
+        for card in payload.get(group, [])  # type: ignore[union-attr]
+        if isinstance(card, dict)
+    ]
+    if not cards:
+        return ()
+
+    held = {str(card.get("name", "")) for card in cards}
+    long = [
+        str(card["name"])
+        for card in cards
+        if len(str(card.get("description", ""))) > DESCRIPTION_BUDGET
+    ]
+    listing = sorted(
+        {
+            str(card["name"])
+            for card in cards
+            for name in held
+            if name != card.get("name") and name in str(card.get("description", ""))
+        }
+    )
+    opened = str(payload.get("description", ""))
+    if any(name in opened for name in held):
+        listing = sorted({*listing, str(payload.get("name", ""))})
+
+    return (
+        Check(
+            ok=not long,
+            note=(
+                f"every routing sentence is within {DESCRIPTION_BUDGET} "
+                "characters"
+                if not long
+                else f"over {DESCRIPTION_BUDGET} characters: {', '.join(long)}"
+                " — a sentence that long has stopped routing and started "
+                "describing what opening would deliver"
+            ),
+        ),
+        Check(
+            ok=not listing,
+            note=(
+                "no routing sentence names what its node holds"
+                if not listing
+                else f"{', '.join(listing)} name(s) their own members — the "
+                "inside is what opening delivers, and describing it twice is "
+                "how the two copies start disagreeing"
+            ),
+        ),
     )
 
 
@@ -326,7 +404,7 @@ def read_step(tree: ContextTree, ref: str) -> Step:
         return Step(
             call=INVOKE_READ_ONLY_TOOL,
             ref=ref,
-            body=messages.unresolved(failure),
+            body=unresolved(failure),
             refused=True,
         )
     except ContextureError as failure:
