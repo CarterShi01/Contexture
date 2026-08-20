@@ -453,3 +453,285 @@ class ConstructionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReferenceTests(unittest.TestCase):
+    """`uses`: naming a capability that lives somewhere else.
+
+    Containment gives a node its address and so may happen once; reference
+    consumes an address that already exists and so may happen any number of
+    times. Everything below is a consequence of that one distinction.
+    """
+
+    @staticmethod
+    def _with_uses(*refs: str) -> ContextTree:
+        troubleshooter = Troubleshooter()
+        # Appended rather than assigned: the declared members are what the
+        # other tests address, and a reference to one of them is the case this
+        # helper exists to build.
+        troubleshooter.skills = [
+            *troubleshooter.skills,
+            Skill(
+                name="triage",
+                description="Decide whether a Pod is worth repairing.",
+                instructions="Read the logs, then decide.",
+                uses=refs,
+            ),
+        ]
+        team = Role(
+            name="team",
+            description="An engineering team.",
+            instructions="Route to the right specialist.",
+            children=[troubleshooter, Operator()],
+        )
+        return ContextTree.of(team, schema_of=lambda tool: {"tool": tool.name})
+
+    def test_every_addressable_node_is_enumerated_not_only_roles(self) -> None:
+        """What completion offers and what `uses` is checked against.
+
+        `roles_with_refs` answers "what roles are there". A person completing a
+        command argument, and a procedure naming a step, both want the fuller
+        question — a skill or a tool is exactly what either is reaching for.
+        """
+
+        refs = {ref for ref, _ in _tree().nodes_with_refs()}
+
+        self.assertIn("team", refs)
+        self.assertIn("team/troubleshooter", refs)
+        self.assertIn("team/troubleshooter/diagnose", refs)
+        self.assertIn("team/troubleshooter/get_pod_logs", refs)
+        self.assertIn("team/troubleshooter/crash-loop-runbook", refs)
+        self.assertIn("team/operator/delete_pod", refs)
+
+    def test_a_reference_reaches_a_sibling_branch_containment_cannot(self) -> None:
+        """The whole point: a procedure naming what it does not own."""
+
+        tree = self._with_uses("team/operator/delete_pod")
+        opened = tree.open("team/troubleshooter/triage")
+
+        (card,) = opened["uses"]
+        self.assertEqual(card["ref"], "team/operator/delete_pod")
+        self.assertEqual(card["kind"], "tool")
+        # The tool is not a member of the role that names it, and its own ref
+        # is unchanged: reference consumed the address, it did not mint one.
+        self.assertNotIn(
+            "delete_pod",
+            [member["name"] for member in tree.open("team/troubleshooter")["tools"]],
+        )
+
+    def test_a_referenced_tool_arrives_callable(self) -> None:
+        """A card the agent has to go and complete is a card that cost a turn."""
+
+        card, = self._with_uses("team/operator/delete_pod").open(
+            "team/troubleshooter/triage"
+        )["uses"]
+
+        self.assertIn("input_schema", card)
+        self.assertIn("read_only", card)
+
+    def test_a_reference_card_never_carries_its_own_references(self) -> None:
+        """The invariant that makes a reference cycle harmless.
+
+        Cards render at ROUTE, so the server answers one level and stops. Were
+        this to expand, `A -> B -> A` would be unbounded rather than two cards
+        naming each other.
+        """
+
+        tree = self._with_uses("team/troubleshooter/diagnose")
+        card, = tree.open("team/troubleshooter/triage")["uses"]
+
+        self.assertNotIn("uses", card)
+        self.assertNotIn("instructions", card)
+
+    def test_two_procedures_may_name_the_same_capability(self) -> None:
+        """Reference is not exclusive, because it creates no address."""
+
+        troubleshooter = Troubleshooter()
+        troubleshooter.skills = [
+            Skill(
+                name=name,
+                description="A procedure.",
+                instructions="Do the thing.",
+                uses=("team/operator/delete_pod",),
+            )
+            for name in ("triage", "escalate")
+        ]
+        tree = ContextTree.of(
+            Role(
+                name="team",
+                description="An engineering team.",
+                instructions="Route.",
+                children=[troubleshooter, Operator()],
+            )
+        )
+
+        for skill in ("triage", "escalate"):
+            card, = tree.open(f"team/troubleshooter/{skill}")["uses"]
+            self.assertEqual(card["ref"], "team/operator/delete_pod")
+
+    def test_a_reference_cycle_is_allowed_and_terminates(self) -> None:
+        """`diagnose -> remediate -> diagnose` is a real workflow shape."""
+
+        troubleshooter = Troubleshooter()
+        troubleshooter.skills = [
+            Skill(
+                name="triage",
+                description="Decide.",
+                instructions="Decide.",
+                uses=("team/troubleshooter/escalate",),
+            ),
+            Skill(
+                name="escalate",
+                description="Escalate.",
+                instructions="Escalate.",
+                uses=("team/troubleshooter/triage",),
+            ),
+        ]
+        tree = ContextTree.of(
+            Role(
+                name="team",
+                description="An engineering team.",
+                instructions="Route.",
+                children=[troubleshooter],
+            )
+        )
+
+        there, = tree.open("team/troubleshooter/triage")["uses"]
+        back, = tree.open("team/troubleshooter/escalate")["uses"]
+
+        self.assertEqual(there["ref"], "team/troubleshooter/escalate")
+        self.assertEqual(back["ref"], "team/troubleshooter/triage")
+
+    def test_enumeration_does_not_follow_references(self) -> None:
+        """The one place a cycle could hang the server, and it is at startup.
+
+        `nodes_with_refs` walks containment. A cycle in the reference overlay
+        is legal, so an enumerator that followed references would not return.
+        """
+
+        troubleshooter = Troubleshooter()
+        troubleshooter.skills = [
+            Skill(
+                name="a",
+                description="A.",
+                instructions="A.",
+                uses=("team/troubleshooter/b",),
+            ),
+            Skill(
+                name="b",
+                description="B.",
+                instructions="B.",
+                uses=("team/troubleshooter/a",),
+            ),
+        ]
+        tree = ContextTree.of(
+            Role(
+                name="team",
+                description="A team.",
+                instructions="Route.",
+                children=[troubleshooter],
+            )
+        )
+
+        refs = [ref for ref, _ in tree.nodes_with_refs()]
+
+        self.assertEqual(len(refs), len(set(refs)))
+        self.assertIn("team/troubleshooter/a", refs)
+
+
+class ReferenceValidationTests(unittest.TestCase):
+    """A procedure whose steps do not exist must fail on the way up.
+
+    The alternative is discovering it in front of a user, which is the whole
+    reason these run beside the cycle and separator checks rather than at the
+    moment somebody reaches for the capability.
+    """
+
+    def test_a_reference_to_nothing_is_refused_when_the_tree_is_built(self) -> None:
+        with self.assertRaises(ModelValidationError) as caught:
+            ReferenceTests._with_uses("team/operator/no_such_tool")
+
+        message = str(caught.exception)
+        self.assertIn("team/troubleshooter/triage", message)
+        self.assertIn("no_such_tool", message)
+
+    def test_naming_itself_is_refused(self) -> None:
+        with self.assertRaises(ModelValidationError) as caught:
+            ReferenceTests._with_uses("team/troubleshooter/triage")
+
+        self.assertIn("itself", str(caught.exception))
+
+    def test_naming_a_role_is_refused(self) -> None:
+        """Routing to a role is what its card and `contexture_open` are for."""
+
+        with self.assertRaises(ModelValidationError) as caught:
+            ReferenceTests._with_uses("team/operator")
+
+        self.assertIn("role", str(caught.exception))
+
+    def test_naming_an_ancestor_is_refused_by_the_role_rule(self) -> None:
+        """Every ancestor is a Role, so one rule covers both.
+
+        Recorded as its own test because the coverage is a coincidence of
+        "only a Role holds members". Allowing role references later would
+        silently reopen this case.
+        """
+
+        with self.assertRaises(ModelValidationError):
+            ReferenceTests._with_uses("team/troubleshooter")
+
+    def test_the_same_reference_twice_is_refused(self) -> None:
+        """Two cards for one capability say there are two capabilities."""
+
+        with self.assertRaises(ModelValidationError):
+            Skill(
+                name="triage",
+                description="Decide.",
+                instructions="Decide.",
+                uses=("a/b", "a/b"),
+            )
+
+    def test_a_crossing_is_allowed_and_reported(self) -> None:
+        """A person composing two branches is authorised; silence is not.
+
+        ADR 004 governs a model guessing, not a person composing. But a
+        boundary crossed silently is one nobody reviews, so the tree can list
+        them.
+        """
+
+        troubleshooter = Troubleshooter()
+        troubleshooter.skills = [
+            Skill(
+                name="triage",
+                description="Decide.",
+                instructions="Decide.",
+                uses=("platform/operator/delete_pod",),
+            )
+        ]
+        tree = ContextTree.of(
+            [
+                Role(
+                    name="team",
+                    description="A team.",
+                    instructions="Route.",
+                    children=[troubleshooter],
+                ),
+                Role(
+                    name="platform",
+                    description="The platform.",
+                    instructions="Route.",
+                    children=[Operator()],
+                ),
+            ]
+        )
+
+        self.assertEqual(
+            list(tree.crossings()),
+            [("team/troubleshooter/triage", "platform/operator/delete_pod", "platform")],
+        )
+
+    def test_a_reference_inside_one_root_is_not_a_crossing(self) -> None:
+        self.assertEqual(
+            list(ReferenceTests._with_uses("team/operator/delete_pod").crossings()),
+            [],
+        )

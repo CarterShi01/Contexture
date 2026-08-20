@@ -1,107 +1,146 @@
-# ADR 008 — Commands are a second axis, not a branch of the tree
+# ADR 008 — Who may open a node
 
-**Status:** proposed — nothing here is implemented, and two decisions are still open
+**Status:** accepted, implemented in v0.3.0
 **Date:** 2026-08-20
 
 **Extends:** [ADR 004](004-progressive-disclosure-as-a-lazy-role-tree.md) and
 [ADR 007](007-the-role-axis-is-lazy-too.md). Neither is contradicted. Both
-describe how a *model* reaches a capability; this one is about how a *person*
+describe how a *model* reaches a capability. This one is about how a *person*
 does, which is a plane those ADRs never had to name.
 
 ## Context
 
-### The surface today is entirely model-controlled
+### The surface is entirely model-controlled
 
 Everything Contexture serves sits behind five gateway tools, and a model
-chooses among them. That was the claim under test in `docs/verification/hosts.md`
-and it held across three runs: the host navigates rather than giving up, one
-`open` per level, no assembled refs, no guessed siblings.
+chooses among them. `docs/verification/hosts.md` records that holding across
+three runs: the host navigates rather than giving up, one `open` per level, no
+assembled refs, no guessed siblings.
 
-Two things that surface cannot do:
+Two things that surface cannot express.
 
-**A person who already knows the destination still pays for the walk.** In
-run 2 of the v0.2.0 + ADR 007 record, reaching a level-four tool took
-`discover` plus four `open` calls before the first invoke. When the operator
-already knows the answer is `payments/ledger/settlement/reconciliation`, those
-five calls are the model rediscovering something a human could have typed.
+**A person who already knows the destination has no way in.** Every entrance is
+a decision the model makes.
 
-**A workflow that spans unrelated branches has no home in the object model.**
-`Skill` holds nothing — `declarative.collect(cls, member_types=())`, and its
-docstring settles the matter: *"A method that needs its own tools to be kept
-away from its siblings' tools is a child Role, not a Skill."* That answer is
-containment, and containment is exclusive here because a ref **is** a path and
-a node has exactly one. A procedure that names `assets/image-gen/generate_cover`
-and `distribution/newsletter/send_draft` cannot own either, because each
-already belongs somewhere else. The model can express **ownership** and it can
-express **a procedure inside one role**. It cannot express **reference**.
+**A workflow spanning unrelated branches has no home.** `Skill` holds nothing —
+`declarative.collect(cls, member_types=())` — and its docstring settles the
+matter: *"A method that needs its own tools to be kept away from its siblings'
+tools is a child Role, not a Skill."* That answer is containment, and
+containment is exclusive here because a ref **is** a path and a node has
+exactly one. A procedure naming `assets/image-gen/generate_cover` and
+`distribution/newsletter/send_draft` cannot own either; each already belongs
+somewhere else. The model can state **ownership**. It cannot state
+**reference**.
 
-A related smell already visible in the demo: skill procedures name sibling
-tools by bare name (`Call get_pod_status`). That works only because those
-cards arrive from the same `open(role)`. It stops working the moment a
-procedure names anything outside its own parent.
+A related smell is already visible: demo skill procedures name sibling tools by
+bare name (`Call get_pod_status`). That works only because those cards arrive
+from the same `open(role)`. It stops working the moment a procedure names
+anything outside its own parent.
 
-### MCP has a control plane we have never used
+### MCP's third primitive is the unused half
 
-The three primitives are split by *who decides*: tools are model-controlled,
-resources are application-controlled, **prompts are user-controlled**.
-Contexture occupies the first two and leaves the third empty.
+The three primitives are split by *who decides*. The 2026-07-28 revision added
+a sentence the 2025-06-18 text does not contain:
+
+> Prompts are designed to be **user-controlled**, meaning they are exposed from
+> servers to clients with the intention of the user being able to explicitly
+> select them for use. **This refers to who decides when the prompt is used,
+> not who authors its content. Prompt content is defined by the server.**
+
+The spec authors hit the same ambiguity this ADR had to resolve and settled it
+the same way: the axis is *who triggers*, not identity, authorship, or content.
 
 Verified against the installed SDK (`mcp 2.0.0`, revision `2026-07-28`) rather
-than from documentation:
+than from memory: `prompts/get` takes `{name, arguments: dict[str,str]}` and
+answers `{messages: [PromptMessage{role, content}]}`;
+`completion/complete` takes `ref: PromptReference | ResourceTemplateReference`
+plus `argument: {name, value}` and answers `Completion{values (max 100), total,
+hasMore}`; `PromptListChangedNotification` is delivered **only** on a
+`subscriptions/listen` stream the client opted into via `promptsListChanged`.
+`prompts/list` results **MUST NOT** vary per-connection or as a side effect of
+another request.
 
-| Mechanism | Shape |
-| --- | --- |
-| `prompts/list` | `ListPromptsResult{prompts, nextCursor, cacheScope}` — paginated |
-| `prompts/get` | `GetPromptRequestParams{name, arguments: dict[str,str]}` |
-| result | `GetPromptResult{messages: list[PromptMessage], description}` |
-| message | `PromptMessage{role, content}`, `TextContent{type:"text", text}` |
-| completion | `completion/complete`, `ref: PromptReference \| ResourceTemplateReference`, `argument:{name,value}`, optional `context.arguments` |
-| completion result | `Completion{values: list[str] (max 100), total, hasMore}` |
-| list-changed | `PromptListChangedNotification` — **only** delivered on a `subscriptions/listen` stream the client opted into via `promptsListChanged` |
+Host-local command files (`.claude/commands/*.md`, `~/.codex/prompts/*.md`) are
+the obvious alternative and are rejected: they are generated artifacts in the
+user's repository, which is what `hosts.md` records this project as not needing.
 
-Host-local command files (`.claude/commands/*.md`, `~/.codex/prompts/*.md`,
-`.cursor/commands/*.md`) are the obvious alternative and are rejected: they are
-generated artifacts in the user's repository, which is precisely what
-`docs/verification/hosts.md` records this project as not needing.
+### A command is not a new kind of thing — the industry already merged them
+
+Claude Code's documentation states it outright:
+
+> **Custom commands have been merged into skills.** A file at
+> `.claude/commands/deploy.md` and a skill at `.claude/skills/deploy/SKILL.md`
+> both create `/deploy` and work the same way.
+
+What distinguishes them is two frontmatter fields, and nothing else:
+
+| Frontmatter | You can invoke | Claude can invoke | When loaded into context |
+| --- | --- | --- | --- |
+| (default) | Yes | Yes | Description always in context, full skill loads when invoked |
+| `disable-model-invocation: true` | Yes | No | **Description not in context**, full loads when you invoke |
+| `user-invocable: false` | No | Yes | Description always in context, full loads when invoked |
+
+The third column is a context bill, which is this project's own currency. The
+stated criterion for reaching for it — *"Use this for workflows with side
+effects or that you want to control timing, like `/commit`, `/deploy` … You
+don't want Claude deciding to deploy because your code looks ready"* — is a
+guardrail argument, not a convenience one.
+
+Contexture already occupies exactly one row of that table: every node today is
+model-openable and not person-openable. **This ADR does not introduce a
+concept; it finishes a table the project already sits in one cell of.**
+
+Provenance, stated honestly: those two fields are **Claude Code extensions**,
+not the Agent Skills open standard, which admits only `name`, `description`,
+`license`, `compatibility`, `metadata`, `allowed-tools`. The semantics are
+well-founded — the largest client behaves this way and MCP's `user-controlled`
+agrees — but they carry no open-standard backing, so this ADR borrows the
+meaning and not the spelling.
+
+### The three-stage disclosure of Agent Skills
+
+The open standard describes progressive disclosure in three stages: discovery
+(name and description only), activation (full `SKILL.md`), execution
+(*"optionally executing bundled code or loading referenced files as needed"*).
+
+`core/context.py` argues there are two levels and no third. Both are right.
+Stage three is not a third level of one node — it is the skill reaching
+*other* nodes, which here is `uses` rendering cards that are opened or read by
+their own separate calls. **Contexture's two levels across many nodes is the
+same thing as three stages across one file, decomposed better:** the third
+stage is another node, not another level.
 
 ### What the numbers say
 
-Measured this session against the demo and against a synthetic forest, JSON
-characters, not tokens.
+Measured against the demo and a synthetic forest; JSON characters, not tokens.
 
-**A direct hit is the cheapest path, not the most expensive one.**
-
-| | demo (4 levels, fat nodes) | synthetic (4 levels, thin nodes) |
-| --- | ---: | ---: |
-| walking down (`discover` + `open`×4) | 3656 | 2696 |
-| direct hit + signpost ancestry | 1352 | 511 |
-| | **−63%** | **−81%** |
-
-**Ancestry rendering, against the payload it decorates:**
+Signpost ancestry against the payload it decorates:
 
 | | demo | synthetic |
 | --- | ---: | ---: |
 | full ancestry (replay `open` at each level) | +206% | +724% |
 | signpost (path + sibling counts, names only) | **+13%** | **+56%** |
-| nothing | +0% | +0% |
 
-Full ancestry is disqualified: it re-buys every level the direct hit just
-saved. The signpost cost scales with **depth** (one line per level), never
-with breadth — eight siblings and three siblings render the same line.
+Full ancestry is disqualified: it re-buys every level a direct hit just saved.
+The signpost cost scales with **depth**, never with breadth — eight siblings
+and three siblings render the same line.
 
-**Round trips are the larger saving, and were nearly missed.** Each navigation
-call is a full model round trip that resends the conversation. Five navigation
-calls become zero: completion and retrieval happen between the person and the
-server, and the model first wakes up already at the destination.
+A 300-role multi-headed forest with distinct strings is **184 KB** resident;
+`find()` on the deepest ref is ~23µs. Server memory is cheap and unshared;
+model context is expensive and is the bottleneck. Keep making the expensive one
+lazy and carry the cheap one.
 
-**Memory is not a constraint at this scale.** A 300-role multi-headed forest
-with distinct strings is 184 KB resident; `find()` on the deepest ref is ~23µs.
-Server memory is cheap and unshared; model context is expensive and is the
-bottleneck. The framework should keep making the expensive one lazy and carry
-the cheap one itself.
+**A correction to an earlier draft of this ADR.** It claimed a direct hit saves
+five navigation calls (63–81%). That assumed the model must *discover* the
+path. A direct hit's premise is that the person already knows the ref — and a
+person who knows it can simply say it, which costs one `open`. The honest
+saving is **two calls to one**, plus completion so the person need not
+reproduce the ref exactly. Completion is the value; round trips are not.
 
-**One defect surfaced on the way.** `ContextTree.skeleton()` — what
-`contexture_discover` returns — has no budget and no truncation:
+### One defect the measurements surfaced
+
+`ContextTree.skeleton()` — what `contexture_discover` returns — has no budget
+and no truncation:
 
 ```python
 return {"roles": [_card(root, root.name) for root in self.roots]}
@@ -112,204 +151,238 @@ complete answer, but `discover` itself is uncapped. Invisible on a two-headed
 demo; on a wide multi-headed forest it is the fixed cost of entering the
 server, paid every time. Independent of everything else here.
 
-## Decisions
+## Decision
 
-### 1. The human-entry plane is MCP prompts
+**Progressive disclosure is unchanged. What grows is the set of who may
+trigger it.** Two fields; no new object, no new axis, no new compile level.
 
-Nothing is generated into the user's repository. The server declares prompts;
-every host that speaks MCP renders them into its own command menu.
+| Where | Field | What it states |
+| --- | --- | --- |
+| `core/context.py` → `ContextNode` | `opened_by` | who may open this node |
+| `core/skill.py` → `Skill` | `uses` | refs this procedure names but does not own |
 
-### 2. The command surface must not scale with the tree
+### 1. `opened_by` belongs on `ContextNode`
 
-This is the requirement, and it is stronger than "keep the prompt count low".
-`core/role.py` records that since the 2026-07-28 revision a server **may not
-vary its surface as a consequence of an earlier call**. A surface that grows
-with the forest eventually invites dynamic prompt registration, which is the
-thing that revision forbids. Decoupling surface size from tree size means the
-question never arises.
-
-This also rules out one-prompt-per-role: 300 roles would mean 300 menu
-entries, and `PromptListChangedNotification` cannot rescue it, since delivery
-requires a subscription the client may never open.
-
-### 3. `goto` — one parameterized prompt, with server-side completion
-
-A single prompt taking a `ref`, with `completion/complete` doing prefix and
-segment matching over the tree. The person types three characters and lands on
-a level-four node; the menu stays one entry wide regardless of forest size.
-
-Completion truncation follows the roster's rule — report the count and name
-what recovers it — with one deliberate exemption: the roster cuts in whole
-sibling groups because a *model* reading three of eight will take three for
-the whole choice. Completion's consumer is a **person**, who will simply keep
-typing. Completion therefore cuts by relevance, and this difference is to be
-written down where the next reader will find it.
-
-### 4. A direct hit carries a signpost ancestry
-
-Path segments above the target, one line each, with sibling counts and no
-names, plus explicit text that these are signposts and **not disclosed**: they
-may be opened, nothing about their contents may be asserted. Same pattern as
-the roster's truncation line — report the count, name the call that recovers
-it, never the content.
-
-This keeps ADR 004's rule intact on the new entrance. The direct-hit payload
-is otherwise **field-for-field identical** to `contexture_open`, per the rule
-`ContextTree.open` already states: *"Reaching a capability two ways and being
-told two different things about how to call it is worse than either answer
-alone."*
-
-### 5. Composition across branches is reference, never containment
-
-Making orchestrated roles into children of an orchestrating role **fails
-silently**, which is worse than failing loudly. `_reject_cycles` walks only the
-ancestor stack:
+`context.py` states the base class owns *"a machine-facing name, a routing
+description, and a compile lifecycle."* Who may trigger a compile is part of
+that lifecycle, so it belongs there rather than on one subclass. All four kinds
+have a meaningful reading: a person-opened Skill is `/do`; a person-opened Tool
+is `/deploy`; a person-opened Role or Resource is a named entrance to a branch
+or a document.
 
 ```python
-if id(role) in stack:      # stack holds ancestors on the current path only
+opened_by = (Opener.MODEL,)                 # default — today's behaviour
+opened_by = (Opener.PERSON,)                # a command; the model may not enter
+opened_by = (Opener.MODEL, Opener.PERSON)   # both planes
 ```
 
-The same object under two different parents is a DAG, not a cycle, and passes.
-The result is one node with two refs, which breaks three things at once: the
-model sees two cards for one capability; "you have not opened X" stops meaning
-anything when X has two doors; and the behaviour `hosts.md` values most — the
-model declining to assert anything about `deployment-ops` because it never
-opened it — depends on one capability having one location.
+Empty is refused: a node nobody can open is not a node.
 
-Note what is **already supported and needs nothing**: a role coordinating its
-own subtree. `core/role.py` says so directly — *"A role that coordinates others
-owns no tools at all, so every word here is orchestration."* Hierarchical
-orchestration is containment and works today. Only cross-cutting orchestration
-needs new machinery.
+**The default is `(MODEL,)`, which is the opposite of Claude Code's, and the
+inversion is forced.** Claude Code has a handful of skills in a flat directory;
+Contexture has hundreds of nodes in a tree. Defaulting to both planes would
+make the command surface grow with the forest, which decision 3 forbids.
 
-### 6. `Command` — a `ContextNode` that holds only refs and is not in the tree
+### 2. It is `open`, never `invoke`
 
-`core/context.py` requires exactly three things of a `ContextNode`: `name`,
-`description`, `_compile_active()`. It says nothing about membership, refs, or
-belonging to a tree — *"The base class deliberately owns only the stable common
-contract."* A `Command` fits without touching the base class.
+`skill.py` draws the line: *"a Tool is executed by the framework and returns a
+result, a Skill is executed by the model and returns nothing."* A Skill has no
+executable body. It can be **opened**; it cannot be **invoked**. A prompt
+naming a skill means *"put its procedure in context, because a person asked"* —
+that is `open`, and the field is named for it. Calling it invocation would
+blur the contract the two invoke gateways rest on.
 
-It must **not** be a node in the forest. A command placed in the tree acquires
-a path, a parent, and a slot in `discover`'s root cards, and the question of
-where an orchestration belongs comes straight back. Instead the tree grows a
-second field:
+### 3. The command surface must not scale with the tree
 
-```
-ContextTree:
-  roots:    tuple[Role, ...]        # the capability graph — the model navigates it
-  commands: tuple[Command, ...]     # the entry set    — a person triggers it
-```
+`prompts/list` holds one entry per node marked `PERSON`, plus `goto`. That
+count is **authored, not derived**: eight commands is eight entries whether the
+forest holds thirty nodes or three hundred. Adding a command is a code change
+and a restart — a new server version, not a surface varying under a live
+connection.
 
-Commands reference the forest; the forest does not know commands exist. That
-one-way dependency is the same discipline that keeps `core` unaware of refs and
-unaware of the MCP SDK, applied a third time.
+The criterion for marking a node, borrowed from one-creator's ADR 0093 and
+recorded here because without it `PERSON` gets sprinkled everywhere until the
+menu is a second tool list:
 
-Consequences that follow rather than being designed in:
+> A command is worth having only where **going wrong is expensive**. Its value
+> is consistent execution, guardrails, and saved typing — and saved typing is
+> the weakest of the three. Anything else is better served by simply talking to
+> the agent.
 
-- **"Unconstrained by hierarchy or a common parent" is automatic**, because a
-  command is not in the hierarchy.
-- **A command cannot create a cycle**, because nothing references a command.
-  Validation reduces to "every ref resolves", checked in
-  `ContextTree.__post_init__` beside `_reject_cycles` and
-  `_reject_ambiguous_names`. A workflow naming a node that does not exist must
-  fail at startup, not when someone presses the key.
-- **The question that dominated the discussion — where does an orchestration
-  hang: nearest common ancestor, primary branch, or its own root — disappears.**
-  A good abstraction dissolves the question rather than answering it better.
+### 4. A person-only node keeps its card, and `open` refuses it
 
-### 7. The two axes are the two MCP control planes
+The card stays in `open(role)` so the model knows the capability exists and can
+tell the person which command reaches it. `contexture_open` on it is refused,
+and the refusal names the command — the pattern `contract.wrong_door()` already
+establishes, where *both wrong-door refusals name the other door*.
 
-| Contexture | MCP | Triggered by |
+The card carries `opened_by` whenever it is not the default, so the model can
+avoid the refused call rather than discover it by making it.
+
+This costs the card's context, which the third column of Claude Code's table
+does not pay. Accepted deliberately: a model that cannot see the capability
+cannot point a person at it, and pointing is what makes a guardrail cooperative
+rather than merely obstructive.
+
+### 5. `uses` belongs on `Skill` alone
+
+Not on `ContextNode`. A Role reaches by containment, a Tool has its own code, a
+Resource has its own content; only a Skill is *"a procedure whose steps are
+existing tools, with no code of its own to run."* The asymmetry against
+`opened_by` is principled: every node is opened by someone, but only a
+procedure names things it does not own.
+
+**Refs are strings, never object references.** Object references would make the
+forest a graph and `_reject_cycles` meaningless. The type *is* the distinction:
+a `tuple[str, ...]` cannot be walked into, so the containment walkers cannot
+follow it by accident. Containment is **down**; reference is **sideways**. A
+skill stays a leaf, and `uses` produces no depth, no children, and no new ref.
+
+### 6. A person-openable node still lives in the tree
+
+A skill floating free of every role has no owner, and *whose responsibility is
+this* is the framework's whole subject. It does not need to float: a command's
+name is a **position-independent second name**, exactly as `Resource.uri` is
+one. `compose-and-ship` lives at `one-creator/publishing/compose-and-ship` and
+is `/compose-and-ship` at the command line, the same way a runbook has both a
+ref and a URI and `contexture_read` accepts either.
+
+### 7. `uses` may not point at a Role — for now
+
+Evidence over taste: one-creator's `/do` entrypoint declares five operations
+and one resource in its `requirements` block and **no role at all**. Its
+cross-role routing reads a live resource (`team://surface/{project}`) and acts
+on what it names. So dynamic routing is solved by a resource, not by reference
+syntax, and restricting `uses` to leaves keeps the reference overlay from
+tangling with the containment forest. Relax it when something genuinely cannot
+be expressed.
+
+### 8. Reference cycles are allowed; deadlock is impossible
+
+Two graphs, and only one is structural:
+
+| | containment | reference (`uses`) |
 | --- | --- | --- |
-| forest (Role / Skill / Tool / Resource) | `tools` + `resources` | the model |
-| commands | `prompts` | a person |
+| held as | object pointers | ref strings |
+| walked by | `_reject_cycles`, `nodes_with_refs`, `roles_by_level` | nothing |
+| shape | forest, enforced | arbitrary graph, allowed |
+| creates addresses | yes | no |
 
-Not a coincidence. MCP's primitives are split by who decides; splitting by who
-triggers lands on the same line.
+Deadlock needs blocking plus circular wait; there is neither. Every gateway
+call renders **one level** and returns, which is `open`'s existing rule:
+*"Opening a role delivers that role's members and does not recurse into
+sub-roles."* `uses` obeys it too — it expands to ROUTE cards, and a ROUTE card
+carries `{kind, name, description, ref}` and never its own `uses`. The server
+never follows a reference transitively. `A → B → A` means two pages linking to
+each other, not a cycle to traverse.
 
-### 8. One prompt per `Command`, plus `goto` as the generic escape hatch
+Forbidding reference cycles would be over-strict: `diagnose → remediate →
+diagnose` is a legitimate workflow shape.
 
-This **reverses an earlier position in this discussion**, and the reason it
-reverses is the point. The objection to per-workflow prompts was that 300 roles
-would flood the menu. That objection assumed the prompt count was derived from
-the tree. `Command` breaks that coupling: **the number of commands is authored,
-not derived**. Eight commands is eight menu entries whether the forest holds
-thirty roles or three hundred.
+## Three invariants
 
-Named entries are also better for the person: the command name appears in the
-menu and is discoverable, where `goto` requires knowing what to type first.
+Written down because each is load-bearing and none is self-evident from the
+code that depends on it.
 
-`goto` stays as the one generic entrance covering every node that no command
-names. Adding a command is a code change and a restart — a new server version,
-not a surface varying under a live connection, so decision 2 holds.
+1. **`uses` expands to ROUTE only, never ACTIVE.** This is the whole reason
+   cycles are harmless.
+2. **The roster, completion, and every enumerator walk containment only, never
+   `uses`.** This is the one place in the design where a reference cycle
+   *could* become an infinite loop, and it is on the startup path.
+3. **Completion cuts by relevance; the roster cuts in whole sibling groups.**
+   The roster's rule exists because a model reading three of eight takes three
+   for the whole choice. Completion's consumer is a person, who keeps typing.
+   Same protocol, different consumer, deliberately different rule.
 
-### 9. `Command` and `Skill` stay separate classes
+## Build-time validation
 
-They will look alike: `name`, `description`, `instructions`. The difference is
-**who triggers it and where it lives** — a skill is navigated to by a model and
-lives in the tree; a command is triggered by a person and lives outside it.
-That difference must be stated in the docstring, or a later reader merges them
-and pulls `Command` back into the tree, undoing decision 6.
+Beside `_reject_cycles` and `_reject_ambiguous_names` in
+`ContextTree.__post_init__`, because a workflow naming a node that does not
+exist must fail at startup and not when somebody presses the key.
+
+| Check | Verdict |
+| --- | --- |
+| every `uses` ref resolves | reject |
+| self-reference | reject |
+| reference to an ancestor | reject — it is already inside it |
+| `uses` naming a Role | reject (decision 7) |
+| `opened_by` empty | reject |
+| cycle in the reference graph | allow (decision 8) |
+| reference crossing root branches | allow, and **report it** |
+
+The last row is the only new idea. A command crossing a responsibility boundary
+is a person composing, not a model guessing, so ADR 004's rule does not forbid
+it — but it should be **visible rather than silent**, and that is the strongest
+argument for orchestration living in the tree as a declared object rather than
+as prose in a host-side template: crossings become reviewable, testable, and
+lintable.
 
 ## Consequences
 
-- `core/context.py`, `core/role.py`: untouched.
-- `core/`: gains `Command`. It holds ref **strings**, never object references —
-  object references would turn the forest into a graph and make
-  `_reject_cycles` meaningless.
-- `tree.py`: gains a `commands` field, ref validation for it, a signpost
-  renderer, and a full-ref enumerator (`roles_with_refs`'s sibling, reusing one
-  walk) so completion can reach skills, tools and resources rather than roles
-  alone.
-- `server/contract.py`: owns every string these prompts put in front of a
-  person or a model, beside `GATEWAY` — *"Two copies of a control's label is
-  how the worse one ends up being the one that ships."*
-- `server/projection.py`: registers prompts and the completion handler. Still
-  the only module importing the SDK.
-- `server/instructions.py`: unchanged. `PREAMBLE` is bound by Codex's
-  512-character self-contained window, and commands are for people; a model
-  cannot press them, so naming them there is pure cost.
-- Card rendering for a command's refs likely belongs in `tree.py`, not in
-  `Command._compile_active`, because a card needs a ref and a schema and `core`
-  is not permitted to know either — the same line ADR 004 drew.
-- **A command can cross a responsibility boundary, and that is allowed.**
-  ADR 004's rule governs a model guessing, not a person composing. The reason
-  to make `Command` a declared object rather than prose in a host-side template
-  is exactly this: crossings become reviewable, testable and lintable. A
-  command's compiled output should name the root branches it spans, so a
-  crossing is visible rather than silent.
+- `core/context.py` gains `Opener` and `opened_by`; the compile lifecycle is
+  otherwise untouched.
+- `core/skill.py` gains `uses`.
+- `core/role.py`, `core/tools.py`, `core/resources.py`: untouched.
+- `tree.py` gains `nodes_with_refs()` (containment-only, the source for both
+  validation and completion), `signpost()`, `uses` card rendering inside
+  `open()`, and the validation table above. Cards are assembled here rather
+  than in `Skill._compile_active` because a card needs a ref and a schema and
+  `core` may know neither — the line ADR 004 drew.
+- `server/contract.py` owns every string these prompts put in front of a person
+  or a model, beside `GATEWAY`.
+- `server/projection.py` registers prompts and the completion handler, and is
+  where a person-only node's `open` is refused — the projection layer is the
+  only one that knows which door a call came through, exactly as with
+  `wrong_door`.
+- `server/instructions.py` unchanged. `PREAMBLE` is bound by Codex's
+  512-character window, and a model cannot press a command; naming one there is
+  pure cost.
+
+## Implementation plan
+
+Three phases, each independently shippable and independently revertable.
+
+**Phase 1 — reference.** `uses` on `Skill`, `nodes_with_refs()`, the validation
+table, `uses` cards in `open()`. Pure object model; nothing on the wire
+changes. A cross-branch procedure becomes writable and the model reaches it by
+ordinary navigation.
+
+**Phase 2 — the person's plane.** `Opener` and `opened_by`, prompt projection,
+the completion handler, `signpost()`, and the refusal for a person-only node
+opened by a model.
+
+**Phase 3 — the generic entrance and the old defect.** `goto` with completion,
+and `skeleton()` truncation. `goto` is a convenience, not the headline; the
+`skeleton()` cap is unrelated to the rest and is fixed here because this is
+when it was found.
 
 ## Open questions
 
-1. **How a command's refs expand.** Tools resolve to cards (a tool card
-   already carries `input_schema` and `read_only`, so it is callable as-is) and
-   roles must resolve to cards (expanding one would inline a whole branch).
-   **Skills are genuinely undecided**: a card costs an extra `open` on a step
-   the person has already committed to, while full text pays for branches the
-   procedure may not take. A per-ref annotation distinguishing "certain" from
-   "conditional" would express it, since the author knows which is which and
-   the framework cannot — but it may be complexity bought too early.
-2. **`skeleton()` truncation.** Agreed as a defect, unscheduled. Independent of
-   the rest of this ADR.
+None blocking. Two to revisit with evidence rather than argument:
+
+1. Whether `uses` should ever name a Role (decision 7 says no on one
+   production data point).
+2. Whether `Tool` needs `opened_by` in practice, given `read_only` plus host
+   approval already gates dangerous calls at the moment of the call. The field
+   is available on every node; whether anyone should use it on a Tool is a
+   separate question from whether it exists.
 
 ## Not done here
 
-- No code. No `Command` class exists.
-- **Codex support is unverified.** `docs/verification/hosts.md` records its
-  `mcp list` column as `Unsupported`, and its diagnosis run was blocked by an
-  account limit through 2026-08-21. Whether Codex renders MCP prompts or
-  services `completion/complete` is unknown; Claude Code is verified to render
-  prompts as slash commands.
-- **Multi-tenancy is out of scope, and would break the memory model.** The
+- **Codex is unverified.** `hosts.md` records its `mcp list` column as
+  `Unsupported`, and its diagnosis run was blocked by an account limit through
+  2026-08-21. Whether Codex renders MCP prompts or services
+  `completion/complete` is unknown. Claude Code renders prompts as slash
+  commands.
+- **Multi-tenancy is out of scope and would break the memory model.** The
   object graph is built at *import* time — `Role.__init_subclass__` runs
   `declarative.collect`, whose `_materialize` calls `value()` on each declared
   member class and shares the instance across every instance of the declaring
-  class. `declaration` is a `ClassVar`, so the graph is process-wide, immutable
-  and shared. That is what makes `Dispatch._derived`'s `id()` key safe and what
-  makes the server lock-free. A per-connection tree cannot be added to this
-  model; it would require a process per tenant. Confirmed out of scope: the
-  forest is one multi-headed tree, identical for every connection.
-- No decision on which commands `examples/oc-goal` should declare. Its
-  `GoalDomain` is currently flat — eight tools, one skill, two resources, no
-  child roles — so it does not yet exercise cross-branch composition. It will
-  when `project` / `workitem` land, which its own comment already anticipates.
+  class. `declaration` is a `ClassVar`, so the graph is process-wide,
+  immutable, and shared. That is what makes `Dispatch._derived`'s `id()` key
+  safe and the server lock-free. A per-connection tree would need a process per
+  tenant.
+- **No commands are declared in `examples/oc-goal`.** Its `GoalDomain` is flat
+  — eight tools, one skill, two resources, no child roles — so it does not yet
+  exercise cross-branch composition. It will when `project` / `workitem` land,
+  which its own comment anticipates.

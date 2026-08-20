@@ -45,6 +45,8 @@ RESERVED_ATTRIBUTES = frozenset(
         "uri",
         "mime_type",
         "read_only",
+        "uses",
+        "opened_by",
     }
 )
 
@@ -239,6 +241,41 @@ def scalar(cls: type, attribute: str) -> str | None:
             )
         stripped = value.strip()
         return stripped or None
+    return None
+
+
+def string_sequence(cls: type, attribute: str) -> tuple[str, ...] | None:
+    """Read a declared sequence of strings, ignoring the dataclass's own slots.
+
+    The sibling of `scalar` for the fields whose value is several strings
+    rather than one. A lone string is accepted and wrapped, because
+    ``uses = "a/b"`` and ``uses = ("a/b",)`` should not mean different things —
+    the shorter one is what somebody writes first, and silently treating it as
+    a sequence of one-character refs would be the worst possible reading.
+    """
+
+    for klass in cls.__mro__:
+        if attribute not in vars(klass):
+            continue
+        value = vars(klass)[attribute]
+        if isinstance(value, MemberDescriptorType):
+            return None
+        if isinstance(value, str):
+            return (value,) if value.strip() else ()
+        if not isinstance(value, (tuple, list)):
+            raise DeclarationError(
+                f"{cls.__name__}.{attribute} must be a string or a sequence of "
+                f"strings, not {type(value).__name__}."
+            )
+        entries = []
+        for entry in value:
+            if not isinstance(entry, str):
+                raise DeclarationError(
+                    f"{cls.__name__}.{attribute} contains "
+                    f"{type(entry).__name__}; every entry must be a string."
+                )
+            entries.append(entry)
+        return tuple(entries)
     return None
 
 

@@ -41,6 +41,7 @@ from .core.context import CompileLevel, ContextNode
 from .core.errors import LookupFailure, ModelValidationError, NodeNotFoundError
 from .core.resources import Resource
 from .core.role import Role
+from .core.skill import Skill
 from .core.tools import Tool
 from .core.types import CompiledContext, JsonObject
 
@@ -102,6 +103,12 @@ class ContextTree:
             _reject_cycles(root)
             _reject_ambiguous_names(root)
 
+        # Runs last, and over the whole forest rather than per root: a `uses`
+        # entry may name any branch, so it cannot be checked until every root
+        # is known to be walkable. The two checks above are what make that
+        # walk safe.
+        self._reject_unresolvable_uses()
+
     # ---- 1. the skeleton -------------------------------------------------
 
     def skeleton(self) -> CompiledContext:
@@ -148,6 +155,30 @@ class ContextTree:
             queue.extend(
                 (f"{ref}{SEPARATOR}{child.name}", child) for child in role.children
             )
+
+    def nodes_with_refs(self) -> Iterator[tuple[str, ContextNode]]:
+        """Walk every node of every kind depth-first, yielding its reference.
+
+        The role-axis walkers above answer "what roles are there"; this answers
+        "what is addressable", which is what `uses` validation checks against
+        and what argument completion offers a person.
+
+        **This follows containment and never `uses`.** That is not an
+        oversight to be improved on later: the reference overlay may legally
+        contain cycles (ADR 008), and this walk is on the startup path, so an
+        enumerator that followed references would hang the server before it
+        ever served anything. Containment is a forest by construction and
+        cannot.
+        """
+
+        def walk(node: ContextNode, ref: str) -> Iterator[tuple[str, ContextNode]]:
+            yield ref, node
+            if isinstance(node, Role):
+                for member in node.members():
+                    yield from walk(member, f"{ref}{SEPARATOR}{member.name}")
+
+        for root in self.roots:
+            yield from walk(root, root.name)
 
     # ---- 2. resolution ---------------------------------------------------
 
@@ -231,7 +262,31 @@ class ContextTree:
             payload.update(self._members(node, ref))
         elif isinstance(node, Tool):
             payload["input_schema"] = self.schema_of(node)
+        elif isinstance(node, Skill) and node.uses:
+            payload["uses"] = [self._reference_card(ref) for ref in node.uses]
         return payload
+
+    def _reference_card(self, ref: str) -> CompiledContext:
+        """Render one capability a procedure names but does not own.
+
+        A **card**, at ROUTE, and this is the invariant the whole reference
+        overlay rests on: a card carries a kind, a sentence and a ref, and
+        never the `uses` of the node it describes. So the server renders one
+        level and stops, exactly as `open` does for sub-roles, and a reference
+        cycle is two cards pointing at each other rather than something to
+        traverse. Expanding to ACTIVE here would make `A -> B -> A` unbounded.
+
+        A tool card is the fuller `_tool_card`, because a tool reached this way
+        must be callable from what arrives — sending an agent for a second call
+        to fetch a schema it was always going to need buys nothing.
+        """
+
+        node = self.find(ref)
+        if isinstance(node, Tool):
+            return self._tool_card(node, ref)
+        if isinstance(node, Resource):
+            return _resource_card(node, ref)
+        return _card(node, ref)
 
     def _members(self, role: Role, ref: str) -> CompiledContext:
         def at(name: str) -> str:
@@ -257,6 +312,75 @@ class ContextTree:
         }
 
     # ---- internals -------------------------------------------------------
+
+    def _reject_unresolvable_uses(self) -> None:
+        """Refuse a procedure that names something the forest cannot answer for.
+
+        Checked when the tree is built, beside the cycle and separator checks,
+        because the alternative is discovering it when a person presses a key.
+        A reference is late-bound by necessity — a skill is constructed before
+        it knows where it hangs, and long before the branch it names exists —
+        and build time is the earliest moment the binding *can* be checked.
+
+        Reference cycles are deliberately not checked. `diagnose -> remediate
+        -> diagnose` is a real workflow shape, and it costs nothing here: cards
+        render at ROUTE, so a cycle is two cards naming each other. See ADR 008.
+        """
+
+        for ref, node in self.nodes_with_refs():
+            if not isinstance(node, Skill):
+                continue
+            for target in node.uses:
+                if target == ref:
+                    raise ModelValidationError(
+                        f"Skill {ref!r} names itself in `uses`. A procedure "
+                        "does not need a card for the procedure it is."
+                    )
+                try:
+                    named = self.find(target)
+                except NodeNotFoundError as failure:
+                    raise ModelValidationError(
+                        f"Skill {ref!r} names {target!r} in `uses`, which "
+                        f"resolves to nothing ({failure.reason.value}). A "
+                        "procedure whose steps do not exist is a broken "
+                        "procedure, and the reference is checked here so that "
+                        "it fails on the way up rather than in front of a user."
+                    ) from None
+                if isinstance(named, Role):
+                    # This also happens to reject every ancestor of `ref`,
+                    # because only a Role holds members and so every ancestor
+                    # is one. If Role references are ever allowed, an explicit
+                    # ancestor check has to be added back: a skill naming the
+                    # role it already lives inside is a modelling mistake that
+                    # nothing else here would catch.
+                    raise ModelValidationError(
+                        f"Skill {ref!r} names the role {target!r} in `uses`. "
+                        "A reference may name a skill, a tool or a resource, "
+                        "never a role: routing to a role is what its own card "
+                        "and `contexture_open` are for, and a procedure that "
+                        "must choose a role at run time should read a resource "
+                        "that lists them."
+                    )
+
+    def crossings(self) -> Iterator[tuple[str, str, str]]:
+        """Yield every reference that leaves the root branch it was made from.
+
+        `(skill_ref, target_ref, target_root)`. Nothing refuses these — a
+        person composing two branches is an authorised act, and ADR 004's rule
+        is about a model guessing. But a responsibility boundary that gets
+        crossed silently is one nobody reviews, and the reason orchestration is
+        a declared object here rather than prose in a host-side template is
+        precisely that a crossing can be listed, tested and linted.
+        """
+
+        for ref, node in self.nodes_with_refs():
+            if not isinstance(node, Skill):
+                continue
+            home = ref.split(SEPARATOR, 1)[0]
+            for target in node.uses:
+                root = target.split(SEPARATOR, 1)[0]
+                if root != home:
+                    yield ref, target, root
 
     def _root(self, name: str) -> Role:
         for root in self.roots:
