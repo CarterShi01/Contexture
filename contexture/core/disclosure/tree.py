@@ -39,6 +39,7 @@ from typing import Callable, Iterable, Iterator
 
 from ..model.node import CompileLevel, ContextNode
 from ..errors import LookupFailure, ModelValidationError, NodeNotFoundError
+from ..model.manager import ControllerManager
 from ..model.role import Role
 from ..model.skill import Skill
 from ..model.tool import Tool
@@ -75,15 +76,24 @@ class ContextTree:
     roots: tuple[Role, ...]
     schema_of: Callable[[Tool], JsonObject] = field(default=_no_schema)
 
+    #: The registry these roots are registered in. An application that built
+    #: one — because it had channels to hand out before anything was served —
+    #: passes it; a caller that only wants to navigate a declaration lets this
+    #: build its own, which is what keeps `of(SomeRole())` working for a test
+    #: and for `contexture list`.
+    manager: ControllerManager | None = None
+
     @classmethod
     def of(
         cls,
-        roots: Role | Iterable[Role],
+        roots: Role | Iterable[Role] | ControllerManager,
         *,
         schema_of: Callable[[Tool], JsonObject] = _no_schema,
     ) -> ContextTree:
-        """Accept one root or many, and return the tree either way."""
+        """Accept a manager, one root, or many, and return the tree either way."""
 
+        if isinstance(roots, ControllerManager):
+            return cls(roots=roots.roots, schema_of=schema_of, manager=roots)
         collected = (roots,) if isinstance(roots, Role) else tuple(roots)
         return cls(roots=collected, schema_of=schema_of)
 
@@ -91,22 +101,33 @@ class ContextTree:
         if not self.roots:
             raise ModelValidationError("A context tree needs at least one root role.")
 
-        seen: set[str] = set()
-        for root in self.roots:
-            if root.name in seen:
-                raise ModelValidationError(
-                    f"Two root roles are both named {root.name!r}; a root name "
-                    "is the first segment of every reference beneath it."
-                )
-            seen.add(root.name)
-            _reject_cycles(root)
-            _reject_ambiguous_names(root)
+        if self.manager is None:
+            # Registration is the walk: it assigns every address, refuses a
+            # cycle, refuses one object held at two of them, and refuses two
+            # roots with the same name. None of that is repeated here.
+            registry = ControllerManager()
+            for root in self.roots:
+                registry.register(root)
+            object.__setattr__(self, "manager", registry)
+        elif self.manager.roots != self.roots:
+            raise ModelValidationError(
+                "This tree was given roots its manager has not registered. A "
+                "tree discloses what a manager holds; two answers to what is "
+                "being served is one answer too many."
+            )
 
-        # Runs last, and over the whole forest rather than per root: a `uses`
-        # entry may name any branch, so it cannot be checked until every root
-        # is known to be walkable. The two checks above are what make that
-        # walk safe.
+        # Two checks are left, and both are here rather than in registration
+        # because both are about how an address is *spelled*, which is this
+        # module's decision and not the model's.
+        self._reject_ambiguous_names()
         self._reject_unresolvable_uses()
+
+    @property
+    def registry(self) -> ControllerManager:
+        """The manager backing this tree; never None once constructed."""
+
+        assert self.manager is not None  # __post_init__ builds one if given none
+        return self.manager
 
     # ---- 1. the skeleton -------------------------------------------------
 
@@ -130,13 +151,9 @@ class ContextTree:
         `skeleton`.
         """
 
-        def walk(role: Role, ref: str) -> Iterator[tuple[str, Role]]:
-            yield ref, role
-            for child in role.children:
-                yield from walk(child, f"{ref}{SEPARATOR}{child.name}")
-
-        for root in self.roots:
-            yield from walk(root, root.name)
+        for ref, node in self.nodes_with_refs():
+            if isinstance(node, Role):
+                yield ref, node
 
     def roles_by_level(self) -> Iterator[tuple[str, Role]]:
         """Walk the role axis breadth-first: every root, then every child.
@@ -170,14 +187,8 @@ class ContextTree:
         cannot.
         """
 
-        def walk(node: ContextNode, ref: str) -> Iterator[tuple[str, ContextNode]]:
-            yield ref, node
-            if isinstance(node, Role):
-                for member in node.members():
-                    yield from walk(member, f"{ref}{SEPARATOR}{member.name}")
-
-        for root in self.roots:
-            yield from walk(root, root.name)
+        for path, node in self.registry.walk():
+            yield SEPARATOR.join(path), node
 
     def matching_refs(self, value: str, *, limit: int) -> tuple[tuple[str, ...], int]:
         """Rank addressable refs against what a person has typed so far.
@@ -249,27 +260,15 @@ class ContextTree:
         """Resolve a reference to the one node it addresses."""
 
         segments = [segment for segment in ref.split(SEPARATOR) if segment]
-        if not segments:
-            raise NodeNotFoundError(reason=LookupFailure.EMPTY_REF, ref=ref)
 
-        # One try around the whole walk. A role knows its own name and what it
-        # holds; only this method knows the path being walked, so the failure
-        # collects that on its way back up rather than being handed down into
-        # every lookup that is about to succeed.
+        # Splitting the string is this module's half of the job; which node
+        # sits at those segments is the registry's, and it answers from an
+        # index rather than by walking. The whole reference is attached here
+        # because only this side ever had it.
         try:
-            node: ContextNode = self._root(segments[0])
-            for segment in segments[1:]:
-                if not isinstance(node, Role):
-                    raise NodeNotFoundError(
-                        reason=LookupFailure.NOT_A_CONTAINER,
-                        segment=segment,
-                        scope=node.name,
-                        kind=node.kind,
-                    )
-                node = node.member(segment)
+            return self.registry.find(segments)
         except NodeNotFoundError as failure:
             raise failure.within(ref) from None
-        return node
 
     def tool(self, ref: str) -> Tool:
         """Resolve a reference that must name a tool."""
@@ -419,6 +418,32 @@ class ContextTree:
                 if root != home:
                     yield ref, target, root
 
+    def _reject_ambiguous_names(self) -> None:
+        """Refuse a name that would produce a reference nobody can resolve.
+
+        A reference is a path and a node's name is one segment of it, so a name
+        containing the separator silently splits into two. The card is still
+        built — `_card` takes the ref it is given — and the ref on it addresses
+        nothing. That is the exact failure `_card`'s signature exists to
+        prevent, arriving from the other side: not a card without a ref, but a
+        ref without a node.
+
+        Checked here rather than in the model because the separator is this
+        module's decision. A node has no way to know what character will be
+        used to join it to its neighbours; the tree that does the joining does.
+
+        It rides the registry's walk rather than doing its own. Registration
+        has already refused a cycle, which is what makes any walk here safe.
+        """
+
+        for _, node in self.registry.walk():
+            if SEPARATOR in node.name:
+                raise ModelValidationError(
+                    f"{node.kind} name {node.name!r} contains {SEPARATOR!r}, "
+                    "which separates one segment of a reference from the next. "
+                    "A card for it would carry a ref that resolves to nothing."
+                )
+
     def _root(self, name: str) -> Role:
         for root in self.roots:
             if root.name == name:
@@ -439,54 +464,6 @@ def _card(node: ContextNode, ref: str) -> CompiledContext:
     """
 
     return {**node.compile(CompileLevel.ROUTE), "ref": ref}
-
-
-def _reject_ambiguous_names(root: Role) -> None:
-    """Refuse a name that would produce a reference nobody can resolve.
-
-    A reference is a path and a node's name is one segment of it, so a name
-    containing the separator silently splits into two. The card is still built
-    — `_card` takes the ref it is given — and the ref on it addresses nothing.
-    That is the exact failure `_card`'s signature exists to prevent, arriving
-    from the other side: not a card without a ref, but a ref without a node.
-
-    Checked here rather than in `core` because the separator is this module's
-    decision. A node has no way to know what character will be used to join it
-    to its neighbours; the tree that does the joining does.
-
-    Runs after `_reject_cycles`, which is what makes walking the forest safe.
-    """
-
-    stack = [root]
-    while stack:
-        role = stack.pop()
-        for node in (role, *role.members()):
-            if SEPARATOR in node.name:
-                raise ModelValidationError(
-                    f"{node.kind} name {node.name!r} contains {SEPARATOR!r}, "
-                    "which separates one segment of a reference from the next. "
-                    "A card for it would carry a ref that resolves to nothing."
-                )
-        stack.extend(role.children)
-
-
-def _reject_cycles(root: Role) -> None:
-    """Refuse a role that contains itself, however indirectly.
-
-    A cycle is only visible once the whole forest is in hand, which is here and
-    not in `core`: a role on its own cannot tell whether something below it
-    points back.
-    """
-
-    def walk(role: Role, stack: tuple[int, ...], path: tuple[str, ...]) -> None:
-        if id(role) in stack:
-            raise ModelValidationError(
-                f"Role composition contains a cycle at path {SEPARATOR.join(path)}."
-            )
-        for child in role.children:
-            walk(child, stack + (id(role),), path + (child.name,))
-
-    walk(root, (), (root.name,))
 
 
 __all__ = ["ContextTree", "SEPARATOR"]

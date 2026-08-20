@@ -229,7 +229,12 @@ class ChannelTests(unittest.TestCase):
             self.assertIs(node.channels, channels)
 
     def test_no_handle_is_an_ordinary_answer(self) -> None:
+        # Members are materialised once per class body, so a handle stamped by
+        # any manager in this process is still on them. Clearing it is what
+        # isolates this case, and it is a real property rather than a test
+        # nuisance: two managers over one declaration share its nodes.
         manager = platform_manager()
+        manager.rebind_channels(None)
         for _, node in manager.walk():
             self.assertIsNone(node.channels)
 

@@ -134,7 +134,12 @@ class ControllerManager:
             )
 
         node.path = path
-        node.channels = self.channels
+        if self.channels is not None:
+            # A manager with no handle provides nothing, so it leaves whatever
+            # is already there alone. Two managers over one graph is the
+            # ordinary case while the server still builds its own — and the one
+            # that was given channels must win over the one that was not.
+            node.channels = self.channels
         self._address_of[id(node)] = path
         self._by_path[path] = node
         self._parent_of[id(node)] = parent
@@ -181,25 +186,34 @@ class ControllerManager:
         if found is not None:
             return found
 
+        # A miss costs one more pass, and it buys the facts the failure has to
+        # carry: which segment failed, what was holding it, and what that thing
+        # does hold. An agent reads this and tries something else, so an
+        # accurate list is the difference between a retry and a guess.
         if segments[:1] not in self._by_path:
             raise NodeNotFoundError(
-                reason=LookupFailure.NO_SUCH_ROOT, segment=segments[0]
+                reason=LookupFailure.NO_SUCH_ROOT,
+                segment=segments[0],
+                scope=segments[0],
+                known=sorted(root.name for root in self._roots),
             )
         for depth in range(2, len(segments) + 1):
-            prefix = segments[:depth]
-            if prefix in self._by_path:
+            if segments[:depth] in self._by_path:
                 continue
             held = self._by_path[segments[: depth - 1]]
-            reason = (
-                LookupFailure.NO_SUCH_MEMBER
-                if isinstance(held, Role)
-                else LookupFailure.NOT_A_CONTAINER
-            )
+            if not isinstance(held, Role):
+                raise NodeNotFoundError(
+                    reason=LookupFailure.NOT_A_CONTAINER,
+                    segment=segments[depth - 1],
+                    scope=held.name,
+                    kind=held.kind,
+                )
             raise NodeNotFoundError(
-                reason=reason,
+                reason=LookupFailure.NO_SUCH_MEMBER,
                 segment=segments[depth - 1],
                 scope=held.name,
                 kind=held.kind,
+                known=sorted(member.name for member in held.members()),
             )
         raise NodeNotFoundError(  # pragma: no cover - the loop above is total
             reason=LookupFailure.NO_SUCH_MEMBER, segment=segments[-1]
