@@ -18,8 +18,9 @@ from contexture.core.resources import Resource
 from contexture.core.role import Role
 from contexture.core.skill import Skill
 from contexture.core.tools import Tool
-from mcp.server.mcpserver import Context
+from mcp.server.mcpserver import Context, MCPServer
 from contexture.server import instructions
+from contexture.server.projection import Dispatch, project
 from contexture.tree import SEPARATOR, ContextTree
 from contexture.server import (
     DISCOVER_TOOL,
@@ -774,3 +775,167 @@ class RosterTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class _GenerateCover(Tool):
+    """Generate a cover image for a letter."""
+
+    name = "generate_cover"
+
+    async def invoke(self, topic: str) -> str:
+        return f"cover-{topic}.png"
+
+
+class CommandPlaneTests(unittest.IsolatedAsyncioTestCase):
+    """The person's half of the surface.
+
+    MCP splits its primitives by who decides, and until this existed Contexture
+    occupied only the model's side of that split. Nothing about progressive
+    disclosure changes here — what grows is the set of who may trigger it.
+    """
+
+    @staticmethod
+    def _tree(**marks: tuple[str, ...]) -> ContextTree:
+        ship = Skill(
+            name="compose-and-ship",
+            description="Assemble the weekly letter and send it.",
+            instructions="1. Generate the cover.\n2. Ship it.",
+            uses=("oc/assets/generate_cover",),
+            opened_by=marks.get("skill", ("person",)),
+        )
+        assets = Role(
+            name="assets",
+            description="Owns produced media.",
+            instructions="Generate media on request.",
+            tools=[_GenerateCover()],
+        )
+        publishing = Role(
+            name="publishing",
+            description="Owns what goes out.",
+            instructions="Compose, then ship.",
+            skills=[ship],
+        )
+        return ContextTree.of(
+            Role(
+                name="oc",
+                description="One-creator.",
+                instructions="Route to the branch that owns the outcome.",
+                children=[assets, publishing],
+            ),
+            schema_of=Dispatch().schema,
+        )
+
+    def _server(self, tree: ContextTree) -> MCPServer:
+        server = MCPServer(name="oc", version="0", instructions="x")
+        project(server, tree=tree, dispatch=Dispatch())
+        return server
+
+    async def test_only_a_marked_node_reaches_the_prompt_plane(self) -> None:
+        """The command surface is authored, not derived from the forest."""
+
+        prompts = await self._server(self._tree()).list_prompts()
+
+        self.assertEqual([prompt.name for prompt in prompts], ["compose-and-ship"])
+
+    async def test_an_unmarked_forest_offers_no_commands(self) -> None:
+        """The default is the model's plane alone, and it stays that way."""
+
+        prompts = await self._server(self._tree(skill=("model",))).list_prompts()
+
+        self.assertEqual(prompts, [])
+
+    async def test_a_command_answers_with_what_open_would_have_said(self) -> None:
+        """Two doors, one answer.
+
+        `open` already refuses to describe a capability two ways. A command is
+        a second door onto the same node, so it differs in who may knock and
+        in nothing else.
+        """
+
+        tree = self._tree()
+        result = await self._server(tree).get_prompt("compose-and-ship", {})
+        (message,) = result.messages
+        text = message.content.text
+
+        payload = tree.open("oc/publishing/compose-and-ship")
+        self.assertIn(json.dumps(payload, ensure_ascii=False, indent=2), text)
+
+    async def test_a_command_arrives_as_something_the_person_said(self) -> None:
+        """The protocol's word for this plane is user-controlled.
+
+        Dressing the server's answer as an assistant turn would claim the model
+        said something it did not.
+        """
+
+        result = await self._server(self._tree()).get_prompt("compose-and-ship", {})
+
+        self.assertEqual([message.role for message in result.messages], ["user"])
+
+    async def test_a_direct_hit_carries_signposts_and_calls_them_undisclosed(
+        self,
+    ) -> None:
+        """ADR 004's rule, kept at an entrance that has no way down.
+
+        Arriving directly skips the calls that would have shown what sat beside
+        the node on the way. The signpost reports that siblings exist and how
+        many, and never their names.
+        """
+
+        result = await self._server(self._tree()).get_prompt("compose-and-ship", {})
+        text = result.messages[0].content.text
+
+        self.assertIn("oc: 2 sub-role(s) here", text)
+        self.assertIn("not disclosed", text)
+        # The sibling branch is counted, never named.
+        self.assertNotIn("oc/assets:", text)
+
+    async def test_a_referenced_capability_arrives_callable(self) -> None:
+        """The command is one round trip, not one plus a schema fetch."""
+
+        result = await self._server(self._tree()).get_prompt("compose-and-ship", {})
+
+        self.assertIn("oc/assets/generate_cover", result.messages[0].content.text)
+        self.assertIn("input_schema", result.messages[0].content.text)
+
+    async def test_the_model_is_refused_the_door_reserved_for_a_person(self) -> None:
+        """Refused where the door is known, exactly as a wrong-door invoke is.
+
+        The tree serves both doors; only this layer knows which one a call
+        arrived through.
+        """
+
+        server = self._server(self._tree())
+
+        with self.assertRaises(ToolError) as caught:
+            await server.call_tool(
+                OPEN_TOOL, {"ref": "oc/publishing/compose-and-ship"}
+            )
+
+        message = str(caught.exception)
+        self.assertIn("opened by a person", message)
+        self.assertIn("tell the user which command", message)
+
+    async def test_the_refused_node_keeps_its_card(self) -> None:
+        """A guardrail that lets the model point beats one that only hides.
+
+        The model may not enter, but it can see that the capability exists and
+        say which command reaches it — which it cannot do if the card is gone.
+        """
+
+        opened = self._tree().open("oc/publishing")
+
+        (card,) = opened["skills"]
+        self.assertEqual(card["name"], "compose-and-ship")
+        self.assertEqual(card["opened_by"], ["person"])
+
+    async def test_a_node_on_both_planes_is_open_to_both(self) -> None:
+        tree = self._tree(skill=("model", "person"))
+        server = self._server(tree)
+
+        prompts = await server.list_prompts()
+        opened = await server.call_tool(
+            OPEN_TOOL, {"ref": "oc/publishing/compose-and-ship"}
+        )
+
+        self.assertEqual([prompt.name for prompt in prompts], ["compose-and-ship"])
+        self.assertIsNotNone(opened)

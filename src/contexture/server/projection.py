@@ -29,18 +29,21 @@ classification be an argument, relocated to where the host can still act on it.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.mcpserver.prompts import Prompt as SDKPrompt
 from mcp.server.mcpserver.tools import Tool as SDKTool
 from mcp_types import ToolAnnotations
 
 from ..core.errors import ContextureError, NodeNotFoundError
+from ..core.context import Opener
 from ..core.tools import Tool
 from ..core.types import CompiledContext, JsonObject
-from ..tree import ContextTree
+from ..tree import SEPARATOR, ContextTree
 from . import contract
 from .contract import (
     DISCOVER_TOOL,
@@ -129,6 +132,12 @@ def project(
 
     async def contexture_open(ref: str) -> CompiledContext:
         with _translated(OPEN_TOOL):
+            node = tree.find(ref)
+            if Opener.MODEL not in node.opened_by:
+                # Refused here rather than in the tree, because the tree serves
+                # both doors and only this layer knows which one a call came
+                # through. The same division `wrong_door` rests on.
+                raise ToolError(contract.command_taken_by_a_person(ref))
             return tree.open(ref)
 
     async def contexture_read(ref: str) -> str | bytes:
@@ -168,6 +177,57 @@ def project(
             description=entry.description,
             annotations=ToolAnnotations(read_only_hint=entry.read_only),
         )
+
+    _project_commands(server, tree=tree)
+
+
+def _project_commands(server: MCPServer, *, tree: ContextTree) -> None:
+    """Put every person-opened node on the prompt plane.
+
+    One prompt per marked node and no more: the count is what somebody wrote
+    down, never what the forest holds, which is what keeps the menu a menu and
+    keeps the surface legal — a server may not vary its prompt list once it is
+    serving.
+
+    Each prompt takes no arguments. The node it opens is fixed at registration,
+    so there is nothing for a person to fill in and nothing to complete; the
+    command *is* the argument.
+    """
+
+    for ref, node in tree.commands():
+        server.add_prompt(
+            SDKPrompt.from_function(
+                _command(tree, ref),
+                name=ref.rsplit(SEPARATOR, 1)[-1],
+                description=contract.command_description(ref, node.description),
+            )
+        )
+
+
+def _command(tree: ContextTree, ref: str) -> Callable[[], Awaitable[str]]:
+    """Build the one prompt that opens `ref`.
+
+    The text is assembled per call rather than at registration, so a command
+    and `contexture_open` cannot answer differently about the same node — a
+    snapshot taken at startup is a second copy waiting to disagree.
+
+    The message is **the payload `contexture_open` would have returned**, plus
+    signposts. Reaching a capability two ways and being told two different
+    things about how to call it is worse than either answer alone, so the two
+    doors differ in who may knock and in nothing else.
+    """
+
+    async def command() -> str:
+        payload = tree.open(ref)
+        sections = [
+            contract.COMMAND_PREAMBLE.format(ref=ref),
+            contract.signpost(tree.signpost(ref)),
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            contract.COMMAND_CLOSING,
+        ]
+        return "\n\n".join(section for section in sections if section)
+
+    return command
 
 
 #: JSON Schema keywords whose value is one schema.

@@ -192,6 +192,74 @@ def unresolved(failure: NodeNotFoundError) -> str:
     return f"{ref!r} could not be resolved."
 
 
+#: How a command's text opens. The node's own payload follows it.
+COMMAND_PREAMBLE = "You are at {ref}, opened by name at a person's request."
+
+#: Introduces the path above a directly-opened node.
+SIGNPOST_PREAMBLE = (
+    "Signposts for the path above it. These are **not disclosed**: you may "
+    f"open one with {OPEN_TOOL}, and until you do you know only that it "
+    "exists. Do not assert anything about what any of them holds."
+)
+
+#: Closes a command's text, pointing back at the ordinary surface.
+COMMAND_CLOSING = (
+    f"Continue with {OPEN_TOOL}, {READ_TOOL}, {INVOKE_READ_ONLY_TOOL} or "
+    f"{INVOKE_TOOL}, using refs taken from what is above. Nothing listed here "
+    "was reached by navigating, so nothing beside it has been shown to you."
+)
+
+
+def signpost(levels: tuple[tuple[str, int], ...]) -> str:
+    """Render the path above a node as one line per level.
+
+    Reports that siblings exist and how many, never their names. Same shape as
+    the roster's truncation line: name the call that restores what was left
+    out rather than spending the budget on it.
+    """
+
+    if not levels:
+        return ""
+    lines = [
+        f"- {ref}: {count} sub-role(s) here; {OPEN_TOOL} to see them."
+        if count
+        else f"- {ref}: no sub-roles; {OPEN_TOOL} to see what it holds."
+        for ref, count in levels
+    ]
+    return "\n".join([SIGNPOST_PREAMBLE, *lines])
+
+
+def command_description(ref: str, description: str) -> str:
+    """What a person reads in the command menu before choosing.
+
+    The node's own routing sentence, which is the sentence written for exactly
+    this decision, plus where it lives. The ref is worth the characters: two
+    branches can hold capabilities that read alike, and the menu is the only
+    place a person sees them side by side.
+    """
+
+    return f"{description} ({ref})"
+
+
+def command_taken_by_a_person(ref: str) -> str:
+    """Refuse a model the door that was reserved for a person.
+
+    Named after `wrong_door`, and for the same reason: the reply names what
+    does work. Here that is a command rather than another tool, so the agent's
+    correct next move is to say so rather than to try again.
+
+    The node keeps its card, so this is reached by a model that has seen the
+    capability and chosen it. Refusing without naming the command would leave
+    it to guess whether the thing is broken, forbidden, or merely elsewhere.
+    """
+
+    return (
+        f"{ref} is opened by a person, not by an agent. It is reachable only "
+        "as a command in this host's menu. Do not reproduce its steps another "
+        "way; tell the user which command runs it and let them decide when."
+    )
+
+
 def wrong_door(ref: str, *, is_read_only: bool) -> str:
     """Render a call that came through the entry point it does not belong to.
 
@@ -206,6 +274,8 @@ def wrong_door(ref: str, *, is_read_only: bool) -> str:
 
 
 __all__ = [
+    "COMMAND_CLOSING",
+    "COMMAND_PREAMBLE",
     "DISCOVER_TOOL",
     "GATEWAY",
     "GATEWAY_TOOLS",
@@ -213,6 +283,10 @@ __all__ = [
     "INVOKE_READ_ONLY_TOOL",
     "INVOKE_TOOL",
     "OPEN_TOOL",
+    "SIGNPOST_PREAMBLE",
+    "command_description",
+    "command_taken_by_a_person",
+    "signpost",
     "PREAMBLE",
     "READ_TOOL",
     "REF_RULE",

@@ -7,7 +7,7 @@ tree, the server, the target adapters — depends on this package, and this
 package depends on none of them.
 """
 
-from .context import CompileLevel, ContextNode
+from .context import CompileLevel, ContextNode, Opener
 from .errors import (
     ContextureError,
     DeclarationError,
@@ -28,6 +28,7 @@ __all__ = [
     "DuplicateNameError",
     "ModelValidationError",
     "NodeNotFoundError",
+    "Opener",
     "Resource",
     "Role",
     "Skill",

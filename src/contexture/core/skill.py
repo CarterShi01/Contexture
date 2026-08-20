@@ -139,6 +139,7 @@ def _declarative_init(self: Skill, **overrides: Any) -> None:
             "description": declaration.description,
             "instructions": declaration.instructions,
             "uses": declarative.string_sequence(type(self), "uses") or (),
+            **declaration.stated(),
             **overrides,
         },
     )

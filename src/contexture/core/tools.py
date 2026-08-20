@@ -128,6 +128,7 @@ def _declarative_tool_init(self: Tool, **overrides: Any) -> None:
         **{
             "name": declaration.name,
             "description": declaration.description,
+            **declaration.stated(),
             **overrides,
         },
     )

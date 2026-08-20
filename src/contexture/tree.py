@@ -37,7 +37,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Iterable, Iterator
 
-from .core.context import CompileLevel, ContextNode
+from .core.context import CompileLevel, ContextNode, Opener
 from .core.errors import LookupFailure, ModelValidationError, NodeNotFoundError
 from .core.resources import Resource
 from .core.role import Role
@@ -108,6 +108,7 @@ class ContextTree:
         # is known to be walkable. The two checks above are what make that
         # walk safe.
         self._reject_unresolvable_uses()
+        self._reject_ambiguous_commands()
 
     # ---- 1. the skeleton -------------------------------------------------
 
@@ -179,6 +180,50 @@ class ContextTree:
 
         for root in self.roots:
             yield from walk(root, root.name)
+
+    def commands(self) -> Iterator[tuple[str, ContextNode]]:
+        """Yield every node a person may open, with its reference.
+
+        The command surface, and its size is **authored rather than derived**:
+        it counts what somebody marked, not what the forest holds. That is the
+        property the protocol needs — a server may not vary its prompt list
+        once it is serving — and the one a person needs, since a menu that grew
+        with the tree would stop being a menu.
+        """
+
+        for ref, node in self.nodes_with_refs():
+            if Opener.PERSON in node.opened_by:
+                yield ref, node
+
+    def signpost(self, ref: str) -> tuple[tuple[str, int], ...]:
+        """Name the path above a node, with how many sub-roles each level holds.
+
+        `(ancestor_ref, sub_role_count)` per level, nearest root first.
+
+        Reaching a node directly skips the calls that would have shown what sat
+        beside it on the way down, and ADR 004's rule is that a choice made
+        among a subset of the alternatives is a guess rather than a choice.
+        This is what keeps that rule true at an entrance that has no way down:
+        it reports **that** there are siblings and how many, and never their
+        names — the same shape as the roster's truncation line, which names the
+        call that restores what was cut instead of spending the budget on it.
+
+        Costed before it was written. Replaying `open` at each level runs to
+        +206% of the payload it decorates on the demo and +724% on a synthetic
+        forest, which re-buys every level the direct hit just saved. This runs
+        to +13%, and grows with **depth** rather than breadth: eight siblings
+        and three siblings render the same line.
+        """
+
+        segments = [segment for segment in ref.split(SEPARATOR) if segment]
+        levels: list[tuple[str, int]] = []
+        for depth in range(1, len(segments)):
+            ancestor = SEPARATOR.join(segments[:depth])
+            node = self.find(ancestor)
+            levels.append(
+                (ancestor, len(node.children) if isinstance(node, Role) else 0)
+            )
+        return tuple(levels)
 
     # ---- 2. resolution ---------------------------------------------------
 
@@ -361,6 +406,31 @@ class ContextTree:
                         "must choose a role at run time should read a resource "
                         "that lists them."
                     )
+
+    def _reject_ambiguous_commands(self) -> None:
+        """Refuse two commands a person would type the same way.
+
+        A node's name only has to be unique among its siblings, because a ref
+        supplies the rest of the address. A command has no such context: it is
+        a flat name in a menu, so two `deploy` nodes in two branches produce
+        one name a person cannot aim.
+
+        Refused rather than disambiguated. Generating `deploy-2`, or spelling
+        the whole ref into the menu, both answer "which one did you mean" with
+        something nobody would have chosen — and the declaration is right there
+        to be edited.
+        """
+
+        claimed: dict[str, str] = {}
+        for ref, _ in self.commands():
+            name = ref.rsplit(SEPARATOR, 1)[-1]
+            if name in claimed:
+                raise ModelValidationError(
+                    f"{claimed[name]!r} and {ref!r} are both opened by a "
+                    f"person and would both be the command {name!r}. A ref "
+                    "tells them apart and a command name cannot; rename one."
+                )
+            claimed[name] = ref
 
     def crossings(self) -> Iterator[tuple[str, str, str]]:
         """Yield every reference that leaves the root branch it was made from.

@@ -108,6 +108,7 @@ def _declarative_resource_init(self: Resource, **overrides: Any) -> None:
             "description": declaration.description,
             "uri": uri,
             "mime_type": declarative.scalar(type(self), "mime_type"),
+            **declaration.stated(),
             **overrides,
         },
     )

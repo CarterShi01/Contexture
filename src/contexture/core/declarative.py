@@ -80,6 +80,22 @@ class Declaration:
     instructions: str | None
     members: tuple[DeclaredMember, ...]
 
+    #: What the class body said about `opened_by`, or `()` when it said
+    #: nothing. Parsed once here rather than in each of the four
+    #: `_declarative_init` functions, so there is one reading of the field and
+    #: not four that can drift.
+    opened_by: tuple[str, ...] = ()
+
+    def stated(self) -> dict[str, Any]:
+        """Keyword arguments for base fields this class body actually stated.
+
+        A field left unstated must not be passed at all: the dataclass default
+        is the single definition of what unstated means, and passing a second
+        copy of it here would be a place for the two to disagree.
+        """
+
+        return {"opened_by": self.opened_by} if self.opened_by else {}
+
     def of_type(self, *types: type[_T]) -> tuple[_T, ...]:
         """Return declared member values matching any of `types`, in order."""
 
@@ -168,6 +184,7 @@ def collect(
         description=description,
         instructions=instructions,
         members=tuple(members.values()),
+        opened_by=string_sequence(cls, "opened_by") or (),
     )
 
 

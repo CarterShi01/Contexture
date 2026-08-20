@@ -263,6 +263,7 @@ def _declarative_init(self: Role, **overrides: Any) -> None:
             "skills": list(declaration.of_type(Skill)),
             "tools": list(declaration.of_type(Tool)),
             "resources": list(declaration.of_type(Resource)),
+            **declaration.stated(),
             **overrides,
         },
     )
