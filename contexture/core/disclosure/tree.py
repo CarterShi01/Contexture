@@ -444,16 +444,6 @@ class ContextTree:
                     "A card for it would carry a ref that resolves to nothing."
                 )
 
-    def _root(self, name: str) -> Role:
-        for root in self.roots:
-            if root.name == name:
-                return root
-        raise NodeNotFoundError(
-            reason=LookupFailure.NO_SUCH_ROOT,
-            scope=name,
-            known=sorted(root.name for root in self.roots),
-        )
-
 
 def _card(node: ContextNode, ref: str) -> CompiledContext:
     """Render one routing card.

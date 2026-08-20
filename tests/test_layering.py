@@ -97,7 +97,13 @@ ALLOWED: dict[str, set[str]] = {
 
 #: Layers permitted to import the official MCP SDK. The object model is not one
 #: of them: `core` must stay describable without a wire protocol in the room.
-SDK_LAYERS = frozenset({"server", "demo"})
+#:
+#: `demo` is not one either, and that is the sharper claim: the bundled
+#: reference application is what a business project is copied from, so a
+#: permission it never uses is a permission somebody eventually copies. It
+#: declares roles and builds an app through the public facade, which is the
+#: whole of what a project should need.
+SDK_LAYERS = frozenset({"server"})
 
 #: The SDK is two distributions, not one, and a rule that names only the first
 #: leaves the second as an unguarded way in. Both are checked everywhere the
