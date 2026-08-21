@@ -62,12 +62,12 @@ class ContextTree:
 
     Built from the declared roots::
 
-        tree = ContextTree.of(KubernetesPlatform(), schema_of=...)
+        tree = ContextTree.of(KubernetesPlatform(), bind=...)
 
     or, where the application had channels to hand out before anything was
     served, from the manager that already holds them::
 
-        tree = manager.sealed(schema_of=...)
+        tree = manager.sealed(bind=...)
 
     `bind` is how a tool's schema and the way to run it arrive without this
     module knowing what JSON Schema is. The server layer passes one backed by

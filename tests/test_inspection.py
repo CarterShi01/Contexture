@@ -135,9 +135,9 @@ class HonestyTests(unittest.TestCase):
     def test_a_tool_card_is_inspected_with_the_schema_it_is_served_with(
         self,
     ) -> None:
-        """The schema comes from the app's Dispatch, not from an empty stand-in.
+        """The schema comes from the tool's real binding, not an empty stand-in.
 
-        A tree built without a schema source reports `{}` for every tool, which
+        A tree built without one reports `{}` for every tool, which
         would make this command quietly useless for the one payload a model has
         to get exactly right.
         """
