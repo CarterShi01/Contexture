@@ -15,25 +15,29 @@ commands, and one that writes its own follows the same five steps by hand.
 from __future__ import annotations
 
 import argparse
+import asyncio
+import json
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterable
 
-from ..core.errors import ContextureError
+from ..core.constants import PACKAGE_VERSION
+from ..core.errors import ContextureError, LookupFailure, NodeNotFoundError
 from .project import (
-    DEMO_PUBLISH,
-    DEMO_TARGET,
+    DEMO_APP,
     Serving,
     _targets_and_project,
+    load_application,
     load_channels,
     load_roots,
     load_published,
     resolve_target,
 )
 from .scaffold import available_templates, new_project
+from .usage import UsageError
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from ..core.model.disclosure import Disclosure
+    from ..server import CompiledApplication
     from ..server import ContextureOptions, ContextureServer
 
 def command_new(args: argparse.Namespace) -> int:
@@ -44,21 +48,19 @@ def command_new(args: argparse.Namespace) -> int:
     print("Next:")
     print(f"  cd {relative}")
     print("  uv sync")
+    print("  uv run contexture check     # build and validate")
     print("  uv run contexture list      # what it would serve")
     print("  uv run contexture serve     # serve it over stdio")
     return 0
 
 
 def command_list(args: argparse.Namespace) -> int:
-    from ..core.model.disclosure import Disclosure
-
     serving = _targets_and_project(args.target)
-    targets, project = serving.roots, serving.project
-    tree = Disclosure.of(load_roots(targets, project=project))
+    index = _compiled(serving).index
 
     # Printed with the reference an agent would actually be handed, so what a
     # developer reads here is what the model reads there.
-    for ref, role in tree.index.roles_with_refs():
+    for ref, role in index.roles_with_refs():
         indent = "  " * ref.count("/")
         print(f"{indent}{role.name}  — {role.description}")
         for skill in role.skills:
@@ -69,7 +71,82 @@ def command_list(args: argparse.Namespace) -> int:
     return 0
 
 
-def _compiled(serving: Serving) -> "Disclosure":
+def command_check(args: argparse.Namespace) -> int:
+    """Compile the project without opening Channels or starting a server."""
+
+    compiled = _compiled(_targets_and_project(args.target))
+    counts = {
+        kind: len(compiled.index.of_kind(kind))
+        for kind in ("role", "skill", "tool")
+    }
+    print(
+        f"OK {compiled.name}: {counts['role']} role(s), {counts['skill']} skill(s), "
+        f"{counts['tool']} tool(s)"
+    )
+    return 0
+
+
+def command_call(args: argparse.Namespace) -> int:
+    """Run one business Tool locally through its production binding."""
+
+    from ..core.model.system_api import SystemAPI
+
+    compiled = _compiled(_targets_and_project(args.target))
+    arguments = _input_arguments(args)
+    try:
+        tool = compiled.index.tool(args.ref)
+    except NodeNotFoundError as exc:
+        if exc.reason is LookupFailure.WRONG_KIND:
+            raise UsageError(
+                f"{args.ref} is a {exc.kind}, not a Tool. Inspect it with "
+                f"`contexture inspect {args.ref}`."
+            ) from exc
+        raise UsageError(
+            f"Cannot find Tool {args.ref!r}. Run `contexture list`, or inspect "
+            "a Role to see its available Tool refs."
+        ) from exc
+    if not tool.read_only and not args.allow_write:
+        raise UsageError(
+            f"{args.ref} is not read-only. Re-run with `--allow-write` only "
+            "when you intend this local call to change external state."
+        )
+
+    async def invoke() -> object:
+        async with compiled.index.provisioned():
+            api = SystemAPI(compiled.disclosure)
+            if tool.read_only:
+                return await api.invoke_read_only(args.ref, arguments)
+            return await api.invoke(args.ref, arguments)
+
+    result = asyncio.run(invoke())
+    if isinstance(result, str):
+        print(result)
+    else:
+        print(json.dumps(result, ensure_ascii=False, default=str))
+    return 0
+
+
+def _input_arguments(args: argparse.Namespace) -> dict[str, object]:
+    if args.input is not None and args.input_file is not None:
+        raise UsageError("Pass either `--input` or `--input-file`, not both.")
+    raw = args.input
+    if args.input_file is not None:
+        try:
+            raw = args.input_file.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise UsageError(f"Cannot read {args.input_file}: {exc}") from exc
+    if raw is None:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise UsageError(f"Tool input must be a JSON object: {exc.msg}.") from exc
+    if not isinstance(parsed, dict):
+        raise UsageError("Tool input must be a JSON object.")
+    return parsed
+
+
+def _compiled(serving: Serving) -> "CompiledApplication":
     """Register, compile, and hand back the view — `main()`'s middle steps.
 
     The same objects a project writes by hand, in the same order. What differs
@@ -86,22 +163,27 @@ def _compiled(serving: Serving) -> "Disclosure":
     environment that has no SDK, and only the commands calling this need one.
     """
 
-    from ..core.model.disclosure import Disclosure
-    from ..core.model.index import Index
-    from ..core.model.manager import ControllerManager, register_root
-    from ..server import TypeHintBinding
+    from ..core.mcp_interface import Prompt, Resource, published
+    from ..server import compile_application, compile_parts
+
+    if serving.app is not None:
+        return compile_application(load_application(serving.app, project=serving.project))
 
     project = serving.project
     # `load_roots` is what puts the project on `sys.path`, so it runs before
     # anything else the project declared is resolved.
     roots = load_roots(serving.roots, project=project)
-    manager = ControllerManager(
-        channels=load_channels(serving.channels, project=project)
+    entries = [
+        published(entry)
+        for entry in load_published(serving.publish, project=project)
+    ]
+    return compile_parts(
+        name=serving.name or "contexture",
+        roots=roots,
+        channels=load_channels(serving.channels, project=project),
+        prompts=(entry for entry in entries if isinstance(entry, Prompt)),
+        resources=(entry for entry in entries if isinstance(entry, Resource)),
     )
-    for root in roots:
-        register_root(manager, root)
-
-    return Disclosure(Index.of(manager, bind=TypeHintBinding))
 
 
 def command_inspect(args: argparse.Namespace) -> int:
@@ -127,7 +209,7 @@ def command_inspect(args: argparse.Namespace) -> int:
             "project, or name one with --target, to read your own.",
             file=sys.stderr,
         )
-    view = _compiled(serving)
+    view = _compiled(serving).disclosure
 
     instructions = instructions_module.build(
         view,
@@ -190,9 +272,7 @@ def command_demo(args: argparse.Namespace) -> int:
     nothing above it.
     """
 
-    serving = Serving(
-        roots=(DEMO_TARGET,), name="contexture-demo", publish=DEMO_PUBLISH
-    )
+    serving = Serving(roots=(), app=DEMO_APP)
     _server(serving).start(serve_options(args))
     return 0
 
@@ -213,19 +293,7 @@ def _server(serving: Serving) -> "ContextureServer":
     plane directly with `prompts=` and `resources=`.
     """
 
-    from ..core.mcp_interface import published as _published
-    from ..core.mcp_interface.prompt import Prompt
-    from ..core.mcp_interface.resource import Resource
-    from ..server import ContextureServer
-
-    view = _compiled(serving)
-    entries = [_published(entry) for entry in load_published(serving.publish, project=serving.project)]
-    return ContextureServer(
-        view.index,
-        name=serving.name or "contexture",
-        prompts=[entry for entry in entries if isinstance(entry, Prompt)],
-        resources=[entry for entry in entries if isinstance(entry, Resource)],
-    )
+    return _compiled(serving).server()
 
 
 def _display_path(path: Path) -> str:
@@ -296,6 +364,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="contexture",
         description="Declare roles, skills and tools; serve them over MCP.",
     )
+    parser.add_argument("--version", action="version", version=PACKAGE_VERSION)
     subcommands = parser.add_subparsers(dest="command", required=True)
 
     new = subcommands.add_parser(
@@ -321,6 +390,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     listing.add_argument("target", nargs="?", help="package.module:RoleClass")
     listing.set_defaults(func=command_list)
+
+    check = subcommands.add_parser(
+        "check", help="build and validate the application without opening connections"
+    )
+    check.add_argument("target", nargs="?", help="legacy package.module:RoleClass")
+    check.set_defaults(func=command_check)
+
+    call = subcommands.add_parser(
+        "call", help="run one Tool locally through the production binding"
+    )
+    call.add_argument("ref", help="Tool ref, e.g. hello/say_hello")
+    call.add_argument("--input", default=None, help="Tool arguments as a JSON object")
+    call.add_argument(
+        "--input-file", type=Path, default=None, metavar="FILE", help="read Tool arguments from JSON FILE"
+    )
+    call.add_argument(
+        "--allow-write", action="store_true", help="allow a non-read-only Tool to run"
+    )
+    call.add_argument("--target", default=None, help="legacy package.module:RoleClass")
+    call.set_defaults(func=command_call)
 
     inspect = subcommands.add_parser(
         "inspect",
@@ -396,10 +485,13 @@ def main(argv: Iterable[str] | None = None) -> int:
     args = parser.parse_args(list(argv) if argv is not None else None)
     try:
         return int(args.func(args))
-    except ContextureError as exc:
+    except UsageError as exc:
         # stderr, always: under stdio the protocol owns stdout exclusively.
         print(f"contexture: {exc}", file=sys.stderr)
         return 2
+    except ContextureError as exc:
+        print(f"contexture: {exc}", file=sys.stderr)
+        return 1
 
 
 __all__ = ["build_parser", "main"]

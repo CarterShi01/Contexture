@@ -1,5 +1,8 @@
-"""One role and everything it owns."""
+"""The Contexture application this project exports."""
 
+from contexture import Contexture
 from .role import $role_class
 
-__all__ = ["$role_class"]
+app = Contexture(name="$project_name", roots=($role_class,))
+
+__all__ = ["app", "$role_class"]

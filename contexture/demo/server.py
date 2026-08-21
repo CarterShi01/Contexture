@@ -15,13 +15,12 @@ this demo has nothing to put in.
 
 from __future__ import annotations
 
-from contexture import ControllerManager, Prompt, Resource
+from contexture import Contexture, Prompt, Resource
 from contexture.server import (
-    TOOLS,
     ContextureOptions,
     ContextureServer,
-    Index,
-    TypeHintBinding,
+    build_server,
+    serve,
 )
 from .role import KubernetesPlatform
 
@@ -88,6 +87,16 @@ COMMANDS = (RollBackARelease,)
 DOCUMENTS = (CrashLoopRunbookDocument, RollbackPolicyDocument)
 
 
+# The same declaration a generated project exports. Importing it builds no
+# role tree and opens no connection; `build()` and `main()` consume it later.
+app = Contexture(
+    name="contexture-demo",
+    roots=(KubernetesPlatform,),
+    prompts=COMMANDS,
+    resources=DOCUMENTS,
+)
+
+
 def build() -> ContextureServer:
     """Everything between a declaration and a server, in four named steps.
 
@@ -96,24 +105,13 @@ def build() -> ContextureServer:
     order a real `main` follows: register, compile, open the doors, serve.
     """
 
-    manager = ControllerManager()
-    manager.register_role(KubernetesPlatform)
-
-    index = Index.of(manager, bind=TypeHintBinding)
-
-    return ContextureServer(
-        index,
-        name="contexture-demo",
-        tools=TOOLS,
-        prompts=COMMANDS,
-        resources=DOCUMENTS,
-    )
+    return build_server(app)
 
 
 def main() -> None:
     """Serve the demo over stdio until the host disconnects."""
 
-    build().start(ContextureOptions(transport="stdio"))
+    serve(app, ContextureOptions(transport="stdio"))
 
 
 if __name__ == "__main__":

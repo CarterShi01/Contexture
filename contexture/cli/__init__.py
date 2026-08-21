@@ -24,10 +24,12 @@ from __future__ import annotations
 from .main import build_parser, main
 from .project import (
     CONFIG_TABLE,
+    DEMO_APP,
     DEMO_PUBLISH,
     DEMO_TARGET,
     ProjectConfig,
     find_project,
+    load_application,
     load_roots,
     load_published,
     resolve_target,
@@ -38,6 +40,7 @@ from .usage import UsageError
 __all__ = [
     "CONFIG_TABLE",
     "DEMO_PUBLISH",
+    "DEMO_APP",
     "DEMO_TARGET",
     "Names",
     "ProjectConfig",
@@ -46,6 +49,7 @@ __all__ = [
     "available_templates",
     "build_parser",
     "find_project",
+    "load_application",
     "load_roots",
     "load_published",
     "main",

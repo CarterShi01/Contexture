@@ -62,8 +62,8 @@ class DiagnoseCrashLoop(Skill):    # a procedure you own
 class IncidentResponder(Role):     # the boundary that holds them
 ```
 
-Only the roots are registered, once, from `pyproject.toml`. Everything beneath
-one is reached by traversal, so a new tool is a line in the constructor of the
+One lazy `Contexture` application names the roots once. Everything beneath one
+is reached by traversal, so a new tool is a line in the constructor of the
 role that holds it and nothing else.
 
 ### Three planes, one verb
@@ -105,25 +105,17 @@ all — each holds a reference *string* naming a node the tree already owns,
 which is what keeps one capability from becoming two declarations that can
 disagree. They are written the same way; the type keeps the difference.
 
-### Two ends written by hand, everything between them discovered
+### One application declaration
 
-The verbs differ because the counts do:
+An application is the one composition root a project writes:
 
-| Boundary | Who writes it | Grows with your domain? |
-| --- | --- | --- |
-| `roots` in `pyproject.toml` — the way in | by hand | **no** |
-| the published prompts and resources — the ways out | by hand | **no** |
-| the forest of roles, skills and tools | subclassed | yes |
+```python
+app = Contexture(name="my-context", roots=(MyContextAssistant,))
+```
 
-A role holds other roles in `children`, so one line of `roots` reaches a forest
-of any size: **the manifest names the doors, never the rooms.** The published
-list obeys the same rule for the same reason — a menu that grows itself is a
-second copy of the tool list, and that plane stops meaning anything the moment
-it does.
-
-So there *is* one place a name has to be kept in step with the code, and this
-is it. It is two lines, it is checked when the server is built, and everything
-below a root is found by traversal rather than listed.
+It may later name Channels, Prompts, and Resources as well. Importing `app`
+does not build a graph or open a connection. `contexture serve` and a custom
+`main()` compile the same declaration when they run.
 
 Four OOP mechanisms carry weight here, and each does a job the alternatives
 cannot.
@@ -353,18 +345,35 @@ approving its own writes.
 
 ## Serve it
 
-There is nothing to write. The framework ships the runner, so a project names
-its roots once in `pyproject.toml` and has no entry point of its own:
+Most projects do not need a `main()`. Export one lazy application object from
+your package:
+
+```python
+# hello_context/__init__.py
+from contexture import Contexture
+
+from .role import HelloContextAssistant
+
+app = Contexture(name="hello-context", roots=(HelloContextAssistant,))
+```
+
+Then name that one object in `pyproject.toml`:
 
 ```toml
 [tool.contexture]
-name = "my-context"
-roots = ["assistant:MyContextAssistant"]
+app = "hello_context:app"
 ```
 
 ```bash
+uv run contexture check                    # compile; no connections or MCP host
+uv run contexture call hello-context-assistant/ping
 uv run contexture serve
 ```
+
+`check` catches invalid declarations before a host is involved. `call` invokes
+one read-only business Tool through the same schema binding and Channels
+lifecycle used in production. Pass `--allow-write` explicitly for a Tool that
+can change external state.
 
 Then point any host at that same command:
 
@@ -376,15 +385,9 @@ codex  mcp add                 my-context -- uv run contexture serve
 ### Reaching something outside the process
 
 A capability that talks to a cluster, a database or somebody else's gateway
-needs a handle, and a handle is a live object no TOML table can hold. What a
-table *can* name is a class — and a class is a zero-argument factory, the same
-rule `roots` uses:
-
-```toml
-[tool.contexture]
-roots    = ["assistant:MyContextAssistant"]
-channels = "assistant.channels:ClusterChannels"
-```
+needs a handle, and a handle is a live object no configuration file can hold.
+The Application names its `Channels` class directly — it is a zero-argument
+factory, just like a root:
 
 ```python
 from contexture import Channels
@@ -399,6 +402,12 @@ class ClusterChannels(Channels):
 
     async def close(self) -> None:
         self.api = self.db = None
+
+app = Contexture(
+    name="my-context",
+    roots=(MyContextAssistant,),
+    channels=ClusterChannels,
+)
 ```
 
 `open` runs once, before the first request, so a connection that cannot be made
@@ -411,52 +420,40 @@ reverse, and the first is closed if the second fails to open. Contexture never
 looks inside any of it — one object, opened and closed, and its contents are
 yours.
 
-`contexture serve` works unchanged. That is the point of naming a class.
+`contexture serve` works unchanged. That is the point of putting the complete
+composition in one declaration.
 
 ### Writing the entry point yourself
 
 For a graph served from a process this command does not own — embedded in an
 existing service, or built inside a test — write the entry point yourself. It
-is four objects, and every one of them is something you make a decision about:
+still consumes the same declaration; it does not reassemble a second graph:
 
 ```python
-from contexture import ControllerManager
-from contexture.server import (
-    TOOLS, ContextureOptions, ContextureServer, Index, TypeHintBinding,
-)
+from hello_context import app
+from contexture.server import ContextureOptions, serve
 
 def main() -> None:
-    manager = ControllerManager(channels=channels)      # what it may reach
-    manager.register_role(KubernetesPlatform)           # what it serves
-
-    index = Index.of(manager, bind=TypeHintBinding)     # compile it, once
-
-    ContextureServer(
-        index,
-        name="my-context",
-        tools=TOOLS,                                    # fixed; you cannot add
-        prompts=[RollBackARelease],                     # a person's door
-        resources=[CrashLoopRunbook],                   # a host's door
-    ).start(ContextureOptions(transport="stdio"))
+    serve(app, ContextureOptions(transport="stdio"))
 ```
 
-Four phases, and the second one is a wall: `ContextureServer` takes a *compiled*
-`Index` and has no way to register anything, so nothing can add a capability to a
-graph that is already being served. Importing this module builds nothing — every
-node comes into existence inside `register_role`, and the whole forest is frozen
-into the index by `Index.of`.
+Both paths compile a fresh forest through `ControllerManager → Index →
+Disclosure → ContextureServer`. Importing `app` builds nothing; each root comes
+into existence only during compilation, and the resulting index is frozen
+before the server is created.
 
-The three keyword planes are the same split as **Three planes, one verb** above:
-`tools=TOOLS` is the one you cannot vary, because it is the plane a business
-cannot extend; `prompts=` and `resources=` are the two ways in you write by hand.
+The fixed gateway remains framework-owned. `prompts=` and `resources=` belong
+on `Contexture(...)`, where they point to existing nodes without duplicating
+their business definitions.
 
-`dispatch` appearing twice is deliberate. The schema written on a tool's card
-and the check its arguments are measured against come from one derivation, and
-this is where you can see that.
+Each Tool's card schema and invocation validation come from the same compiled
+binding. The application author declares the Tool once; neither CLI nor custom
+hosting derives a second version of its contract.
 
 Nothing above imports `mcp`, writes JSON-RPC, or names an agent runtime.
 
-Already have an event loop? `await server.start_async(options)`.
+Already have an event loop? Build it from the same app with
+`build_server(app)`, then `await server.start_async(options)`.
 
 ### Over the network
 
@@ -473,7 +470,7 @@ SDK stops protecting an address it does not recognise as local and nothing
 would say so:
 
 ```python
-server.start(ContextureOptions(
+build_server(app).start(ContextureOptions(
     transport="streamable-http",
     host="0.0.0.0",
     port=8080,
@@ -640,11 +637,14 @@ host launched the process, and the operating system already decided who that is.
 Python 3.10 or newer.
 
 ```bash
-uvx contexture-mcp new my-context     # scaffold a project
+uv tool install contexture-mcp
+contexture new my-context
 cd my-context
 uv sync
-uv run contexture list                # what it would serve
-uv run contexture inspect --all --summary   # what an agent receives, and what it costs
+uv run contexture check               # build and validate without connections
+uv run contexture list
+uv run contexture inspect my-context-assistant/check-target
+uv run contexture call my-context-assistant/ping --input '{"target":"example.test"}'
 uv run contexture serve               # serve it over stdio
 ```
 
@@ -654,19 +654,18 @@ ships the runner:
 
 ```text
 my-context/
-├── pyproject.toml       dependencies, and one [tool.contexture] table
-├── assistant/           one role and what it owns
+├── pyproject.toml       [tool.contexture] app = "my_context:app"
+├── my_context/
+│   ├── __init__.py      app = Contexture(...)
 │   ├── role.py          the responsibility boundary
-│   ├── skills.py        procedures — disclosed only when asked for
-│   ├── tools.py         capabilities, as typed Python methods
-│   └── documents.py     content — a read-only tool taking no arguments
-└── publish.py           the ways in for a person or a host
+│   ├── skills.py        procedures the model follows
+│   └── tools.py         typed capabilities Contexture runs
+└── uv.lock              created by uv sync
 ```
 
-Each root role is a top-level package, the way a Django app is. Django nests a
-second level because its outer directory holds a config package *and* every
-app; here the configuration is the `[tool.contexture]` table, so the outer
-directory holds roles and nothing else.
+The generated package exports one `app`. It starts with Role, Skill, and Tool
+because all three are first-class concepts: a Skill tells a model how to work;
+a Tool is deterministic work that Contexture invokes.
 
 It is a project, not a package: no build system, never installed into the
 environment. `contexture serve` finds it by walking up for the
@@ -681,8 +680,9 @@ claude mcp add --scope project my-context -- uv run contexture serve
 codex  mcp add                 my-context -- uv run contexture serve
 ```
 
-Add a second role by copying `assistant/`, then either list it in `roots` or
-declare it as a child of an existing role.
+Add child Roles, Skills, and Tools in `my_context/`; add Channels, Prompt, or
+Resource declarations to the same `app` only when the problem requires them.
+Continue with the task-oriented [Contexture Handbook](docs/handbook.md).
 
 ### From a checkout
 

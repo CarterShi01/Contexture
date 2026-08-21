@@ -110,6 +110,29 @@ def _write_project(directory: str) -> Path:
 
 
 class ConfigTests(unittest.TestCase):
+    def test_an_application_target_is_the_complete_project_declaration(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = _write_project(directory)
+            (root / "pyproject.toml").write_text(
+                "[tool.contexture]\napp = \"ops:app\"\n", encoding="utf-8"
+            )
+            config = ProjectConfig.load(root)
+
+        self.assertEqual(config.app, "ops:app")
+        self.assertEqual(config.roots, ())
+
+    def test_an_application_target_cannot_mix_with_legacy_keys(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = _write_project(directory)
+            (root / "pyproject.toml").write_text(
+                "[tool.contexture]\napp = \"ops:app\"\nroots = [\"ops:Operations\"]\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(UsageError) as caught:
+                ProjectConfig.load(root)
+
+        self.assertIn("both `app` and legacy", str(caught.exception))
+
     def test_the_table_carries_one_channels_target(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             config = ProjectConfig.load(_write_project(directory))

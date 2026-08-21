@@ -1,0 +1,41 @@
+{
+  "application": {
+    "name": "reference-operations",
+    "roots": ["operations"]
+  },
+  "roles": [
+    {
+      "ref": "operations",
+      "name": "operations",
+      "description": "Handle routine operational questions.",
+      "instructions": "Inspect first; make changes only with approval.",
+      "skills": ["operations/diagnose"],
+      "tools": ["operations/status", "operations/restart"]
+    }
+  ],
+  "skills": [
+    {
+      "ref": "operations/diagnose",
+      "name": "diagnose",
+      "description": "Diagnose an unhealthy service.",
+      "instructions": "Read status, then explain the evidence.",
+      "uses": ["operations/status"]
+    }
+  ],
+  "tools": [
+    {
+      "ref": "operations/status",
+      "name": "status",
+      "description": "Return the current service status.",
+      "read_only": true,
+      "input": {"service": "string"}
+    },
+    {
+      "ref": "operations/restart",
+      "name": "restart",
+      "description": "Restart one service.",
+      "read_only": false,
+      "input": {"service": "string"}
+    }
+  ]
+}

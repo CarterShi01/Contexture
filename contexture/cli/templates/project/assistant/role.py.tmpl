@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from contexture import Role
 
-from .documents import HealthRunbook
 from .skills import CheckTarget
 from .tools import Ping
 
@@ -26,5 +25,5 @@ Select the skill that matches the request, follow its procedure, and collect
 tool output before stating a conclusion. Report the smallest safe next action.
 """,
             skills=[CheckTarget()],
-            tools=[Ping(), HealthRunbook()],
+            tools=[Ping()],
         )

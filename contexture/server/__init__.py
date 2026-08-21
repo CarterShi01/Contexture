@@ -43,6 +43,11 @@ from typing import Any
 
 #: Exported name -> the submodule that defines it.
 _EXPORTS = {
+    "CompiledApplication": ".application",
+    "build_server": ".application",
+    "compile_application": ".application",
+    "compile_parts": ".application",
+    "serve": ".application",
     "ContextureServer": ".server",
     "ContextureOptions": ".options",
     "DEFAULT_HOST": ".options",

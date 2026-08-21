@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
+requires = ["uv_build>=0.12.5,<0.13"]
+build-backend = "uv_build"
 
 [project]
 name = "contexture-mcp"
@@ -27,13 +27,9 @@ contexture = "contexture.cli:main"
 [project.urls]
 Repository = "https://github.com/CarterShi01/Contexture"
 
-# Include-based, never exclude-based: the wheel holds `contexture` and its
-# sub-packages, and nothing else at the top level can be swept in by being
-# added later. That is what a `src/` directory used to express here, stated as
-# one line of configuration instead of one level of directory.
-[tool.setuptools.packages.find]
-include = ["contexture*"]
-
-[tool.setuptools.package-data]
-# The templates live beside the command that renders them.
-contexture = ["cli/templates/**/*"]
+# The source tree deliberately stays flat: Contexture is the one module under
+# this repository root. `uv_build` includes exactly that module — including
+# its templates and typing files — and cannot reuse a stale `build/lib` tree.
+[tool.uv.build-backend]
+module-name = "contexture"
+module-root = ""

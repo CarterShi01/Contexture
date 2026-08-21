@@ -9,11 +9,13 @@ make it fail.
 from __future__ import annotations
 
 import ast
+import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
-from fnmatch import fnmatch
 from pathlib import Path
+from zipfile import ZipFile
 
 SOURCE_ROOT = Path(__file__).resolve().parent.parent
 PACKAGE = SOURCE_ROOT / "contexture"
@@ -57,10 +59,15 @@ ALLOWED: dict[str, set[str]] = {
     # nothing in the forest can reach back. It stands on the shared ground
     # like everything else, and it does not import the SDK; see `SDK_LAYERS`.
     "core.mcp_interface": {"core.__base__"},
+    # A business application's composition root depends only on declarations
+    # and protocol-plane declarations. It is deliberately below `server` so
+    # importing `app` does not build a wire object.
+    "application": {"core.__base__", "core.model", "core.mcp_interface"},
     "server": {
         "core.__base__",
         "core.model",
         "core.mcp_interface",
+        "application",
     },
     # The bundled reference application sits above everything and is imported
     # by nothing. It reaches everything a declaration writes with through the
@@ -84,6 +91,7 @@ ALLOWED: dict[str, set[str]] = {
     },
     # The command line sits above everything: it scaffolds, inspects, serves.
     "cli": {
+        "application",
         "core.__base__",
         "core.model",
         "core.mcp_interface",
@@ -465,23 +473,7 @@ def _modules_loaded_by(statement: str) -> set[str]:
 
 
 class PackagingBoundaryTests(unittest.TestCase):
-    """What ships is stated by inclusion, so nothing new can ship by accident.
-
-    This used to be a directory. `src/` held the package and everything else
-    sat outside it, so the wheel could be described as "src, and nothing else"
-    — a rule a reader had to know and a tool never checked. The directory is
-    gone and the rule it expressed is one line of configuration, which is the
-    trade this file exists to make everywhere else: a convention replaced by
-    something that fails.
-
-    Inclusion rather than exclusion is the load-bearing half. An exclude list
-    has to be extended every time a directory is added, and the day somebody
-    forgets is the day a case study or a doc tree ships inside the wheel.
-
-    A complete check would build a wheel and read its manifest, which needs a
-    build backend and a network. What is asserted here is the configuration
-    that produces one.
-    """
+    """The wheel is built from the one flat module, never a stale build tree."""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -491,62 +483,91 @@ class PackagingBoundaryTests(unittest.TestCase):
             import tomli as tomllib  # type: ignore[no-redef]
         with (SOURCE_ROOT / "pyproject.toml").open("rb") as handle:
             cls.pyproject = tomllib.load(handle)
-        cls.setuptools = cls.pyproject["tool"]["setuptools"]
+        cls.backend = cls.pyproject["tool"]["uv"]["build-backend"]
 
-    def test_the_wheel_is_declared_by_inclusion_never_by_exclusion(self) -> None:
-        found = self.setuptools["packages"]["find"]
+    def test_the_flat_module_is_the_only_build_input(self) -> None:
+        build_system = self.pyproject["build-system"]
+        self.assertEqual(build_system["build-backend"], "uv_build")
+        self.assertTrue(
+            any(requirement.startswith("uv_build>=") for requirement in build_system["requires"])
+        )
+        self.assertEqual(self.backend["module-name"], "contexture")
+        self.assertEqual(self.backend["module-root"], "")
 
-        self.assertIn("include", found)
-        self.assertNotIn("exclude", found)
-        # `where` is what a src layout uses. Naming the package directly is
-        # what replaced it, and keeping both would be two answers to one
-        # question.
-        self.assertNotIn("where", found)
+    @unittest.skipUnless(shutil.which("uv"), "wheel verification needs uv")
+    def test_a_built_wheel_contains_only_current_package_files(self) -> None:
+        """A real manifest catches stale `build/lib` files configuration cannot."""
 
-    def test_no_other_top_level_directory_could_be_swept_in(self) -> None:
-        """Adding `docs/` or a case study must not be able to ship it."""
+        with tempfile.TemporaryDirectory(prefix="contexture-wheel-") as raw:
+            output = Path(raw)
+            subprocess.run(
+                [
+                    "uv",
+                    "build",
+                    "--wheel",
+                    "--no-sources",
+                    "--out-dir",
+                    str(output),
+                    str(SOURCE_ROOT),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            (wheel,) = output.glob("*.whl")
+            with ZipFile(wheel) as archive:
+                names = set(archive.namelist())
 
-        patterns = self.setuptools["packages"]["find"]["include"]
-        siblings = [
-            entry.name
-            for entry in SOURCE_ROOT.iterdir()
-            if entry.is_dir()
-            and not entry.name.startswith(".")
-            and entry.name != "node_modules"
-        ]
-        self.assertIn("contexture", siblings)
+        package_files = {name for name in names if name.startswith("contexture/")}
+        self.assertTrue(package_files)
+        self.assertTrue(
+            any(name.startswith("contexture/cli/templates/") for name in package_files)
+        )
+        self.assertIn("contexture/__init__.pyi", package_files)
+        self.assertIn("contexture/server/__init__.pyi", package_files)
+        self.assertIn("contexture/py.typed", package_files)
+        self.assertNotIn("contexture/cli.py", package_files)
+        self.assertNotIn("contexture/tree.py", package_files)
+        self.assertFalse(any("__pycache__" in name for name in package_files))
 
-        for name in siblings:
-            matched = any(fnmatch(name, pattern) for pattern in patterns)
-            with self.subTest(directory=name):
-                self.assertEqual(matched, name == "contexture")
+    @unittest.skipUnless(shutil.which("uv"), "isolated install verification needs uv")
+    def test_a_wheel_runs_the_new_user_path_outside_the_checkout(self) -> None:
+        """The installed artifact, not this checkout, must scaffold and run."""
 
-    def test_every_template_file_is_covered_by_package_data(self) -> None:
-        """A template that does not ship is a `contexture new` that cannot run.
+        with tempfile.TemporaryDirectory(prefix="contexture-dist-") as dist_raw:
+            dist = Path(dist_raw)
+            subprocess.run(
+                [
+                    "uv",
+                    "build",
+                    "--wheel",
+                    "--no-sources",
+                    "--out-dir",
+                    str(dist),
+                    str(SOURCE_ROOT),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            (wheel,) = dist.glob("*.whl")
+            with tempfile.TemporaryDirectory(prefix="contexture-user-") as user_raw:
+                user = Path(user_raw)
+                command = ["uv", "run", "--no-project", "--with", str(wheel), "contexture"]
+                subprocess.run(
+                    [*command, "new", "hello-context"],
+                    cwd=user,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                project = user / "hello-context"
+                checked = subprocess.run(
+                    [*command, "check"],
+                    cwd=project,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
 
-        The templates are the one part of this package that is data rather
-        than code, so they are the one part a `packages.find` rule cannot
-        carry on its own.
-        """
-
-        patterns = self.setuptools["package-data"]["contexture"]
-        covered = {
-            path.resolve()
-            for pattern in patterns
-            for path in PACKAGE.glob(pattern)
-            if path.is_file()
-        }
-        # Found by scanning rather than by a path spelled here, so that
-        # moving the template tree — as the `cli` split just did — cannot
-        # break shipping while this test keeps passing against an empty
-        # directory it was still pointing at.
-        on_disk = {
-            path.resolve()
-            for path in PACKAGE.rglob("*")
-            if path.is_file()
-            and "templates" in path.parts
-            and "__pycache__" not in path.parts
-        }
-
-        self.assertTrue(on_disk, "the template tree is empty")
-        self.assertEqual(on_disk - covered, set())
+        self.assertIn("OK hello-context", checked.stdout)

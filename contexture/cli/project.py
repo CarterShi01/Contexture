@@ -18,6 +18,7 @@ from typing import Sequence
 
 from ..core.model.node import ContextNode
 from ..core.model.role import Role
+from ..application import Contexture
 from .usage import UsageError
 
 #: The table `serve` and `list` read, and the marker they find a project by.
@@ -26,6 +27,7 @@ CONFIG_TABLE = "contexture"
 #: The reference application this package ships, for `contexture demo` and for
 #: `contexture inspect` run with no project in sight.
 DEMO_TARGET = "contexture.demo:KubernetesPlatform"
+DEMO_APP = "contexture.demo.server:app"
 
 #: What the demo publishes, one target per plane. Named rather than imported,
 #: for the same reason its roots are: this module resolves the demo at run time
@@ -70,6 +72,7 @@ class ProjectConfig:
     root: Path
     name: str
     roots: tuple[str, ...]
+    app: str | None = None
 
     #: What the project puts on the prompt and resource primitives, as
     #: `package.module:NAME` targets. Optional: a declaration reaches an agent
@@ -93,6 +96,20 @@ class ProjectConfig:
         table = _read_toml(root / "pyproject.toml").get("tool", {}).get(
             CONFIG_TABLE, {}
         )
+        app = table.get("app")
+        legacy = {"name", "roots", "channels", "publish"} & set(table)
+        if app is not None:
+            if not isinstance(app, str) or not app.strip():
+                raise UsageError(
+                    f"{root / 'pyproject.toml'} must name `app` as \"package.module:app\"."
+                )
+            if legacy:
+                raise UsageError(
+                    f"{root / 'pyproject.toml'} names both `app` and legacy "
+                    f"keys ({', '.join(sorted(legacy))}). Keep only `app`; it "
+                    "is the application's one declaration."
+                )
+            return cls(root=root, name=root.name, roots=(), app=app.strip())
         targets = table.get("roots") or ()
         if isinstance(targets, str):
             targets = (targets,)
@@ -149,6 +166,25 @@ def resolve_target(
         return declared
     raise UsageError(
         f"{target} is a {type(declared).__name__}, not a Role subclass."
+    )
+
+
+def load_application(target: str, *, project: Path | None = None) -> Contexture:
+    """Resolve the one lazy Application object a modern project exports."""
+
+    if project is not None and str(project) not in sys.path:
+        sys.path.append(str(project))
+    declared = _declared(
+        target,
+        project=project,
+        key="app",
+        shape="package.module:app",
+    )
+    if isinstance(declared, Contexture):
+        return declared
+    raise UsageError(
+        f"{target} is {declared!r}, not a Contexture application. Export "
+        "`app = Contexture(name=..., roots=(... ,))`."
     )
 
 
@@ -315,6 +351,7 @@ class Serving:
 
     #: `package.module:RoleClass` targets, one or many.
     roots: tuple[str, ...]
+    app: str | None = None
 
     #: Where the project lives, or None when a target was named explicitly and
     #: there is nothing to check it against.
@@ -351,6 +388,7 @@ def _targets_and_project(target: str | None, *, or_demo: bool = False) -> Servin
                 roots=(DEMO_TARGET,),
                 name="contexture-demo",
                 publish=DEMO_PUBLISH,
+                app=DEMO_APP,
             )
         raise UsageError(
             "No [tool.contexture] table found in this directory or above it. "
@@ -365,16 +403,19 @@ def _targets_and_project(target: str | None, *, or_demo: bool = False) -> Servin
         name=config.name,
         publish=config.publish,
         channels=config.channels,
+        app=config.app,
     )
 
 
 __all__ = [
     "CONFIG_TABLE",
     "DEMO_PUBLISH",
+    "DEMO_APP",
     "DEMO_TARGET",
     "ProjectConfig",
     "Serving",
     "find_project",
+    "load_application",
     "load_roots",
     "load_channels",
     "load_published",

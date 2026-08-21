@@ -18,20 +18,21 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from contexture import Role
+from contexture import Contexture, Role
 from contexture.cli import (
     DEMO_TARGET,
     Names,
     UsageError,
     available_templates,
     find_project,
+    load_application,
     load_roots,
     new_project,
     resolve_target,
 )
 from contexture.core.model.disclosure import Disclosure
-from contexture.core.mcp_interface import Resource
 from contexture.core.model.manager import ControllerManager
+from contexture.server import compile_application
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -40,6 +41,7 @@ class NameDerivationTests(unittest.TestCase):
     def test_one_argument_derives_every_name(self) -> None:
         names = Names.derive("My Context")
         self.assertEqual(names.project_name, "my-context")
+        self.assertEqual(names.package_name, "my_context")
         self.assertEqual(names.role_class, "MyContextAssistant")
         self.assertEqual(names.resource_scheme, "my-context")
 
@@ -80,7 +82,7 @@ class TemplateShippingTests(unittest.TestCase):
                 with self.subTest(file=path.name):
                     self.assertNotIn("$", path.read_text(encoding="utf-8"))
 
-    def test_a_role_package_sits_at_the_project_root(self) -> None:
+    def test_the_application_package_sits_at_the_project_root(self) -> None:
         """There is no package wrapping the packages.
 
         A Django project nests one because its outer directory holds a config
@@ -91,9 +93,9 @@ class TemplateShippingTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             root = new_project("my-context", destination=Path(directory))
-            self.assertTrue((root / "assistant" / "role.py").is_file())
-            self.assertTrue((root / "publish.py").is_file())
-            self.assertFalse((root / "my_context").exists())
+            self.assertTrue((root / "my_context" / "role.py").is_file())
+            self.assertTrue((root / "my_context" / "__init__.py").is_file())
+            self.assertFalse((root / "publish.py").exists())
             self.assertFalse((root / "module").exists())
             self.assertFalse((root / "__init__.py").exists())
 
@@ -114,43 +116,31 @@ class GeneratedProjectTests(unittest.TestCase):
         sys.path.insert(0, str(self.root))
         self.addCleanup(sys.path.remove, str(self.root))
         for name in [
-            m for m in sys.modules if m.split(".")[0] in ("assistant", "publish")
+            m for m in sys.modules if m.split(".")[0] in ("my_context", "publish")
         ]:
             del sys.modules[name]
 
-    def test_the_generated_role_imports_and_declares_every_kind(self) -> None:
-        module = importlib.import_module("assistant")
+    def test_the_generated_app_declares_role_skill_and_tool(self) -> None:
+        module = importlib.import_module("my_context")
+        self.assertIsInstance(module.app, Contexture)
         role = ControllerManager().register_role(module.MyContextAssistant)
 
         self.assertIsInstance(role, Role)
         self.assertEqual(role.name, "my-context-assistant")
         self.assertEqual([s.name for s in role.skills], ["check-target"])
-        self.assertEqual(
-            sorted(t.name for t in role.tools), ["health_runbook", "ping"]
-        )
+        self.assertEqual(sorted(t.name for t in role.tools), ["ping"])
 
     def test_the_generated_tools_execute(self) -> None:
-        module = importlib.import_module("assistant")
+        module = importlib.import_module("my_context")
         role = ControllerManager().register_role(module.MyContextAssistant)
         by_name = {tool.name: tool for tool in role.tools}
 
         result = asyncio.run(by_name["ping"].invoke(target="payments-api"))
         self.assertIn("payments-api", result)
-        self.assertIn("reachable", asyncio.run(by_name["health_runbook"].invoke()))
-
-    def test_the_generated_project_publishes_the_runbook(self) -> None:
-        """The scaffold shows both planes: a tool to navigate to, and a URI."""
-
-        (declared,) = importlib.import_module("publish").PUBLISHED
-        published = declared()
-        self.assertEqual(published.uri, "my-context://runbooks/health")
-        self.assertEqual(
-            published.opens, "my-context-assistant/health_runbook"
-        )
 
     def test_the_generated_graph_discloses_progressively(self) -> None:
-        module = importlib.import_module("assistant")
-        tree = Disclosure.of(module.MyContextAssistant)
+        module = importlib.import_module("my_context")
+        tree = compile_application(module.app).disclosure
 
         card = tree.skeleton()["roles"][0]
         self.assertNotIn("instructions", card)
@@ -165,15 +155,11 @@ class GeneratedProjectTests(unittest.TestCase):
     def test_the_configured_root_resolves(self) -> None:
         """It resolves to the class; a manager is what turns one into nodes."""
 
-        declared = resolve_target("assistant:MyContextAssistant")
-        self.assertTrue(issubclass(declared, Role))
-        self.assertEqual(
-            ControllerManager().register_role(declared).name,
-            "my-context-assistant",
-        )
+        declared = load_application("my_context:app", project=self.root)
+        self.assertIs(declared, importlib.import_module("my_context").app)
 
     def test_the_project_is_found_from_inside_it(self) -> None:
-        found = find_project(self.root / "assistant")
+        found = find_project(self.root / "my_context")
         self.assertEqual(found, self.root.resolve())
 
     def test_the_generated_project_declares_no_build_system(self) -> None:
@@ -182,6 +168,7 @@ class GeneratedProjectTests(unittest.TestCase):
         text = (self.root / "pyproject.toml").read_text(encoding="utf-8")
         self.assertNotIn("[build-system]", text)
         self.assertIn("[tool.contexture]", text)
+        self.assertIn('app = "my_context:app"', text)
         self.assertIn('dependencies = ["contexture-mcp"]', text)
 
     def test_the_generated_project_has_no_entry_point_of_its_own(self) -> None:
@@ -219,6 +206,39 @@ class CommandLineTests(unittest.TestCase):
             self.assertIn("my-context-assistant", listed.stdout)
             self.assertIn("check-target", listed.stdout)
             self.assertIn("read-only", listed.stdout)
+
+    def test_new_project_checks_and_calls_its_real_tool(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            created = self._run("new", "my-context", cwd=root)
+            self.assertEqual(created.returncode, 0, created.stderr)
+            project = root / "my-context"
+
+            checked = self._run("check", cwd=project)
+            self.assertEqual(checked.returncode, 0, checked.stderr)
+            self.assertIn("1 role(s), 1 skill(s), 1 tool(s)", checked.stdout)
+
+            called = self._run(
+                "call",
+                "my-context-assistant/ping",
+                "--input",
+                '{"target":"payments-api"}',
+                cwd=project,
+            )
+            self.assertEqual(called.returncode, 0, called.stderr)
+            self.assertIn("payments-api", called.stdout)
+
+    def test_calling_a_role_explains_how_to_inspect_it(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(self._run("new", "my-context", cwd=root).returncode, 0)
+
+            result = self._run(
+                "call", "my-context-assistant", cwd=root / "my-context"
+            )
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("contexture inspect my-context-assistant", result.stderr)
 
     def test_list_outside_a_project_explains_what_to_do(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -273,7 +293,7 @@ class ProjectPathTests(unittest.TestCase):
         self.addCleanup(
             lambda: [
                 sys.modules.pop(name, None)
-                for name in ("assistant", "assistant.role", "colorsys")
+                for name in ("my_context", "my_context.role", "colorsys")
             ]
         )
         self.addCleanup(
@@ -295,7 +315,7 @@ class ProjectPathTests(unittest.TestCase):
         )
         sys.modules.pop("colorsys", None)
 
-        load_roots(["assistant:MyContextAssistant"], project=root)
+        load_application("my_context:app", project=root)
         import colorsys
 
         self.assertTrue(hasattr(colorsys, "rgb_to_hls"))

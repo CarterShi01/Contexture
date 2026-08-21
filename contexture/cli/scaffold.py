@@ -27,6 +27,7 @@ class Names:
     """
 
     project_name: str
+    package_name: str
     role_class: str
     role_description: str
     resource_scheme: str
@@ -51,6 +52,7 @@ class Names:
         words = [part for part in slug.split("-") if part]
         return cls(
             project_name=slug,
+            package_name=slug.replace("-", "_"),
             role_class="".join(word.capitalize() for word in words) + "Assistant",
             role_description=(
                 f"Answer requests about {slug.replace('-', ' ')}."
@@ -64,6 +66,7 @@ class Names:
     def as_variables(self) -> dict[str, str]:
         return {
             "project_name": self.project_name,
+            "package_name": self.package_name,
             "role_class": self.role_class,
             "role_description": self.role_description,
             "resource_scheme": self.resource_scheme,
@@ -118,6 +121,8 @@ def new_project(
         raise UsageError(f"{root} already exists; refusing to write into it.")
 
     shutil.copytree(source, root, ignore=shutil.ignore_patterns("__pycache__"))
+
+    (root / "assistant").rename(root / names.package_name)
 
     variables = names.as_variables()
     for path in sorted(root.rglob("*.tmpl")):

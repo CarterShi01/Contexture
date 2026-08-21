@@ -52,9 +52,21 @@ from .core import (
 # no SDK.
 from .core.mcp_interface import Prompt, Resource
 
+
+def __getattr__(name: str) -> object:
+    """Resolve the Application facade only when a project asks for it."""
+
+    if name != "Contexture":
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    from .application import Contexture
+
+    globals()[name] = Contexture
+    return Contexture
+
 __all__ = [
     "Channels",
     "CompileLevel",
+    "Contexture",
     "ContextNode",
     "ControllerManager",
     "ContextureError",

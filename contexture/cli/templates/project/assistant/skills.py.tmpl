@@ -22,11 +22,11 @@ class CheckTarget(Skill):
 Work from evidence, in this order.
 
 1. Call ping with the target you were given.
-2. Read $resource_scheme://runbooks/health and match the result against it.
-3. Report what you found and the smallest safe next action.
+2. Report what you found and the smallest safe next action.
 
 Constraints:
 - Do not state a status you have not read from a tool.
 - Reachable is not healthy. Say which one you established.
 """,
+            uses=("$role_ref/ping",),
         )

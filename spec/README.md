@@ -9,7 +9,11 @@ still starts, still answers, and no test goes red. So the shared half is
 captured as bytes.
 
 ```
+fixtures/   language-neutral declaration inputs for every implementation
 golden/     the exact payload and the exact sentence the bundled demo produces
+model.md    the language-neutral public Application/Role/Skill/Tool model
+conformance.md  behavioral rules every language binding must reproduce
+bindings.md language-specific authoring notes; explicitly non-normative
 ```
 
 `golden/` is produced from `contexture.demo`, which is the reference
@@ -35,6 +39,9 @@ Regenerate deliberately, and review the diff — these bytes are the contract:
 .venv/bin/python tests/golden.py --update
 ```
 
-Still to come, and named in the README: `fixtures/` (declarations stated
-language-neutrally, so a Go or TypeScript port can build the same forest) and
-`conformance.md` (the reference grammar, the cut rules, the door rules).
+`fixtures/reference-application.json` is the smallest language-neutral
+Application declaration. A port maps it to its own classes, structs, or schema
+objects, then checks the resulting behavior against the conformance rules and
+golden surface. The fixture deliberately describes tool inputs but not tool
+bodies: business execution is binding-specific; the public model and protocol
+behavior are not.
