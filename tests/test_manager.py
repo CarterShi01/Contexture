@@ -1,9 +1,13 @@
 """Tests for the registry that owns the controllers a process serves.
 
-Three claims carry this layer and each is checked rather than assumed: a
-controller is told its address once instead of recomputing it, every registered
-controller reaches the same handle the application built before any of them
-existed, and one capability cannot end up with two addresses.
+Two claims carry this layer and each is checked rather than assumed: every
+registered controller reaches the same handle the application built before any
+of them existed, and one capability cannot end up with two addresses.
+
+What is *asked* of a registered forest afterwards — resolve a ref, list a kind,
+name a parent — is `Index`'s job and is tested in `test_index`. This registry
+keeps none of those tables once it has stamped an address and a handle onto
+each node.
 """
 
 from __future__ import annotations
@@ -11,12 +15,8 @@ from __future__ import annotations
 import gc
 import unittest
 
-from contexture.core.errors import (
-    DeclarationError,
-    LookupFailure,
-    ModelValidationError,
-    NodeNotFoundError,
-)
+from contexture.core.errors import ModelValidationError
+from contexture.core.model.index import Index
 from contexture.core.model.manager import ControllerManager
 from contexture.core.model.node import ContextNode
 from contexture.core.model.role import Role
@@ -55,6 +55,7 @@ class IncidentResponse(Role):
             tools=[GetPodStatus()],
         )
 
+
 class DeploymentOps(Role):
     def __init__(self) -> None:
         super().__init__(
@@ -73,6 +74,7 @@ class Platform(Role):
             instructions="Route to the branch that owns the question.",
             children=[IncidentResponse(), DeploymentOps()],
         )
+
 
 class Standalone(Role):
     def __init__(self) -> None:
@@ -95,6 +97,17 @@ def platform_manager(channels: object | None = None) -> ControllerManager:
     manager = ControllerManager(channels=channels)
     manager.register_role(Platform)
     return manager
+
+
+def _find(manager: ControllerManager, ref: str) -> ContextNode:
+    """One node from a manager, by way of the index compiled from it.
+
+    Registration stamps the address; resolving one is the index's job. A test
+    here that needs a specific node to inspect what registration stamped onto
+    it reaches it through the index, the same way everything else does.
+    """
+
+    return Index.of(manager).find(ref)
 
 
 class RegistrationTests(unittest.TestCase):
@@ -176,41 +189,8 @@ class RegistrationTests(unittest.TestCase):
         self.assertIn("a tool and a role", str(caught.exception))
 
 
-class AddressTests(unittest.TestCase):
-    def test_every_node_is_told_where_it_hangs(self) -> None:
-        manager = platform_manager()
-        tool = manager.find(("platform", "incident-response", "get_pod_status"))
-        self.assertEqual(
-            tool.path, ("platform", "incident-response", "get_pod_status")
-        )
-        self.assertEqual(manager.roots[0].path, ("platform",))
-
-    def test_the_address_is_segments_not_a_spelling(self) -> None:
-        """`core` still does not know what a separator is.
-
-        The tuple carries position; joining it is `disclosure`'s decision, and
-        this test is what keeps a separator from creeping down a layer.
-        """
-
-        manager = platform_manager()
-        for _, node in manager.walk():
-            self.assertIsInstance(node.path, tuple)
-            for segment in node.path:
-                self.assertNotIn("/", segment)
-
-    def test_the_same_class_under_two_roles_is_two_controllers(self) -> None:
-        """Two declarations of one class are two capabilities, not one.
-
-        Each gets its own instance and therefore its own address, which is why
-        this is allowed where holding one object twice is not.
-        """
-
-        manager = platform_manager()
-        first = manager.find(("platform", "incident-response", "get_pod_status"))
-        second = manager.find(("platform", "deployment-ops", "get_pod_status"))
-        self.assertIsNot(first, second)
-        self.assertIs(type(first), type(second))
-        self.assertNotEqual(first.path, second.path)
+class RefusalTests(unittest.TestCase):
+    """The two shapes only a walk of the whole forest can catch at register."""
 
     def test_one_object_may_not_be_held_twice(self) -> None:
         shared = Tool(name="get_pod_status", description="Status.")
@@ -276,8 +256,8 @@ class IndependenceTests(unittest.TestCase):
         manager = ControllerManager()
         manager.register_role(Platform)
         manager.register_role(IncidentResponse)
-        held = manager.find(("platform", "incident-response", "diagnose"))
-        root = manager.find(("incident-response", "diagnose"))
+        held = _find(manager, "platform/incident-response/diagnose")
+        root = _find(manager, "incident-response/diagnose")
         self.assertIsNot(held, root)
         self.assertEqual(held.path, ("platform", "incident-response", "diagnose"))
         self.assertEqual(root.path, ("incident-response", "diagnose"))
@@ -294,10 +274,10 @@ class IndependenceTests(unittest.TestCase):
         left.register_role(Platform)
         right.register_role(Platform)
         self.assertEqual(
-            left.find(("platform", "incident-response")).channels.label, "left"
+            _find(left, "platform/incident-response").channels.label, "left"
         )
         self.assertEqual(
-            right.find(("platform", "incident-response")).channels.label, "right"
+            _find(right, "platform/incident-response").channels.label, "right"
         )
 
     def test_a_class_where_a_node_belongs_is_refused(self) -> None:
@@ -332,7 +312,7 @@ class IndependenceTests(unittest.TestCase):
         manager = ControllerManager()
         manager.register_role(role)
         self.assertEqual(
-            sorted(tool.name for tool in manager.of_kind("tool")),
+            sorted(tool.name for tool in Index.of(manager).of_kind("tool")),
             ["get_pod_status", "pinned"],
         )
 
@@ -341,10 +321,10 @@ class ConstructionTimeTests(unittest.TestCase):
     """When a declared graph comes into existence, and where.
 
     The headline property of this object model: a module full of declarations
-    builds nothing when it is imported. Classes state what a capability is;
-    a `ControllerManager` is the one thing that turns them into nodes, because
-    registration is the only moment a node can be told where it hangs and
-    handed what it may reach.
+    builds nothing when it is imported. Classes state what a capability is; a
+    `ControllerManager` is the one thing that turns them into nodes, because
+    registration is the only moment a node can be told where it hangs and handed
+    what it may reach.
     """
 
     def test_declaring_a_forest_constructs_nothing(self) -> None:
@@ -387,7 +367,7 @@ class ConstructionTimeTests(unittest.TestCase):
     def test_registration_is_where_the_nodes_appear(self) -> None:
         manager = ControllerManager(channels="handle")
         root = manager.register_role(IncidentResponse)
-        self.assertEqual(len(manager), 3)
+        self.assertEqual(len(Index.of(manager)), 3)
         self.assertEqual(root.path, ("incident-response",))
         self.assertEqual(root.tools[0].channels, "handle")
 
@@ -421,8 +401,7 @@ class ChannelTests(unittest.TestCase):
     def test_every_controller_reaches_the_handle(self) -> None:
         channels = Channels()
         manager = platform_manager(channels)
-        self.assertEqual(len(manager), 6)
-        for _, node in manager.walk():
+        for _, node in Index.of(manager).walk():
             self.assertIs(node.channels, channels)
 
     def test_no_handle_is_an_ordinary_answer(self) -> None:
@@ -432,7 +411,7 @@ class ChannelTests(unittest.TestCase):
         # nuisance: two managers over one declaration share its nodes.
         manager = platform_manager()
         manager.rebind_channels(None)
-        for _, node in manager.walk():
+        for _, node in Index.of(manager).walk():
             self.assertIsNone(node.channels)
 
     def test_rebinding_reaches_everything_already_registered(self) -> None:
@@ -440,7 +419,7 @@ class ChannelTests(unittest.TestCase):
         replacement = Channels("second")
         manager.rebind_channels(replacement)
         self.assertIs(manager.channels, replacement)
-        for _, node in manager.walk():
+        for _, node in Index.of(manager).walk():
             self.assertIs(node.channels, replacement)
 
     def test_a_root_registered_later_gets_the_same_handle(self) -> None:
@@ -449,89 +428,8 @@ class ChannelTests(unittest.TestCase):
         manager.register_role(Platform)
         manager.register_role(Standalone)
         self.assertIs(
-            manager.find(("standalone", "get_pod_status")).channels, channels
+            _find(manager, "standalone/get_pod_status").channels, channels
         )
-
-
-class LookupTests(unittest.TestCase):
-    def test_find_answers_from_one_lookup(self) -> None:
-        manager = platform_manager()
-        skill = manager.find(("platform", "incident-response", "diagnose"))
-        self.assertEqual(skill.kind, "skill")
-
-    def test_an_empty_address_says_so(self) -> None:
-        with self.assertRaises(NodeNotFoundError) as caught:
-            platform_manager().find(())
-        self.assertIs(caught.exception.reason, LookupFailure.EMPTY_REF)
-
-    def test_a_missing_root_names_the_root(self) -> None:
-        with self.assertRaises(NodeNotFoundError) as caught:
-            platform_manager().find(("nothing", "here"))
-        self.assertIs(caught.exception.reason, LookupFailure.NO_SUCH_ROOT)
-        self.assertEqual(caught.exception.segment, "nothing")
-
-    def test_a_missing_member_names_the_segment_and_its_scope(self) -> None:
-        with self.assertRaises(NodeNotFoundError) as caught:
-            platform_manager().find(("platform", "incident-response", "nope"))
-        self.assertIs(caught.exception.reason, LookupFailure.NO_SUCH_MEMBER)
-        self.assertEqual(caught.exception.segment, "nope")
-        self.assertEqual(caught.exception.scope, "incident-response")
-
-    def test_going_below_a_leaf_says_it_holds_nothing(self) -> None:
-        with self.assertRaises(NodeNotFoundError) as caught:
-            platform_manager().find(
-                ("platform", "incident-response", "get_pod_status", "deeper")
-            )
-        self.assertIs(caught.exception.reason, LookupFailure.NOT_A_CONTAINER)
-        self.assertEqual(caught.exception.scope, "get_pod_status")
-
-
-class QueryTests(unittest.TestCase):
-    def test_of_kind_is_the_flat_view(self) -> None:
-        manager = platform_manager()
-        self.assertEqual(
-            [tool.name for tool in manager.of_kind("tool")],
-            ["get_pod_status", "get_pod_status"],
-        )
-        self.assertEqual([role.name for role in manager.of_kind("role")][0], "platform")
-        self.assertEqual(len(manager.of_kind("skill")), 1)
-        self.assertEqual(manager.of_kind("resource"), ())
-
-    def test_parent_and_children_agree(self) -> None:
-        manager = platform_manager()
-        root = manager.roots[0]
-        self.assertIsNone(manager.parent_of(root))
-        for child in manager.children_of(root):
-            self.assertIs(manager.parent_of(child), root)
-
-    def test_a_leaf_holds_nothing(self) -> None:
-        manager = platform_manager()
-        tool = manager.find(("platform", "incident-response", "get_pod_status"))
-        self.assertEqual(manager.children_of(tool), ())
-
-    def test_address_of_answers_only_for_what_it_registered(self) -> None:
-        manager = platform_manager()
-        self.assertEqual(manager.address_of(manager.roots[0]), ("platform",))
-        self.assertIsNone(manager.address_of(GetPodStatus))
-
-    def test_walk_is_depth_first_in_declared_order(self) -> None:
-        manager = platform_manager()
-        self.assertEqual(
-            ["/".join(path) for path, _ in manager.walk()],
-            [
-                "platform",
-                "platform/incident-response",
-                "platform/incident-response/diagnose",
-                "platform/incident-response/get_pod_status",
-                "platform/deployment-ops",
-                "platform/deployment-ops/get_pod_status",
-            ][:6],
-        )
-
-    def test_membership_is_by_address(self) -> None:
-        manager = platform_manager()
-        self.assertIn(("platform", "incident-response"), manager)
-        self.assertNotIn(("platform", "nope"), manager)
 
 
 if __name__ == "__main__":  # pragma: no cover

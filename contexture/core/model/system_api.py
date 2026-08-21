@@ -293,7 +293,7 @@ class SystemAPI:
         """
 
         self._resolved(lambda: self.tree.tool(ref))
-        return await self.tree.binding_of(ref).call(None, None)
+        return await self.tree.index.binding_of(ref).call(None, None)
 
     async def invoke_read_only(
         self,
@@ -339,7 +339,7 @@ class SystemAPI:
         tool = self._resolved(lambda: self.tree.tool(ref))
         if tool.read_only is not read_only:
             raise Refused(wrong_door(ref, is_read_only=tool.read_only))
-        return await self.tree.binding_of(ref).call(arguments, context)
+        return await self.tree.index.binding_of(ref).call(arguments, context)
 
     @staticmethod
     def _resolved(lookup: Callable[[], Any]) -> Any:

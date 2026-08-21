@@ -131,7 +131,7 @@ def _sibling_groups(tree: ContextTree) -> Iterator[list[tuple[str, ContextNode]]
 
     group: list[tuple[str, ContextNode]] = []
     parent: str | None = None
-    for ref, role in tree.roles_by_level():
+    for ref, role in tree.index.roles_by_level():
         if SEPARATOR not in ref:
             continue                      # a root; already yielded above
         owner = ref.rsplit(SEPARATOR, 1)[0] if SEPARATOR in ref else ""

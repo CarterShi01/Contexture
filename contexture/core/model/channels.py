@@ -94,10 +94,9 @@ class Channels:
     async def lifespan(self) -> AsyncIterator["Channels"]:
         """Hold this handle open. **The framework calls this, not you.**
 
-        `ControllerManager.provisioned` is the only caller. It is a method
-        rather than a free function so that a subclass with an unusual
-        lifecycle can override it, and so that the stack it manages is this
-        object's own.
+        `provisioned` is the only caller. It is a method rather than a free
+        function so that a subclass with an unusual lifecycle can override it,
+        and so that the stack it manages is this object's own.
         """
 
         async with AsyncExitStack() as stack:
@@ -121,4 +120,26 @@ class Channels:
                 self._stack = None
 
 
-__all__ = ["Channels"]
+@asynccontextmanager
+async def provisioned(handle: Any) -> AsyncIterator[Any]:
+    """Hold a deployment handle open for as long as it is being served.
+
+    The one thing the framework asks about a handle: whether it has a lifecycle
+    to run. A `Channels` subclass is opened before the first request and closed
+    after the last; a plain value has nothing to open, so it is yielded as it
+    is and a caller is spared having to ask which kind it is holding.
+
+    Two callers, for two audiences. `ControllerManager` runs it for a test
+    driving registration directly; `Index` runs it on the served path, over the
+    same handle it captured when it was compiled. Both are the same six lines,
+    which is why they are these six lines and not two copies.
+    """
+
+    if not isinstance(handle, Channels):
+        yield handle
+        return
+    async with handle.lifespan() as opened:
+        yield opened
+
+
+__all__ = ["Channels", "provisioned"]

@@ -109,7 +109,7 @@ class Prompts:
             if argument.name != messages.GOTO_ARGUMENT:
                 return None
 
-            matches, total = tree.matching_refs(
+            matches, total = tree.index.matching_refs(
                 argument.value, limit=messages.COMPLETION_LIMIT
             )
             values = list(matches)
@@ -158,7 +158,7 @@ async def open_by_name(api: SystemAPI, ref: str) -> str:
 
     with translated():
         payload = await api.open_for_a_person(ref)
-        levels = api.tree.signpost(ref)
+        levels = api.tree.index.signpost(ref)
     sections = [
         messages.COMMAND_PREAMBLE.format(ref=ref),
         messages.signpost(levels),

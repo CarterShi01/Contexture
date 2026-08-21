@@ -494,7 +494,7 @@ class StatelessnessTests(unittest.TestCase):
 
         app = serve(Responder)
         refs = []
-        for ref, role in app.assembly.tree.roles_with_refs():
+        for ref, role in app.assembly.tree.index.roles_with_refs():
             refs.append(ref)
             refs.extend(
                 f"{ref}/{member.name}"
@@ -821,7 +821,7 @@ class RosterTests(unittest.TestCase):
         """Parents the roster names some — but not all — of the children of."""
 
         held: dict[str, int] = {}
-        for ref, _ in tree.roles_with_refs():
+        for ref, _ in tree.index.roles_with_refs():
             if SEPARATOR in ref:
                 parent = ref.rsplit(SEPARATOR, 1)[0]
                 held[parent] = held.get(parent, 0) + 1
@@ -869,14 +869,14 @@ class RosterTests(unittest.TestCase):
         tree = ContextTree.of(_forest(2, 2))
         listed = _listed(instructions.build(tree))
 
-        self.assertEqual(len(listed), len(list(tree.roles_with_refs())))
+        self.assertEqual(len(listed), len(list(tree.index.roles_with_refs())))
         self.assertNotIn("...and", instructions.build(tree))
 
     def test_what_was_dropped_is_counted_and_pointed_at(self) -> None:
         tree = ContextTree.of(_forest(8, 3))
         text = instructions.build(tree)
 
-        total = len(list(tree.roles_with_refs()))
+        total = len(list(tree.index.roles_with_refs()))
         line = next(l for l in text.splitlines() if l.startswith("- ...and"))
 
         self.assertIn(f"{total - len(_listed(text))} more role(s)", line)

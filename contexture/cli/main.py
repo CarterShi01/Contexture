@@ -57,7 +57,7 @@ def command_list(args: argparse.Namespace) -> int:
 
     # Printed with the reference an agent would actually be handed, so what a
     # developer reads here is what the model reads there.
-    for ref, role in tree.roles_with_refs():
+    for ref, role in tree.index.roles_with_refs():
         indent = "  " * ref.count("/")
         print(f"{indent}{role.name}  — {role.description}")
         for skill in role.skills:

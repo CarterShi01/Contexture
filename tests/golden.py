@@ -104,7 +104,7 @@ def capture() -> dict[str, str]:
     files["discover.json"] = _json(_run(api.discover()))
 
     opened: dict[str, Any] = {}
-    for ref, _node in tree.nodes_with_refs():
+    for ref, _node in tree.index.nodes_with_refs():
         opened[ref] = _run(api.open(ref))
     files["open.json"] = _json(opened)
 
@@ -136,7 +136,7 @@ def capture() -> dict[str, str]:
 
     completions: dict[str, Any] = {}
     for typed in ("", "kubernetes-platform", "kubernetes-platform/dep"):
-        matches, total = tree.matching_refs(typed, limit=100)
+        matches, total = tree.index.matching_refs(typed, limit=100)
         completions[typed] = {"values": list(matches), "total": total}
     files["completions.json"] = _json(completions)
 

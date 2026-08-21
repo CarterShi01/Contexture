@@ -24,6 +24,7 @@ from pathlib import Path
 
 from contexture import ControllerManager
 from contexture import Channels
+from contexture.core.model.index import Index
 
 # The suite is discovered with the project root as its top level, so a test
 # module is imported under its bare name and a sibling fixture is not a
@@ -72,15 +73,21 @@ def _text(result) -> str:
     )
 
 
-def _registry(server) -> ControllerManager:
-    """The registry behind what a server serves.
+def _index(server) -> Index:
+    """The compiled index behind what a server serves.
 
     Reached rather than held: `ContextureServer` takes a sealed assembly, and
-    a registry is a fact about the phase before that. `ContextTree` keeps a
-    reference to the one it was sealed over — there is no second copy.
+    the index is what it was sealed over — there is no second copy.
     """
 
-    return server.assembly.tree.registry
+    return server.assembly.tree.index
+
+
+def _node(reg, *segments):
+    """One stamped node, from an index or from a manager not yet compiled."""
+
+    index = reg if isinstance(reg, Index) else Index.of(reg)
+    return index.find("/".join(segments))
 
 
 class HandOffTests(unittest.TestCase):
@@ -88,8 +95,8 @@ class HandOffTests(unittest.TestCase):
 
     def test_a_capability_reaches_what_the_application_built(self) -> None:
         app = fixture.build()
-        tool = _registry(app).find(("operations", "escalation", "notify_squad"))
-        self.assertIs(tool.channels, _registry(app).channels)
+        tool = _node(_index(app), "operations", "escalation", "notify_squad")
+        self.assertIs(tool.channels, _index(app).channels)
 
         answer = asyncio.run(tool.invoke(squad="payments"))
         self.assertEqual(answer, "https://gateway.internal:notify:payments#1")
@@ -98,7 +105,7 @@ class HandOffTests(unittest.TestCase):
         """The other thing a shared instance cannot work out for itself."""
 
         app = fixture.build()
-        tool = _registry(app).find(("operations", "escalation", "where_am_i"))
+        tool = _node(_index(app), "operations", "escalation", "where_am_i")
         self.assertEqual(
             asyncio.run(tool.invoke()),
             "operations/escalation/where_am_i -> https://gateway.internal",
@@ -106,11 +113,11 @@ class HandOffTests(unittest.TestCase):
 
     def test_two_apps_in_one_process_keep_their_own_connections(self) -> None:
         left, right = fixture.build(), fixture.build()
-        _registry(left).channels.gateway.endpoint = "https://left.internal"
-        _registry(right).channels.gateway.endpoint = "https://right.internal"
+        _index(left).channels.gateway.endpoint = "https://left.internal"
+        _index(right).channels.gateway.endpoint = "https://right.internal"
 
-        left_tool = _registry(left).find(("operations", "escalation", "where_am_i"))
-        right_tool = _registry(right).find(("operations", "escalation", "where_am_i"))
+        left_tool = _node(_index(left), "operations", "escalation", "where_am_i")
+        right_tool = _node(_index(right), "operations", "escalation", "where_am_i")
 
         self.assertIn("left.internal", asyncio.run(left_tool.invoke()))
         self.assertIn("right.internal", asyncio.run(right_tool.invoke()))
@@ -128,8 +135,8 @@ class HandOffTests(unittest.TestCase):
             catalogue={"runbook": "-"},
         )
         server = fixture.build(channels=channels)
-        registry = server.assembly.tree.registry
-        tool = registry.find(("operations", "escalation", "notify_squad"))
+        index = server.assembly.tree.index
+        tool = _node(index, "operations", "escalation", "notify_squad")
 
         self.assertIs(tool.channels, channels)
         self.assertFalse(hasattr(server, "channels"))
@@ -138,7 +145,7 @@ class HandOffTests(unittest.TestCase):
         manager = ControllerManager()
         manager.register_role(fixture.Operations)
         self.assertIsNone(
-            manager.find(("operations", "escalation", "notify_squad")).channels
+            _node(manager, "operations", "escalation", "notify_squad").channels
         )
 
 
@@ -188,7 +195,7 @@ class LifecycleTests(unittest.TestCase):
     def test_a_handle_is_open_only_while_it_is_being_served(self) -> None:
         marks: list[str] = []
         manager = self._manager(marks)
-        tool = manager.find(("operations", "escalation", "notify_squad"))
+        tool = _node(manager, "operations", "escalation", "notify_squad")
 
         # Stamped from the start, and the same object throughout: what changes
         # between here and inside `provisioned` is what it *holds*.

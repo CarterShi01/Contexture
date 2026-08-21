@@ -211,7 +211,7 @@ def connect_step(tree: ContextTree, instructions: str) -> Step:
 
     cost = Cost.of(instructions)
     opening = instructions[:SELF_CONTAINED_PREFIX]
-    declared = len(tuple(tree.roles_by_level()))
+    declared = len(tuple(tree.index.roles_by_level()))
     listed, cut = _roster_lines(instructions)
 
     checks = [
@@ -433,7 +433,7 @@ def every_ref(tree: ContextTree) -> Iterator[str]:
     is — a truncated read of a deep spine tells you least.
     """
 
-    for ref, role in tree.roles_by_level():
+    for ref, role in tree.index.roles_by_level():
         yield ref
         # Sub-roles are skipped here rather than filtered out of `members()`:
         # the walk yields each of them at its own level, with its own members

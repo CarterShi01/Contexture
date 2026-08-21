@@ -357,7 +357,7 @@ class DepthTests(unittest.TestCase):
 
         self.assertEqual([c["ref"] for c in tree.skeleton()["roles"]], ["l1"])
         self.assertEqual(
-            [ref for ref, _ in tree.roles_with_refs()],
+            [ref for ref, _ in tree.index.roles_with_refs()],
             ["l1", "l1/l2", "l1/l2/l3", "l1/l2/l3/l4"],
         )
 
@@ -373,7 +373,7 @@ class DepthTests(unittest.TestCase):
                 for i in range(3)
             ],
         )
-        refs = [ref for ref, _ in ContextTree.of(wide).roles_by_level()]
+        refs = [ref for ref, _ in ContextTree.of(wide).index.roles_by_level()]
 
         self.assertEqual(refs[:4], ["root", "root/a0", "root/a1", "root/a2"])
 
@@ -567,7 +567,7 @@ class ReferenceTests(unittest.TestCase):
         question — a skill or a tool is exactly what either is reaching for.
         """
 
-        refs = {ref for ref, _ in _tree().nodes_with_refs()}
+        refs = {ref for ref, _ in _tree().index.nodes_with_refs()}
 
         self.assertIn("team", refs)
         self.assertIn("team/troubleshooter", refs)
@@ -706,7 +706,7 @@ class ReferenceTests(unittest.TestCase):
             )
         )
 
-        refs = [ref for ref, _ in tree.nodes_with_refs()]
+        refs = [ref for ref, _ in tree.index.nodes_with_refs()]
 
         self.assertEqual(len(refs), len(set(refs)))
         self.assertIn("team/troubleshooter/a", refs)
@@ -799,12 +799,12 @@ class ReferenceValidationTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            list(tree.crossings()),
+            list(tree.index.crossings()),
             [("team/troubleshooter/triage", "platform/operator/delete_pod", "platform")],
         )
 
     def test_a_reference_inside_one_root_is_not_a_crossing(self) -> None:
         self.assertEqual(
-            list(ReferenceTests._with_uses("team/operator/delete_pod").crossings()),
+            list(ReferenceTests._with_uses("team/operator/delete_pod").index.crossings()),
             [],
         )

@@ -50,10 +50,10 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Iterator, Sequence
+from typing import Any, AsyncIterator
 
-from ..errors import LookupFailure, ModelValidationError, NodeNotFoundError
-from .channels import Channels
+from ..errors import ModelValidationError
+from .channels import provisioned as _provisioned
 from .node import ContextNode
 from .role import Role
 from .skill import Skill
@@ -83,14 +83,15 @@ class ControllerManager:
     _roles: list[Role] = field(default_factory=list, repr=False)
     _skills: list[Skill] = field(default_factory=list, repr=False)
     _tools: list[Tool] = field(default_factory=list, repr=False)
-    _by_path: dict[tuple[str, ...], ContextNode] = field(
-        default_factory=dict, repr=False
-    )
-    #: `id()` keyed, and the node is held in `_by_path`, so an id cannot be
-    #: reused while it is still a key here.
-    _address_of: dict[int, tuple[str, ...]] = field(default_factory=dict, repr=False)
-    _parent_of: dict[int, ContextNode | None] = field(default_factory=dict, repr=False)
-    _by_kind: dict[str, list[ContextNode]] = field(default_factory=dict, repr=False)
+
+    #: Where each controller was already seen, `id()` keyed. The only table
+    #: registration keeps, and only for the length of registration: it refuses
+    #: one object held at two addresses and names both. Everything else that was
+    #: once indexed here — find, of_kind, parentage — is a fact *about* the
+    #: registered forest, and moved to `Index` when it stopped having a caller
+    #: here that was not the tree. A node stays alive as its parent's member, so
+    #: an id cannot be reused while it is still a key.
+    _seen: dict[int, tuple[str, ...]] = field(default_factory=dict, repr=False)
 
     # ---- lifecycle -------------------------------------------------------
 
@@ -115,15 +116,13 @@ class ControllerManager:
         out. What a call arriving after shutdown meets is therefore whatever
         that object's own `close` left behind — which is why `Channels.close`
         says to clear its references there.
+
+        The served path opens the handle through `Index`, over the same object
+        this would open; this stays for a test driving registration directly,
+        and both run the one shared helper so they cannot open it two ways.
         """
 
-        if not isinstance(self.channels, Channels):
-            # A handle with no lifecycle. Yielding what is already there saves
-            # a caller from having to ask which kind it is holding.
-            yield self.channels
-            return
-
-        async with self.channels.lifespan() as opened:
+        async with _provisioned(self.channels) as opened:
             yield opened
 
     # ---- registration ----------------------------------------------------
@@ -170,7 +169,7 @@ class ControllerManager:
                 "address beneath it, so the second one would make its whole "
                 "branch unreachable."
             )
-        self._absorb(root, (root.name,), parent=None, ancestors=())
+        self._absorb(root, (root.name,), ancestors=())
         bucket.append(root)
         return root
 
@@ -199,12 +198,18 @@ class ControllerManager:
         node: ContextNode,
         path: tuple[str, ...],
         *,
-        parent: ContextNode | None,
         ancestors: tuple[int, ...],
     ) -> None:
-        """Record one node and everything it holds, depth-first."""
+        """Stamp one node and everything it holds, depth-first.
 
-        seen_at = self._address_of.get(id(node))
+        Registration assigns each node its address and its handle, and refuses
+        the two shapes only a walk of the whole forest can catch: one object
+        held at two addresses, and one that contains itself. What the addresses
+        are *for* — resolving a ref, listing a kind — is `Index`'s question, and
+        this keeps none of the tables that would answer it.
+        """
+
+        seen_at = self._seen.get(id(node))
         if seen_at is not None:
             if id(node) in ancestors:
                 raise ModelValidationError(
@@ -227,15 +232,12 @@ class ControllerManager:
             # ordinary case while the server still builds its own — and the one
             # that was given channels must win over the one that was not.
             node.channels = self.channels
-        self._address_of[id(node)] = path
-        self._by_path[path] = node
-        self._parent_of[id(node)] = parent
-        self._by_kind.setdefault(node.kind, []).append(node)
+        self._seen[id(node)] = path
 
         if isinstance(node, Role):
             below = ancestors + (id(node),)
             for member in node.members():
-                self._absorb(member, path + (member.name,), parent=node, ancestors=below)
+                self._absorb(member, path + (member.name,), ancestors=below)
 
     def rebind_channels(self, channels: Any) -> None:
         """Point every registered controller at a different handle.
@@ -247,10 +249,10 @@ class ControllerManager:
         """
 
         self.channels = channels
-        for node in self._by_path.values():
-            node.channels = channels
+        for root in self.roots:
+            _restamp(root, channels)
 
-    # ---- queries ---------------------------------------------------------
+    # ---- what was registered ---------------------------------------------
 
     @property
     def roles(self) -> tuple[Role, ...]:
@@ -281,102 +283,22 @@ class ControllerManager:
 
         return (*self._roles, *self._skills, *self._tools)
 
-    def find(self, path: Sequence[str]) -> ContextNode:
-        """Return the one controller at `path`.
-
-        One dictionary lookup rather than a walk, and the walk that remains is
-        only to say *where* a miss happened: a caller that reached for
-        `a/b/c` is owed the segment that failed, not the whole address back.
-        """
-
-        segments = tuple(path)
-        if not segments:
-            raise NodeNotFoundError(reason=LookupFailure.EMPTY_REF)
-        found = self._by_path.get(segments)
-        if found is not None:
-            return found
-
-        # A miss costs one more pass, and it buys the facts the failure has to
-        # carry: which segment failed, what was holding it, and what that thing
-        # does hold. An agent reads this and tries something else, so an
-        # accurate list is the difference between a retry and a guess.
-        if segments[:1] not in self._by_path:
-            raise NodeNotFoundError(
-                reason=LookupFailure.NO_SUCH_ROOT,
-                segment=segments[0],
-                scope=segments[0],
-                known=sorted(root.name for root in self.roots),
-            )
-        for depth in range(2, len(segments) + 1):
-            if segments[:depth] in self._by_path:
-                continue
-            held = self._by_path[segments[: depth - 1]]
-            if not isinstance(held, Role):
-                raise NodeNotFoundError(
-                    reason=LookupFailure.NOT_A_CONTAINER,
-                    segment=segments[depth - 1],
-                    scope=held.name,
-                    kind=held.kind,
-                )
-            raise NodeNotFoundError(
-                reason=LookupFailure.NO_SUCH_MEMBER,
-                segment=segments[depth - 1],
-                scope=held.name,
-                kind=held.kind,
-                known=sorted(member.name for member in held.members()),
-            )
-        raise NodeNotFoundError(  # pragma: no cover - the loop above is total
-            reason=LookupFailure.NO_SUCH_MEMBER, segment=segments[-1]
-        )
-
-    def address_of(self, node: ContextNode) -> tuple[str, ...] | None:
-        """Where a registered node hangs, or None if this manager never saw it."""
-
-        return self._address_of.get(id(node))
-
-    def parent_of(self, node: ContextNode) -> ContextNode | None:
-        """The controller holding `node`, or None for a root."""
-
-        return self._parent_of.get(id(node))
-
-    def children_of(self, node: ContextNode) -> tuple[ContextNode, ...]:
-        """Everything `node` holds, one level down and in declared order."""
-
-        if not isinstance(node, Role):
-            return ()
-        return tuple(node.members())
-
-    def of_kind(self, kind: str) -> tuple[ContextNode, ...]:
-        """Every registered controller of one kind, in registration order.
-
-        The flat view of the graph: all the tools, wherever they hang. It is
-        what an audit, a metric, or a startup check wants, and none of those
-        should have to walk a forest to ask a question about a kind.
-        """
-
-        return tuple(self._by_kind.get(kind, ()))
-
-    def walk(self) -> Iterator[tuple[tuple[str, ...], ContextNode]]:
-        """Yield every `(path, controller)` pair, depth-first, in order."""
-
-        yield from self._by_path.items()
-
     # ---- sealing ---------------------------------------------------------
 
     def sealed(self, *, bind: Any = None) -> Any:
-        """Close this registry and return the view an agent is disclosed.
+        """Compile this registry into the frozen view an agent is disclosed.
 
         Registration is additive and mutable; disclosure is neither. Sealing is
-        the line between the two phases, and it is the moment the checks that
-        need the **whole** forest can finally run — a skill in the first root
-        may name a capability in the third, so `uses` has no answer until
-        nothing more is coming.
+        the line between the two phases, and it is where the checks that need
+        the **whole** forest finally run — a skill in the first root may name a
+        capability in the third, so `uses` has no answer until nothing more is
+        coming. Those checks now live on `Index`, which is what a sealed view is
+        built over; this is the shorthand that reads as one step in `main`.
 
-        Nothing is frozen by this call. `ContextTree` is frozen, and a manager
-        that is registered into afterwards simply yields a different view the
-        next time it is sealed; what must not happen is a graph changing under
-        a tree that is already serving, which is `Role`'s rule and not this
-        method's to enforce.
+        Nothing here is frozen. `Index` is frozen, and a manager registered into
+        afterwards simply compiles a different one the next time; what must not
+        happen is a graph changing under a view already serving, which is
+        `Role`'s rule and not this method's to enforce.
         """
 
         # Imported here rather than at the top because the view imports this
@@ -385,14 +307,17 @@ class ControllerManager:
         from .tree import ContextTree
 
         if bind is None:
-            return ContextTree(manager=self)
-        return ContextTree(manager=self, bind=bind)
+            return ContextTree.of(self)
+        return ContextTree.of(self, bind=bind)
 
-    def __len__(self) -> int:
-        return len(self._by_path)
 
-    def __contains__(self, path: object) -> bool:
-        return isinstance(path, tuple) and path in self._by_path
+def _restamp(node: ContextNode, channels: Any) -> None:
+    """Point one node and everything it holds at a handle, depth-first."""
+
+    node.channels = channels
+    if isinstance(node, Role):
+        for member in node.members():
+            _restamp(member, channels)
 
 
 def register_root(registry: ControllerManager, root: Any) -> None:

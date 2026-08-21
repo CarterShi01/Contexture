@@ -299,14 +299,14 @@ class SignpostTests(unittest.TestCase):
     """What a direct arrival is owed, and what it is deliberately not told."""
 
     def test_a_direct_arrival_is_told_how_many_siblings_it_skipped(self) -> None:
-        levels = _api().tree.signpost(DIAGNOSE)
+        levels = _api().tree.index.signpost(DIAGNOSE)
 
         self.assertEqual(levels, ((ROOT, 2), (RESPONSE, 0)))
 
     def test_it_never_names_them(self) -> None:
         """Naming them would re-buy the level the direct arrival just saved."""
 
-        rendered = str(_api().tree.signpost(DIAGNOSE))
+        rendered = str(_api().tree.index.signpost(DIAGNOSE))
 
         self.assertNotIn("deployment-ops", rendered)
 
