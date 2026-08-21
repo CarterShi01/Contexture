@@ -2,12 +2,12 @@
 
 MCP tool lists are flat and, since the 2026-07-28 revision, stateless: a server
 may not vary them per connection or as a consequence of an earlier call. So a
-capability that is registered is a capability every session pays for, forever,
-whatever the user asked. The only way a tool becomes deferrable is for it not
-to be on the surface at all — its name, description and schema travel inside a
-payload instead, and arrive when the role holding it is opened.
+capability that is registered is one every session pays for, forever, whatever
+the user asked. The only way a tool becomes deferrable is for it not to be on
+the surface at all — its name, description and schema travel inside a payload
+and arrive when the role holding it is opened.
 
-What is on the surface is four tools, whatever the declaration contains::
+What is on the surface is four tools, whatever the declaration contains:
 
     contexture_discover              the root roles, one level
     contexture_open                  one node's detail, plus its members' cards
@@ -21,9 +21,9 @@ can see which of the two doors was used, and each door carries the matching
 refused rather than executed, which is the same protection as never letting the
 classification be an argument, relocated to where the host can still act on it.
 
-Nothing is checked in this plane's constructor because a business declares
-nothing on it. It is a class all the same, so that `build` reads as three
-planes rather than two planes and an exception.
+Nothing is checked in this door's constructor because a business declares
+nothing on it. It is a class all the same, so that a surface reads as three
+doors rather than two doors and an exception.
 """
 
 from __future__ import annotations
@@ -33,26 +33,25 @@ from typing import Any
 from mcp.server.mcpserver import Context, MCPServer
 from mcp_types import ToolAnnotations
 
-from ..assembly import Assembly
-from ...core.model.system_api import GATEWAY
+from ...core.model.system_api import GATEWAY, SystemAPI
 from ...core.types import CompiledContext
 from . import translated
 
 
-class Gateway:
+class Tools:
     """The fixed four. Nothing a declaration says changes them."""
 
-    __slots__ = ("_assembly",)
+    __slots__ = ("_api",)
 
-    def __init__(self, assembly: Assembly) -> None:
-        self._assembly = assembly
+    def __init__(self, api: SystemAPI) -> None:
+        self._api = api
 
-    def project(self, surface: MCPServer) -> None:
-        api = self._assembly.api
+    def install(self, wire: MCPServer) -> None:
+        api = self._api
 
-        # Four wrappers holding no rules of their own. Each exists for one
-        # thing the kernel cannot have: an SDK `Context` to thread through, and
-        # a signature for the SDK to derive this entry point's own schema from.
+        # Four wrappers holding no rules of their own. Each exists for one thing
+        # the kernel cannot have: an SDK `Context` to thread through, and a
+        # signature for the SDK to derive this entry point's own schema from.
         async def contexture_discover() -> CompiledContext:
             with translated():
                 return await api.discover()
@@ -93,7 +92,7 @@ class Gateway:
         # "the surface is exactly these four, described exactly this way" is a
         # fact about one tuple instead of an agreement between eight places.
         for entry in GATEWAY:
-            surface.add_tool(
+            wire.add_tool(
                 implementations[entry.name],
                 name=entry.name,
                 description=entry.description,
@@ -101,4 +100,4 @@ class Gateway:
             )
 
 
-__all__ = ["Gateway"]
+__all__ = ["Tools"]

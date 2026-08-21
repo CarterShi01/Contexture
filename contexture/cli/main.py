@@ -33,7 +33,8 @@ from .project import (
 from .scaffold import available_templates, new_project
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from ..server import ContextureOptions
+    from ..core.model.disclosure import Disclosure
+    from ..server import ContextureOptions, ContextureServer
 
 def command_new(args: argparse.Namespace) -> int:
     root = new_project(args.name, destination=args.into, template=args.template)
@@ -68,20 +69,27 @@ def command_list(args: argparse.Namespace) -> int:
     return 0
 
 
-def _assembled(serving: Serving):
-    """Register, seal, and hand back the assembly — `main()`'s three steps.
+def _compiled(serving: Serving) -> "Disclosure":
+    """Register, compile, and hand back the view — `main()`'s middle steps.
 
-    The same five objects a project writes by hand, in the same order. What
-    differs is only where each one is named: here from a `[tool.contexture]`
-    table, there from an import. Two doors, one flow — which is what keeps a
-    newcomer learning one path instead of two.
+    The same objects a project writes by hand, in the same order. What differs
+    is only where each one is named: here from a `[tool.contexture]` table,
+    there from an import. Two doors, one flow — which is what keeps a newcomer
+    learning one path instead of two.
+
+    What `inspect` replays is the disclosure a model receives; the published
+    prompts and resources are a person's and a host's doors, not part of that
+    trace, so the compiled index is all this needs. The schema on a card comes
+    from the real binding, which is the whole point of the command.
 
     Imported here, not at module scope: `new` and `list` must work in an
     environment that has no SDK, and only the commands calling this need one.
     """
 
+    from ..core.model.disclosure import Disclosure
+    from ..core.model.index import Index
     from ..core.model.manager import ControllerManager, register_root
-    from ..server import Assembly, TypeHintBinding
+    from ..server import TypeHintBinding
 
     project = serving.project
     # `load_roots` is what puts the project on `sys.path`, so it runs before
@@ -93,10 +101,7 @@ def _assembled(serving: Serving):
     for root in roots:
         register_root(manager, root)
 
-    return Assembly.of(
-        manager.sealed(bind=TypeHintBinding),
-        published=load_published(serving.publish, project=project),
-    )
+    return Disclosure(Index.of(manager, bind=TypeHintBinding))
 
 
 def command_inspect(args: argparse.Namespace) -> int:
@@ -122,20 +127,20 @@ def command_inspect(args: argparse.Namespace) -> int:
             "project, or name one with --target, to read your own.",
             file=sys.stderr,
         )
-    assembly = _assembled(serving)
+    view = _compiled(serving)
 
     instructions = instructions_module.build(
-        assembly.tree,
+        view,
         budget=(
             args.roster_budget
             if args.roster_budget is not None
             else instructions_module.ROSTER_BUDGET
         ),
     )
-    refs = list(inspection.every_ref(assembly.tree)) if args.all else list(args.refs)
+    refs = list(inspection.every_ref(view)) if args.all else list(args.refs)
 
     traced = inspection.trace(
-        assembly.tree,
+        view,
         refs,
         instructions=instructions,
         discover=not args.no_discover,
@@ -178,26 +183,49 @@ def serve_options(args: argparse.Namespace) -> "ContextureOptions":
 
 
 def command_demo(args: argparse.Namespace) -> int:
-    """Serve the bundled reference application, to prove an install works."""
+    """Serve the bundled reference application, to prove an install works.
 
-    from ..server import ContextureServer
+    Built the same way any project is — through `_server`, from the demo's
+    targets — rather than by importing the demo, so this command line depends on
+    nothing above it.
+    """
 
-    assembly = _assembled(
-        Serving(roots=(DEMO_TARGET,), name="contexture-demo", publish=(DEMO_PUBLISH,))
+    serving = Serving(
+        roots=(DEMO_TARGET,), name="contexture-demo", publish=DEMO_PUBLISH
     )
-    ContextureServer(assembly, name="contexture-demo").start(serve_options(args))
+    _server(serving).start(serve_options(args))
     return 0
 
 
 def command_serve(args: argparse.Namespace) -> int:
+    serving = _targets_and_project(args.target)
+    _server(serving).start(serve_options(args))
+    return 0
+
+
+def _server(serving: Serving) -> "ContextureServer":
+    """Register, compile, and open the doors — a project's whole `main`, from a table.
+
+    The published entries are sorted into their two planes here, at the one call
+    site that cannot name the kind at author time: a `[tool.contexture]` table
+    lists strings, and which plane each names is only knowable once it is
+    resolved. Everywhere a person writes the entry point by hand, they name the
+    plane directly with `prompts=` and `resources=`.
+    """
+
+    from ..core.mcp_interface import published as _published
+    from ..core.mcp_interface.prompt import Prompt
+    from ..core.mcp_interface.resource import Resource
     from ..server import ContextureServer
 
-    serving = _targets_and_project(args.target)
-    assembly = _assembled(serving)
-    ContextureServer(assembly, name=serving.name or "contexture").start(
-        serve_options(args)
+    view = _compiled(serving)
+    entries = [_published(entry) for entry in load_published(serving.publish, project=serving.project)]
+    return ContextureServer(
+        view.index,
+        name=serving.name or "contexture",
+        prompts=[entry for entry in entries if isinstance(entry, Prompt)],
+        resources=[entry for entry in entries if isinstance(entry, Resource)],
     )
-    return 0
 
 
 def _display_path(path: Path) -> str:

@@ -12,14 +12,12 @@ the SDK calls, the dispatch, and every sentence said to whoever is reading.
 The responsibilities change at different rates, so they are separate modules
 rather than one:
 
-    assembly        the join of the two `core` planes: a tree, the four calls
-                    bound to it, and what is published against it
-    server          the container: one sealed assembly, built and served
+    surface/        the doors this server opens, one module per MCP primitive,
+                    and the `Surface` that installs them. Moves when the SDK does.
+    server          the container: one compiled index, built and served
     options         how to serve it — transport, address, who may knock
     binding         the one seam `core` opens: a tool's schema, and running it
                     with its arguments checked and its caller in reach
-    projection/     hanging that assembly on the SDK's three primitives, one
-                    module per primitive. Moves when the SDK does.
     identity        who is calling: the socket a business plugs its token
                     verifier into, and the protocol facts around it. Moves
                     when the authorization specification does.
@@ -72,10 +70,14 @@ _EXPORTS = {
     "PREAMBLE": ".messages",
     "unresolved": "..core.model.system_api",
     "TypeHintBinding": ".binding",
-    "Assembly": ".assembly",
-    "Gateway": ".projection",
-    "Prompts": ".projection",
-    "Resources": ".projection",
+    "Surface": ".surface",
+    # A server serves a compiled index, and the tool plane it is handed is
+    # fixed. Both are `core`, and both are forwarded here because building a
+    # server is where a caller reaches for them — the same way the four entry
+    # points are forwarded above.
+    "Index": "..core.model.index",
+    "TOOLS": "..core.mcp_interface",
+    "ToolPlane": "..core.mcp_interface",
     "Launch": ".launch",
     "claude_code_config": ".launch",
     "cli_commands": ".launch",

@@ -80,7 +80,7 @@ def _index(server) -> Index:
     the index is what it was sealed over — there is no second copy.
     """
 
-    return server.assembly.tree.index
+    return server.surface.tree.index
 
 
 def _node(reg, *segments):
@@ -135,7 +135,7 @@ class HandOffTests(unittest.TestCase):
             catalogue={"runbook": "-"},
         )
         server = fixture.build(channels=channels)
-        index = server.assembly.tree.index
+        index = server.surface.tree.index
         tool = _node(index, "operations", "escalation", "notify_squad")
 
         self.assertIs(tool.channels, channels)

@@ -30,11 +30,17 @@ class ToolPrimitiveTests(unittest.TestCase):
         The other two primitives grow an entry per declared `Prompt` or
         `Resource`. This one cannot: a listed capability is one every session
         pays for forever, so the plane is the framework's own and a business
-        extends it by extending nothing.
+        extends it by extending nothing — a rule the type now carries, since
+        `ToolPlane` refuses to be subclassed.
         """
 
-        self.assertEqual(len(primitive.PUBLISHED), 4)
-        self.assertEqual(primitive.PUBLISHED[0], primitive.DISCOVER_TOOL)
+        self.assertEqual(len(primitive.TOOLS.names), 4)
+        self.assertEqual(primitive.TOOLS.names[0], primitive.DISCOVER_TOOL)
+
+        with self.assertRaises(TypeError):
+
+            class Extended(primitive.ToolPlane):  # type: ignore[misc]
+                pass
 
     def test_the_names_here_are_the_names_that_are_implemented(self) -> None:
         """Two modules, one list, and no way for them to drift apart.
@@ -46,7 +52,7 @@ class ToolPrimitiveTests(unittest.TestCase):
 
         from contexture.core.model.system_api import GATEWAY_TOOLS
 
-        self.assertEqual(set(primitive.PUBLISHED), set(GATEWAY_TOOLS))
+        self.assertEqual(set(primitive.TOOLS.names), set(GATEWAY_TOOLS))
 
 
 class PreambleTests(unittest.TestCase):

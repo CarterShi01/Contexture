@@ -26,7 +26,6 @@ from contexture.core.model.tool import Tool
 from mcp.server.mcpserver import Context, MCPServer
 from contexture.server import instructions
 from contexture.server.binding import TypeHintBinding
-from contexture.server.projection import Gateway, Prompts, Resources
 from contexture.core.model.disclosure import SEPARATOR, Disclosure
 from contexture.server import (
     DISCOVER_TOOL,
@@ -35,7 +34,7 @@ from contexture.server import (
     INVOKE_READ_ONLY_TOOL,
     INVOKE_TOOL,
     OPEN_TOOL,
-    Assembly,
+    Surface,
     claude_code_config,
     cli_commands,
     codex_config,
@@ -494,7 +493,7 @@ class StatelessnessTests(unittest.TestCase):
 
         app = serve(Responder)
         refs = []
-        for ref, role in app.assembly.tree.index.roles_with_refs():
+        for ref, role in app.surface.tree.index.roles_with_refs():
             refs.append(ref)
             refs.extend(
                 f"{ref}/{member.name}"
@@ -681,10 +680,10 @@ class ToolDisclosureTests(unittest.TestCase):
 
         card = next(
             tool
-            for tool in app.assembly.tree.open("responder")["tools"]
+            for tool in app.surface.tree.open("responder")["tools"]
             if tool["name"] == "get_pod_logs"
         )
-        opened = app.assembly.tree.open("responder/get_pod_logs")
+        opened = app.surface.tree.open("responder/get_pod_logs")
 
         self.assertEqual(opened["input_schema"], card["input_schema"])
         self.assertEqual(opened["read_only"], card["read_only"])
@@ -698,7 +697,7 @@ class ToolDisclosureTests(unittest.TestCase):
         """
 
         app = serve(Responder)
-        schema = app.assembly.tree.open("responder/get_pod_logs")["input_schema"]
+        schema = app.surface.tree.open("responder/get_pod_logs")["input_schema"]
 
         self.assertNotIn("title", schema)
         self.assertEqual(
@@ -732,7 +731,7 @@ class ToolDisclosureTests(unittest.TestCase):
                 )
 
         app = serve(Notes)
-        schema = app.assembly.tree.open("notes/publish")["input_schema"]
+        schema = app.surface.tree.open("notes/publish")["input_schema"]
 
         self.assertEqual(sorted(schema["properties"]), ["body", "title"])
         self.assertNotIn("title", schema["properties"]["title"])
@@ -792,8 +791,8 @@ class ToolDisclosureTests(unittest.TestCase):
                 )
 
         app = serve(Slow)
-        opened = app.assembly.tree.open("slow/progressing")
-        card = app.assembly.tree.open("slow")["tools"][0]
+        opened = app.surface.tree.open("slow/progressing")
+        card = app.surface.tree.open("slow")["tools"][0]
 
         for payload in (opened, card):
             with self.subTest(payload=payload.get("ref")):
@@ -983,14 +982,11 @@ class CommandPlaneTests(unittest.IsolatedAsyncioTestCase):
         tree: Disclosure,
         publish: tuple[Prompt, ...] | None = None,
     ) -> MCPServer:
-        assembly = Assembly.of(
-            tree,
-            published=self._published() if publish is None else publish,
-        )
-        surface = MCPServer(name="oc", version="0", instructions="x")
-        for plane in (Gateway(assembly), Prompts(assembly), Resources(assembly)):
-            plane.project(surface)
-        return surface
+        prompts = self._published() if publish is None else publish
+        surface = Surface.of(tree, prompts=prompts)
+        wire = MCPServer(name="oc", version="0", instructions="x")
+        surface.install(wire)
+        return wire
 
     async def test_only_a_marked_node_reaches_the_prompt_plane(self) -> None:
         """The command surface is authored, not derived from the forest.

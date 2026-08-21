@@ -27,8 +27,8 @@ from contexture import (
     Skill,
     Tool,
 )
+from contexture.core.model.index import Index
 from contexture.server import (
-    Assembly,
     ContextureOptions,
     ContextureServer,
     TypeHintBinding,
@@ -126,13 +126,15 @@ class Operations(Role):
         )
 
 
-PUBLISHED = (
+DOCUMENTS = (
     Resource(
         opens="operations/escalation/runbook",
         uri="contexture://runbooks/escalation",
         mime_type="text/markdown",
         description="How to escalate, as the gateway publishes it.",
     ),
+)
+COMMANDS = (
     Prompt(
         opens="operations/escalation/escalate",
         description="Escalate an incident to the owning squad.",
@@ -204,10 +206,10 @@ def build(*, channels: object | None = None) -> ContextureServer:
     )
     manager.register_role(Operations)
 
-    assembly = Assembly.of(
-        manager.sealed(bind=TypeHintBinding), published=PUBLISHED
+    index = Index.of(manager, bind=TypeHintBinding)
+    return ContextureServer(
+        index, name="channels-fixture", prompts=COMMANDS, resources=DOCUMENTS
     )
-    return ContextureServer(assembly, name="channels-fixture")
 
 
 def main() -> None:

@@ -2,8 +2,8 @@
 
 MCP's resource primitive is the *application-controlled* one — a host decides
 when to read one, without asking a model and without a person picking it. Each
-entry names a node the tree already holds, so a procedure can cite a document
-by the name the document gives itself and a model can reach the same bytes by
+entry names a node the tree already holds, so a procedure can cite a document by
+the name the document gives itself and a model can reach the same bytes by
 navigating to it. One capability, two addresses; not two declarations that can
 disagree.
 """
@@ -16,7 +16,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.resources import FunctionResource
 
 from ...core.errors import ModelValidationError
-from ..assembly import Assembly
+from ...core.mcp_interface.resource import Resource
 from ...core.model.system_api import SystemAPI
 from . import published_name, translated
 
@@ -24,9 +24,9 @@ from . import published_name, translated
 class Resources:
     """The declared documents, checked against what they name."""
 
-    __slots__ = ("_assembly",)
+    __slots__ = ("_api", "_entries")
 
-    def __init__(self, assembly: Assembly) -> None:
+    def __init__(self, api: SystemAPI, entries: tuple[Resource, ...]) -> None:
         """Refuse a resource that does not name content already sitting there.
 
         A resource is *fetched*, not computed: two reads return the same bytes
@@ -41,10 +41,10 @@ class Resources:
         same-named nodes apart.
         """
 
-        tree = assembly.tree
+        tree = api.tree
         names: dict[str, str] = {}
         uris: dict[str, str] = {}
-        for entry in assembly.resources:
+        for entry in entries:
             name = published_name(entry)
             if name in names:
                 raise ModelValidationError(
@@ -69,16 +69,17 @@ class Resources:
                 )
             if tree.schema_of(tool).get("properties"):
                 raise ModelValidationError(
-                    f"Resource {entry.uri!r} names {entry.opens!r}, which "
-                    "takes arguments. A host reads a resource with none, so "
-                    "what it names has to answer with none."
+                    f"Resource {entry.uri!r} names {entry.opens!r}, which takes "
+                    "arguments. A host reads a resource with none, so what it "
+                    "names has to answer with none."
                 )
-        self._assembly = assembly
+        self._api = api
+        self._entries = entries
 
-    def project(self, surface: MCPServer) -> None:
-        api = self._assembly.api
-        for entry in self._assembly.resources:
-            surface.add_resource(
+    def install(self, wire: MCPServer) -> None:
+        api = self._api
+        for entry in self._entries:
+            wire.add_resource(
                 FunctionResource.from_function(
                     _reader(api, entry.opens),
                     uri=entry.uri,
@@ -92,14 +93,14 @@ class Resources:
 def _reader(api: SystemAPI, ref: str) -> Callable[[], Awaitable[Any]]:
     """Build the function a host calls when it reads this resource.
 
-    Resolved per call rather than captured, for the same reason a command's
-    text is assembled per call: one node reached two ways must not be able to
-    answer two different things.
+    Resolved per call rather than captured, for the same reason a command's text
+    is assembled per call: one node reached two ways must not be able to answer
+    two different things.
 
-    Through the kernel, like the other two doors. Until ADR 016 this reached
-    the tool directly, which left one of the three paths into a capability
-    without argument validation and without a caller's identity in reach of the
-    code that runs.
+    Through the kernel, like the other two doors. Until ADR 016 this reached the
+    tool directly, which left one of the three paths into a capability without
+    argument validation and without a caller's identity in reach of the code
+    that runs.
     """
 
     async def read() -> Any:

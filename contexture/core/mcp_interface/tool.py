@@ -33,19 +33,52 @@ from ..constants import (
     OPEN_TOOL,
 )
 
-#: Every name on this primitive, in the order they are registered. Four,
-#: whatever the declaration contains.
-PUBLISHED = (
-    DISCOVER_TOOL,
-    OPEN_TOOL,
-    INVOKE_READ_ONLY_TOOL,
-    INVOKE_TOOL,
-)
+from typing import ClassVar, final
+
+
+@final
+class ToolPlane:
+    """The tool plane, as a type a business cannot extend.
+
+    The other two planes are classes a declaration subclasses: a `Prompt` names
+    a node a person may trigger, a `Resource` one a host may take up. This one
+    ships no such base, and that absence *is* the rule — but an absence is hard
+    to see, and a server signature that simply omitted a `tools=` parameter
+    would read as an oversight rather than a decision.
+
+    So the plane is a value with exactly one instance, `TOOLS`, and a type that
+    refuses to be subclassed. `ContextureServer(index, tools=TOOLS, prompts=…,
+    resources=…)` then reads as a table: three planes, and the one whose
+    argument you cannot vary is the one you cannot extend. The type is the rule,
+    where before it was a paragraph.
+    """
+
+    #: Every name on this plane, in registration order. Four, whatever the
+    #: declaration contains — business capabilities travel inside payloads.
+    names: ClassVar[tuple[str, ...]] = (
+        DISCOVER_TOOL,
+        OPEN_TOOL,
+        INVOKE_READ_ONLY_TOOL,
+        INVOKE_TOOL,
+    )
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        raise TypeError(
+            "The tool plane is not extensible: a business capability reaches an "
+            "agent inside a payload, not by being registered here. See this "
+            "module's docstring."
+        )
+
+
+#: The one instance. What a server is handed for its tool plane, and the only
+#: value that argument can take.
+TOOLS = ToolPlane()
 
 __all__ = [
     "DISCOVER_TOOL",
     "INVOKE_READ_ONLY_TOOL",
     "INVOKE_TOOL",
     "OPEN_TOOL",
-    "PUBLISHED",
+    "TOOLS",
+    "ToolPlane",
 ]

@@ -1,14 +1,19 @@
-"""Register, seal and serve — `main()`'s three steps, for a test.
+"""Register, compile and serve — `main()`'s steps, for a test.
 
-Not part of the framework. A business `main()` writes these five lines out in
-full, because every object in them is one it makes a decision about; a test
-makes the same decisions the same way every time, so it says so once here.
+Not part of the framework. A business `main()` writes these lines out in full,
+because every object in them is one it makes a decision about; a test makes the
+same decisions the same way every time, so it says so once here.
 
     server = serve(Responder)                    # one root, nothing published
     server = serve(Responder, published=(DOC,))  # …and one document
 
-`assembly` and `tree` are reachable from what comes back, which is what the
-tests that used to read `app.tree` want.
+`published` is a convenience this helper keeps: a test states a mixed tuple and
+it is sorted into the two planes here, the way `cli` sorts a project's publish
+table. The framework itself takes the two typed lists apart — `prompts=` and
+`resources=` on `ContextureServer`.
+
+`surface` and `tree` are reachable from what comes back, which is what the tests
+that read `app.surface.tree` want.
 """
 
 from __future__ import annotations
@@ -16,8 +21,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Sequence
 
+from contexture.core.mcp_interface import published as _published
+from contexture.core.mcp_interface.prompt import Prompt
+from contexture.core.mcp_interface.resource import Resource
+from contexture.core.model.disclosure import Disclosure
+from contexture.core.model.index import Index
 from contexture.core.model.manager import ControllerManager, register_root
-from contexture.server import Assembly, ContextureServer, TypeHintBinding
+from contexture.server import ContextureServer, Surface, TypeHintBinding
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,23 +49,35 @@ class Marked:
         return await self.tool.invoke(**(arguments or {}))
 
 
+def compiled(
+    roots: Any,
+    *,
+    channels: Any = None,
+    bind: Any = TypeHintBinding,
+) -> Index:
+    """Register one root or many — class or instance — and compile the index."""
+
+    manager = ControllerManager(channels=channels)
+    for root in _each(roots):
+        register_root(manager, root)
+    return Index.of(manager, bind=bind)
+
+
 def assemble(
     roots: Any,
     *,
     published: Sequence[Any] = (),
     channels: Any = None,
     bind: Any = TypeHintBinding,
-) -> Assembly:
-    """Seal one graph. `roots` is one root or many, class or instance.
+) -> Surface:
+    """The surface behind a served graph, for a test that wants it without a wire."""
 
-    `bind` is named only by the tests asking what a binding does. Everywhere
-    else it is an implementation detail of sealing.
-    """
-
-    manager = ControllerManager(channels=channels)
-    for root in _each(roots):
-        register_root(manager, root)
-    return Assembly.of(manager.sealed(bind=bind), published=published)
+    prompts, resources = _split(published)
+    return Surface.of(
+        Disclosure(compiled(roots, channels=channels, bind=bind)),
+        prompts=prompts,
+        resources=resources,
+    )
 
 
 def serve(
@@ -69,10 +91,23 @@ def serve(
 ) -> ContextureServer:
     """The same, wrapped in the server that would put it on a wire."""
 
+    prompts, resources = _split(published)
     return ContextureServer(
-        assemble(roots, published=published, channels=channels, bind=bind),
+        compiled(roots, channels=channels, bind=bind),
         name=name,
+        prompts=prompts,
+        resources=resources,
         **kwargs,
+    )
+
+
+def _split(published: Sequence[Any]) -> tuple[list[Any], list[Any]]:
+    """One mixed tuple into the two typed lists the framework takes apart."""
+
+    entries = [_published(entry) for entry in published]
+    return (
+        [entry for entry in entries if isinstance(entry, Prompt)],
+        [entry for entry in entries if isinstance(entry, Resource)],
     )
 
 

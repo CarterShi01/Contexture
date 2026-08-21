@@ -84,8 +84,8 @@ def capture() -> dict[str, str]:
 
     holder = build()
     wire = holder.build()
-    tree = holder.assembly.tree
-    api = holder.assembly.api
+    tree = holder.surface.tree
+    api = holder.surface.api
 
     files: dict[str, str] = {}
 

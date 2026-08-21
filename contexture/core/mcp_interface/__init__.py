@@ -18,7 +18,7 @@ putting it on a wire are two jobs, and only the second belongs to `server`.
 from ..errors import DeclarationError
 from .prompt import Prompt
 from .resource import Resource
-from .tool import PUBLISHED
+from .tool import TOOLS, ToolPlane
 
 
 def published(entry: object) -> Prompt | Resource:
@@ -42,8 +42,9 @@ def published(entry: object) -> Prompt | Resource:
 
 
 __all__ = [
-    "PUBLISHED",
     "Prompt",
     "Resource",
+    "TOOLS",
+    "ToolPlane",
     "published",
 ]

@@ -15,8 +15,8 @@ from __future__ import annotations
 import sys
 
 from contexture import ControllerManager, Principal, Role, Tool, current_principal
+from contexture.core.model.index import Index
 from contexture.server import (
-    Assembly,
     Auth,
     ContextureOptions,
     ContextureServer,
@@ -98,8 +98,8 @@ class Ops(Role):
 def build(port: int, *, secured: bool) -> tuple[ContextureServer, ContextureOptions]:
     manager = ControllerManager()
     manager.register_role(Ops)
-    assembly = Assembly.of(manager.sealed(bind=TypeHintBinding))
-    server = ContextureServer(assembly, name="http-fixture")
+    index = Index.of(manager, bind=TypeHintBinding)
+    server = ContextureServer(index, name="http-fixture")
     options = ContextureOptions(
         transport="streamable-http",
         host="127.0.0.1",

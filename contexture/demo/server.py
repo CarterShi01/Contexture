@@ -17,9 +17,10 @@ from __future__ import annotations
 
 from contexture import ControllerManager, Prompt, Resource
 from contexture.server import (
-    Assembly,
+    TOOLS,
     ContextureOptions,
     ContextureServer,
+    Index,
     TypeHintBinding,
 )
 from .role import KubernetesPlatform
@@ -79,28 +80,34 @@ class RollBackARelease(Prompt):
         )
 
 
-PUBLISHED = (
-    CrashLoopRunbookDocument,
-    RollbackPolicyDocument,
-    RollBackARelease,
-)
+#: What a person may trigger by name, and what a host may take up on its own —
+#: two typed lists rather than one bag, so nothing downstream has to ask which
+#: kind an entry is. The tool plane takes none of these: a business capability
+#: reaches an agent inside a payload, never by being listed.
+COMMANDS = (RollBackARelease,)
+DOCUMENTS = (CrashLoopRunbookDocument, RollbackPolicyDocument)
 
 
 def build() -> ContextureServer:
-    """Everything between a declaration and a server, in five named objects.
+    """Everything between a declaration and a server, in four named steps.
 
     Split out from `main` so that a test — and `contexture demo` — can hold the
     server without also serving it. The order is the point, and it is the same
-    order a real `main` follows: register, seal, serve.
+    order a real `main` follows: register, compile, open the doors, serve.
     """
 
     manager = ControllerManager()
     manager.register_role(KubernetesPlatform)
 
-    tree = manager.sealed(bind=TypeHintBinding)
-    assembly = Assembly.of(tree, published=PUBLISHED)
+    index = Index.of(manager, bind=TypeHintBinding)
 
-    return ContextureServer(assembly, name="contexture-demo")
+    return ContextureServer(
+        index,
+        name="contexture-demo",
+        tools=TOOLS,
+        prompts=COMMANDS,
+        resources=DOCUMENTS,
+    )
 
 
 def main() -> None:

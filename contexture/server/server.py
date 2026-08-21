@@ -1,15 +1,19 @@
 """The object a business application hands to its host.
 
-A project builds its graph, seals it, and serves it::
+A project registers its graph, compiles it, and serves it::
 
     def main() -> None:
         manager = ControllerManager(channels=channels)
         manager.register_role(KubernetesPlatform)
 
-        tree     = manager.sealed(bind=TypeHintBinding)
-        assembly = Assembly.of(tree, published=PUBLISHED)
+        index = Index.of(manager, bind=TypeHintBinding)
 
-        server = ContextureServer(assembly, name="oc-goal")
+        server = ContextureServer(
+            index,
+            name="oc-goal",
+            prompts=[RollBackARelease],
+            resources=[CrashLoopRunbook, RollbackPolicy],
+        )
         server.start(ContextureOptions(transport="stdio"))
 
 Nothing above that last line mentions JSON-RPC, JSON Schema, stdio framing, or
@@ -17,12 +21,12 @@ any particular agent runtime. That is the whole claim the framework makes:
 declare once, and Claude Code, Codex, and anything else that speaks MCP connect
 to the same server.
 
-**It takes a sealed assembly and has no way to register anything.** That is the
+**It takes a compiled index and has no way to register anything.** That is the
 phase boundary, made structural rather than written down: you register into a
-`ControllerManager`, you seal it once, and only then does a server exist. There
-is no method here that could add a node to a graph that is already being
-served, which is what the protocol forbids and what a run-time flag could only
-complain about after the fact.
+`ControllerManager`, you compile it once into an `Index`, and only then does a
+server exist. There is no method here that could add a node to a graph that is
+already being served, which is what the protocol forbids and what a run-time
+flag could only complain about after the fact.
 
 **It deliberately does not subclass the SDK's `MCPServer`.** The runtime owns
 roles and disclosure; the SDK owns the wire. Keeping them as two objects that
@@ -47,12 +51,14 @@ import anyio
 from mcp.server.mcpserver import MCPServer
 
 from ..core.constants import PACKAGE_VERSION
-from .assembly import Assembly
+from ..core.mcp_interface.tool import TOOLS, ToolPlane
 from ..core.model.channels import Channels
+from ..core.model.disclosure import Disclosure
+from ..core.model.index import Index
 from . import instructions as instructions_module
 from .identity import Auth
 from .options import ContextureOptions, ServeError, Transport, configure_logging
-from .projection import Gateway, Prompts, Resources
+from .surface import Surface
 
 LOG = logging.getLogger(__name__)
 
@@ -60,17 +66,41 @@ LOG = logging.getLogger(__name__)
 class ContextureServer:
     """One sealed graph, served over MCP."""
 
-    __slots__ = ("_assembly", "name", "version", "instructions", "_built", "_auth")
+    __slots__ = ("_index", "_surface", "name", "version", "instructions", "_built", "_auth")
 
     def __init__(
         self,
-        assembly: Assembly,
+        index: Index,
         *,
         name: str = "contexture",
         version: str = PACKAGE_VERSION,
         instructions: str | None = None,
+        tools: ToolPlane = TOOLS,
+        prompts: Any = (),
+        resources: Any = (),
     ) -> None:
-        self._assembly = assembly
+        """Serve one compiled index, with what a person and a host may reach it by.
+
+        `tools` takes exactly one value and cannot take another — the tool plane
+        is not extensible (see `ToolPlane`). It is in the signature so the three
+        planes read as a table: the one whose argument you cannot vary is the one
+        you cannot add to. `prompts` and `resources` are the two you can.
+
+        The surface is built here, not at `build`, so a bad declaration is
+        refused while a caller still holds the traceback — the same moment the
+        index itself was compiled.
+        """
+
+        if not isinstance(tools, ToolPlane):
+            raise ServeError(
+                "The tool plane is fixed: pass `tools=TOOLS` or leave it. A "
+                "business capability reaches an agent inside a payload, not by "
+                "being registered on this plane."
+            )
+        self._index = index
+        self._surface = Surface.of(
+            Disclosure(index), prompts=prompts, resources=resources
+        )
         self.name = name
         self.version = version
         #: What a host reads before it calls anything. Derived from the tree
@@ -81,27 +111,36 @@ class ContextureServer:
         self._auth: Auth | None = None
 
     @property
-    def assembly(self) -> Assembly:
-        """What this server serves. Frozen, and the same object `main` sealed."""
+    def surface(self) -> Surface:
+        """What this server serves: its doors, and the view behind them."""
 
-        return self._assembly
+        return self._surface
+
+    @property
+    def index(self) -> Index:
+        """The compiled forest this server serves. Frozen."""
+
+        return self._index
 
     # ---- building --------------------------------------------------------
 
     def build(self, *, auth: Auth | None = None) -> MCPServer:
-        """Build the MCP server with all three planes hung on it.
+        """Install the surface on an SDK server, and return it.
 
         **Synchronous, and it stays that way.** Tests build a server and call
         into it directly, with no transport and no session, which is what lets
-        the disclosure model be exercised without the wire. So a lifecycle
-        wraps *serving* rather than *construction*, which is also what the
-        SDK's own `lifespan` hook does — verified entered and exited on both
-        the stdio and the streamable-HTTP path.
+        the disclosure model be exercised without the wire. So a lifecycle wraps
+        *serving* rather than *construction*, which is also what the SDK's own
+        `lifespan` hook does — verified entered and exited on both the stdio and
+        the streamable-HTTP path.
 
         **Idempotent.** `start` calls this, and a caller that built a server to
         look at it and then started it would otherwise be serving a second one.
         A different `auth` on a later call is refused rather than ignored,
         because only one of the two answers can be the one on the wire.
+
+        The surface was already built and validated in `__init__`; all that is
+        left here is to hang it on a fresh SDK server.
         """
 
         if self._built is not None:
@@ -113,30 +152,21 @@ class ContextureServer:
                 )
             return self._built
 
-        # Constructed before anything is written: each plane checks its own
-        # declarations here, while the SDK server does not yet exist. A refusal
-        # therefore leaves nothing half-registered behind it.
-        planes = (
-            Gateway(self._assembly),
-            Prompts(self._assembly),
-            Resources(self._assembly),
-        )
-        surface = self._surface(auth)
-        for plane in planes:
-            plane.project(surface)
+        wire = self._wire(auth)
+        self._surface.install(wire)
 
         self._auth = auth
-        self._built = surface
-        return surface
+        self._built = wire
+        return wire
 
-    def _surface(self, auth: Auth | None) -> MCPServer:
+    def _wire(self, auth: Auth | None) -> MCPServer:
         """The SDK object, told this server's identity and its lifecycle."""
 
         return MCPServer(
             name=self.name,
             version=self.version,
             instructions=self.instructions
-            or instructions_module.build(self._assembly.tree),
+            or instructions_module.build(self._surface.tree),
             **({"lifespan": self._lifespan} if self._opens_channels else {}),
             **(
                 {"auth": auth.settings(), "token_verifier": auth.sdk_verifier()}
@@ -149,7 +179,7 @@ class ContextureServer:
     def _opens_channels(self) -> bool:
         """Whether anything has to be opened before the first request."""
 
-        return isinstance(self._assembly.tree.registry.channels, Channels)
+        return isinstance(self._index.channels, Channels)
 
     @asynccontextmanager
     async def _lifespan(self, server: MCPServer) -> AsyncIterator[Any]:
@@ -161,7 +191,7 @@ class ContextureServer:
         no request context at all.
         """
 
-        async with self._assembly.tree.registry.provisioned() as opened:
+        async with self._index.provisioned() as opened:
             yield opened
 
     # ---- serving ---------------------------------------------------------

@@ -9,10 +9,10 @@ Two kinds of entry, and they are the same door addressed two ways:
     a declared command    carries its ref in its registration
     goto                  carries its ref in an argument, completed as it is typed
 
-Both go through `SystemAPI.open_for_a_person`, so a command and
-`contexture_open` cannot answer differently about one node. That matters more
-than it sounds: reaching a capability two ways and being told two different
-things about how to call it is worse than either answer alone.
+Both go through `SystemAPI.open_for_a_person`, so a command and `contexture_open`
+cannot answer differently about one node. That matters more than it sounds:
+reaching a capability two ways and being told two different things about how to
+call it is worse than either answer alone.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from mcp.server.mcpserver.prompts import Prompt as SDKPrompt
 from mcp_types import Completion
 
 from ...core.errors import ModelValidationError
-from ..assembly import Assembly
+from ...core.mcp_interface.prompt import Prompt
 from ...core.model.system_api import SystemAPI
 from .. import messages
 from . import published_name, translated
@@ -34,9 +34,9 @@ from . import published_name, translated
 class Prompts:
     """The declared commands, plus the one prompt that opens anything."""
 
-    __slots__ = ("_assembly",)
+    __slots__ = ("_api", "_entries")
 
-    def __init__(self, assembly: Assembly) -> None:
+    def __init__(self, api: SystemAPI, entries: tuple[Prompt, ...]) -> None:
         """Refuse two commands a person would reach the same way.
 
         A node's name only has to be unique among its siblings, because a ref
@@ -51,27 +51,27 @@ class Prompts:
         """
 
         seen: dict[str, str] = {}
-        for entry in assembly.prompts:
+        for entry in entries:
             name = published_name(entry)
             if name in seen:
                 raise ModelValidationError(
                     f"{seen[name]!r} and {entry.opens!r} are both exposed as "
-                    f"the prompt {name!r}. A ref tells them apart and a name "
-                    "in a menu cannot; rename one."
+                    f"the prompt {name!r}. A ref tells them apart and a name in "
+                    "a menu cannot; rename one."
                 )
             seen[name] = entry.opens
-        self._assembly = assembly
+        self._api = api
+        self._entries = entries
 
-    def project(self, surface: MCPServer) -> None:
-        assembly = self._assembly
-        api = assembly.api
+    def install(self, wire: MCPServer) -> None:
+        api = self._api
 
-        for entry in assembly.prompts:
-            node = assembly.tree.find(entry.opens)
+        for entry in self._entries:
+            node = api.tree.find(entry.opens)
             # No arguments: the node is fixed at registration, so there is
             # nothing for a person to fill in and nothing to complete. The
             # prompt *is* the argument.
-            surface.add_prompt(
+            wire.add_prompt(
                 SDKPrompt.from_function(
                     _command(api, entry.opens),
                     name=published_name(entry),
@@ -84,7 +84,7 @@ class Prompts:
         async def goto(ref: str) -> str:
             return await open_by_name(api, ref)
 
-        surface.add_prompt(
+        wire.add_prompt(
             SDKPrompt.from_function(
                 goto,
                 name=messages.GOTO_PROMPT,
@@ -92,9 +92,9 @@ class Prompts:
             )
         )
 
-        tree = assembly.tree
+        index = api.tree.index
 
-        @surface.completion()
+        @wire.completion()
         async def complete(ref: Any, argument: Any, context: Any) -> Completion | None:
             """Offer the tree's addresses while a person types one.
 
@@ -109,7 +109,7 @@ class Prompts:
             if argument.name != messages.GOTO_ARGUMENT:
                 return None
 
-            matches, total = tree.index.matching_refs(
+            matches, total = index.matching_refs(
                 argument.value, limit=messages.COMPLETION_LIMIT
             )
             values = list(matches)
@@ -126,9 +126,9 @@ class Prompts:
 def _command(api: SystemAPI, ref: str) -> Callable[[], Awaitable[str]]:
     """Build the one prompt that opens `ref`.
 
-    The text is assembled per call rather than at registration, so a command
-    and `contexture_open` cannot answer differently about the same node — a
-    snapshot taken at startup is a second copy waiting to disagree.
+    The text is assembled per call rather than at registration, so a command and
+    `contexture_open` cannot answer differently about the same node — a snapshot
+    taken at startup is a second copy waiting to disagree.
     """
 
     async def command() -> str:
@@ -140,17 +140,17 @@ def _command(api: SystemAPI, ref: str) -> Callable[[], Awaitable[str]]:
 async def open_by_name(api: SystemAPI, ref: str) -> str:
     """Render one node for a person who named it rather than navigated to it.
 
-    Shared by `goto` and by every declared command, which is what makes them
-    the same door with two ways of addressing it: a command carries the ref in
-    its registration, `goto` carries it in an argument, and a person gets the
-    same answer either way.
+    Shared by `goto` and by every declared command, which is what makes them the
+    same door with two ways of addressing it: a command carries the ref in its
+    registration, `goto` carries it in an argument, and a person gets the same
+    answer either way.
 
     It goes through the kernel's own `open`, by the door reserved for a person.
     That is what keeps the two planes from drifting: a command and
     `contexture_open` are one call with two sets of people allowed to make it,
     and `Prompt.model_may_open` reserves a node from a model while nothing
-    reserves one from a person — a tree holding capabilities its owner could
-    not read would be a strange thing to have built.
+    reserves one from a person — a tree holding capabilities its owner could not
+    read would be a strange thing to have built.
 
     The message is **the payload `contexture_open` would have returned**, plus
     signposts, so the two doors differ in who may knock and in nothing else.

@@ -27,10 +27,13 @@ CONFIG_TABLE = "contexture"
 #: `contexture inspect` run with no project in sight.
 DEMO_TARGET = "contexture.demo:KubernetesPlatform"
 
-#: What the demo publishes on the resource primitive. Named rather than
-#: imported, for the same reason its roots are: this module resolves the demo
-#: at run time and does not depend on it.
-DEMO_PUBLISH = "contexture.demo.server:PUBLISHED"
+#: What the demo publishes, one target per plane. Named rather than imported,
+#: for the same reason its roots are: this module resolves the demo at run time
+#: and does not depend on it.
+DEMO_PUBLISH = (
+    "contexture.demo.server:COMMANDS",
+    "contexture.demo.server:DOCUMENTS",
+)
 
 def find_project(start: Path | None = None) -> Path | None:
     """Walk up for the nearest `pyproject.toml` carrying our table."""
@@ -347,7 +350,7 @@ def _targets_and_project(target: str | None, *, or_demo: bool = False) -> Servin
             return Serving(
                 roots=(DEMO_TARGET,),
                 name="contexture-demo",
-                publish=(DEMO_PUBLISH,),
+                publish=DEMO_PUBLISH,
             )
         raise UsageError(
             "No [tool.contexture] table found in this directory or above it. "
