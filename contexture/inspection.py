@@ -12,9 +12,8 @@ arrived, with what it cost. No transport, no model, no agent in the room.
 
 **It calls the same functions the server does.** `instructions.build`,
 `Disclosure.skeleton`, `Disclosure.open`, `system_api.unresolved`: the four
-wrappers in `contexture.server.projection.gateway` do nothing but forward to
-these, so a payload printed here is the payload sent there, character for
-character. What this cannot see is the wire — that the process starts under a
+wrappers in `contexture.server.surface.tools` do nothing but forward to these,
+so a payload printed here is the payload sent there, character for character. What this cannot see is the wire — that the process starts under a
 host's launch command, and that nothing but MCP messages reaches stdout. Both
 are only visible from outside the process, which is what
 `tests/test_stdio_server.py` pays a subprocess for.
