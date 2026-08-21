@@ -30,7 +30,7 @@ from contexture.server import DISCOVER_TOOL, OPEN_TOOL, ContextureServer, instru
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from serving import serve  # noqa: E402
-from contexture.core.model.tree import ContextTree
+from contexture.core.model.disclosure import Disclosure
 
 
 class GetPodLogs(Tool):
@@ -99,8 +99,8 @@ def _served(app: ContextureServer, name: str, arguments: dict | None = None):
     return json.loads(result.content[0].text)
 
 
-def _wide_tree(roles: int) -> ContextTree:
-    return ContextTree.of(
+def _wide_tree(roles: int) -> Disclosure:
+    return Disclosure.of(
         [
             Role(
                 name=f"role-{index:02d}",
@@ -251,7 +251,7 @@ class RoutingSentenceTests(unittest.TestCase):
     """
 
     def test_the_bundled_declaration_passes_its_own_rule(self) -> None:
-        step = inspection.open_step(ContextTree.of(Platform), "platform")
+        step = inspection.open_step(Disclosure.of(Platform), "platform")
 
         for check in step.checks:
             with self.subTest(note=check.note):
@@ -266,7 +266,7 @@ class RoutingSentenceTests(unittest.TestCase):
             tools=[Tool(name="get_logs", description="Read the diagnose output.")],
         )
 
-        step = inspection.open_step(ContextTree.of(role), "r")
+        step = inspection.open_step(Disclosure.of(role), "r")
         failed = [check for check in step.checks if not check.ok]
 
         self.assertEqual(len(failed), 1)
@@ -280,7 +280,7 @@ class RoutingSentenceTests(unittest.TestCase):
             tools=[Tool(name="wordy", description="A capability. " * 40)],
         )
 
-        step = inspection.open_step(ContextTree.of(role), "r")
+        step = inspection.open_step(Disclosure.of(role), "r")
         failed = [check for check in step.checks if not check.ok]
 
         self.assertEqual(len(failed), 1)
@@ -289,7 +289,7 @@ class RoutingSentenceTests(unittest.TestCase):
     def test_nothing_is_reported_for_a_node_that_holds_nothing(self) -> None:
         """A leaf has no cards to check, so it makes no claim either way."""
 
-        step = inspection.open_step(ContextTree.of(Platform), "platform/responder/diagnose")
+        step = inspection.open_step(Disclosure.of(Platform), "platform/responder/diagnose")
 
         self.assertEqual(step.checks, ())
 

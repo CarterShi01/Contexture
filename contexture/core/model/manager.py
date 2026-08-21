@@ -15,7 +15,7 @@ is served:
 
 **Controller**, because that is what these objects are: a caller names one and
 it decides what happens. The name is chosen against MVC deliberately — the
-model is the declaration, the view is `ContextTree` compiling a node for an
+model is the declaration, the view is `Disclosure` compiling a node for an
 agent, and this layer is the C that both of those have been quietly doing
 without a home. Nothing here renders anything, and nothing here touches a wire.
 
@@ -304,11 +304,11 @@ class ControllerManager:
         # Imported here rather than at the top because the view imports this
         # module: a registry has to exist before there is anything to seal, so
         # the dependency runs that way round and only the return trip is local.
-        from .tree import ContextTree
+        from .disclosure import Disclosure
 
         if bind is None:
-            return ContextTree.of(self)
-        return ContextTree.of(self, bind=bind)
+            return Disclosure.of(self)
+        return Disclosure.of(self, bind=bind)
 
 
 def _restamp(node: ContextNode, channels: Any) -> None:

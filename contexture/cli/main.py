@@ -49,11 +49,11 @@ def command_new(args: argparse.Namespace) -> int:
 
 
 def command_list(args: argparse.Namespace) -> int:
-    from ..core.model.tree import ContextTree
+    from ..core.model.disclosure import Disclosure
 
     serving = _targets_and_project(args.target)
     targets, project = serving.roots, serving.project
-    tree = ContextTree.of(load_roots(targets, project=project))
+    tree = Disclosure.of(load_roots(targets, project=project))
 
     # Printed with the reference an agent would actually be handed, so what a
     # developer reads here is what the model reads there.

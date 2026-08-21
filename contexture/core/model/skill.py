@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
-from .node import ContextNode, Disclosure
+from .node import ContextNode, View
 from ..errors import ModelValidationError
 from ..types import CompiledContext
 
@@ -78,7 +78,7 @@ class Skill(ContextNode):
     #: `_reject_cycles` meaningless, and nothing in a code review would show it.
     #:
     #: A ref cannot be resolved from here: a skill does not know where it hangs
-    #: and `core` does not know what a separator is. `ContextTree` checks every
+    #: and `core` does not know what a separator is. `Index` checks every
     #: entry when the tree is built, so a procedure naming something that does
     #: not exist fails at startup rather than when somebody reaches for it.
     uses: tuple[str, ...] = ()
@@ -107,7 +107,7 @@ class Skill(ContextNode):
                 "`uses`; a second card for one capability says there are two."
             )
 
-    def _compile_active(self, view: Disclosure) -> CompiledContext:
+    def _compile_active(self, view: View) -> CompiledContext:
         """The whole procedure, plus a card for each capability it names.
 
         The cards are at ROUTE, and that is what makes a reference cycle safe

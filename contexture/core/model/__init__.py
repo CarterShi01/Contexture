@@ -6,7 +6,7 @@ what JSON Schema looks like, or how a request reaches this process.
 
 A node still cannot *work out* where it hangs — it is told, by the
 `ControllerManager` that registered it, in segments rather than in an address.
-What changed in ADR 014 is only who joins those segments up: `ContextTree`
+What changed in ADR 014 is only who joins those segments up: `Disclosure`
 spells the reference and decides which nodes one call answers with, and it sits
 here rather than in a layer of its own, because the call that discloses a node
 and the node that discloses itself are two halves of one mechanism.
@@ -25,7 +25,7 @@ a declaration is imported: a class is a zero-argument factory, and a
 # is about to serve something.
 from .channels import Channels
 from .manager import ControllerManager, register_root
-from .node import CompileLevel, ContextNode, Disclosure
+from .node import CompileLevel, ContextNode, View
 from .role import Role
 from .skill import Skill
 from .tool import Tool
@@ -35,7 +35,7 @@ __all__ = [
     "CompileLevel",
     "ContextNode",
     "ControllerManager",
-    "Disclosure",
+    "View",
     "Role",
     "Skill",
     "Tool",

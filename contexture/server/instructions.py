@@ -48,7 +48,7 @@ from __future__ import annotations
 from typing import Iterator
 
 from ..core.model.node import ContextNode
-from ..core.model.tree import SEPARATOR, ContextTree
+from ..core.model.disclosure import SEPARATOR, Disclosure
 from ..core.constants import DISCOVER_TOOL
 from .messages import PREAMBLE, REF_RULE
 
@@ -64,7 +64,7 @@ SELF_CONTAINED_PREFIX = 512
 
 
 def build(
-    tree: ContextTree,
+    tree: Disclosure,
     *,
     preamble: str = PREAMBLE,
     budget: int = ROSTER_BUDGET,
@@ -114,7 +114,7 @@ def _assemble(preamble: str, roster: list[str]) -> str:
     return "\n".join([preamble.strip(), "", "Capabilities:", *roster, "", REF_RULE])
 
 
-def _sibling_groups(tree: ContextTree) -> Iterator[list[tuple[str, ContextNode]]]:
+def _sibling_groups(tree: Disclosure) -> Iterator[list[tuple[str, ContextNode]]]:
     """Group the breadth-first walk into the sets a reader chooses between.
 
     The first group is **every root, of every kind** — a standalone tool is as

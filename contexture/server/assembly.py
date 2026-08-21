@@ -45,7 +45,7 @@ from ..core.mcp_interface import published as _published
 from ..core.mcp_interface.prompt import Prompt
 from ..core.mcp_interface.resource import Resource
 from ..core.model.system_api import SystemAPI
-from ..core.model.tree import ContextTree
+from ..core.model.disclosure import Disclosure
 
 
 @dataclass(slots=True, frozen=True)
@@ -53,7 +53,7 @@ class Assembly:
     """One sealed graph, and everything a server needs to put it on a wire."""
 
     #: The object model, frozen.
-    tree: ContextTree
+    tree: Disclosure
 
     #: The four calls, bound to that tree, with `reserved` already derived.
     api: SystemAPI
@@ -69,7 +69,7 @@ class Assembly:
     @classmethod
     def of(
         cls,
-        tree: ContextTree,
+        tree: Disclosure,
         *,
         published: Sequence[Any] = (),
     ) -> "Assembly":
@@ -110,7 +110,7 @@ def _reserved(prompts: Iterable[Prompt]) -> frozenset[str]:
     )
 
 
-def _require_resolvable(tree: ContextTree, ref: str, kind: str) -> None:
+def _require_resolvable(tree: Disclosure, ref: str, kind: str) -> None:
     """Refuse a published entry naming a node that does not exist.
 
     Resolved here, at seal time. A failed lookup here has a different audience

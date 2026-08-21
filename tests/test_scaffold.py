@@ -29,7 +29,7 @@ from contexture.cli import (
     new_project,
     resolve_target,
 )
-from contexture.core.model.tree import ContextTree
+from contexture.core.model.disclosure import Disclosure
 from contexture.core.mcp_interface import Resource
 from contexture.core.model.manager import ControllerManager
 
@@ -150,7 +150,7 @@ class GeneratedProjectTests(unittest.TestCase):
 
     def test_the_generated_graph_discloses_progressively(self) -> None:
         module = importlib.import_module("assistant")
-        tree = ContextTree.of(module.MyContextAssistant)
+        tree = Disclosure.of(module.MyContextAssistant)
 
         card = tree.skeleton()["roles"][0]
         self.assertNotIn("instructions", card)

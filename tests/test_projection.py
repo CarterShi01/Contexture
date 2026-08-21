@@ -27,7 +27,7 @@ from mcp.server.mcpserver import Context, MCPServer
 from contexture.server import instructions
 from contexture.server.binding import TypeHintBinding
 from contexture.server.projection import Gateway, Prompts, Resources
-from contexture.core.model.tree import SEPARATOR, ContextTree
+from contexture.core.model.disclosure import SEPARATOR, Disclosure
 from contexture.server import (
     DISCOVER_TOOL,
     Launch,
@@ -817,7 +817,7 @@ class RosterTests(unittest.TestCase):
     rather than guessed between.
     """
 
-    def _partial_groups(self, tree: ContextTree, text: str) -> list[str]:
+    def _partial_groups(self, tree: Disclosure, text: str) -> list[str]:
         """Parents the roster names some — but not all — of the children of."""
 
         held: dict[str, int] = {}
@@ -849,7 +849,7 @@ class RosterTests(unittest.TestCase):
 
         for branch, depth in ROSTER_SHAPES:
             with self.subTest(shape=f"{branch}x{depth}"):
-                tree = ContextTree.of(_forest(branch, depth))
+                tree = Disclosure.of(_forest(branch, depth))
                 text = instructions.build(tree)
 
                 self.assertEqual(self._partial_groups(tree, text), [])
@@ -859,21 +859,21 @@ class RosterTests(unittest.TestCase):
 
         for branch, depth in ROSTER_SHAPES:
             with self.subTest(shape=f"{branch}x{depth}"):
-                tree = ContextTree.of(_forest(branch, depth))
+                tree = Disclosure.of(_forest(branch, depth))
 
                 self.assertLessEqual(len(instructions.build(tree)), HOST_LIMIT)
 
     def test_a_forest_that_fits_is_listed_whole(self) -> None:
         """Group-wise spending must not cost a small server its full roster."""
 
-        tree = ContextTree.of(_forest(2, 2))
+        tree = Disclosure.of(_forest(2, 2))
         listed = _listed(instructions.build(tree))
 
         self.assertEqual(len(listed), len(list(tree.index.roles_with_refs())))
         self.assertNotIn("...and", instructions.build(tree))
 
     def test_what_was_dropped_is_counted_and_pointed_at(self) -> None:
-        tree = ContextTree.of(_forest(8, 3))
+        tree = Disclosure.of(_forest(8, 3))
         text = instructions.build(tree)
 
         total = len(list(tree.index.roles_with_refs()))
@@ -892,7 +892,7 @@ class RosterTests(unittest.TestCase):
         which call completes it.
         """
 
-        crowded = ContextTree.of(
+        crowded = Disclosure.of(
             [
                 Role(name=f"root-{i:03d}", description="D" * 70, instructions="x")
                 for i in range(60)
@@ -949,7 +949,7 @@ class CommandPlaneTests(unittest.IsolatedAsyncioTestCase):
         )
 
     @staticmethod
-    def _tree() -> ContextTree:
+    def _tree() -> Disclosure:
         ship = Skill(
             name="compose-and-ship",
             description="Assemble the weekly letter and send it.",
@@ -968,7 +968,7 @@ class CommandPlaneTests(unittest.IsolatedAsyncioTestCase):
             instructions="Compose, then ship.",
             skills=[ship],
         )
-        return ContextTree.of(
+        return Disclosure.of(
             Role(
                 name="oc",
                 description="One-creator.",
@@ -980,7 +980,7 @@ class CommandPlaneTests(unittest.IsolatedAsyncioTestCase):
 
     def _server(
         self,
-        tree: ContextTree,
+        tree: Disclosure,
         publish: tuple[Prompt, ...] | None = None,
     ) -> MCPServer:
         assembly = Assembly.of(

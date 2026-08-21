@@ -31,7 +31,7 @@ class CompileLevel(str, Enum):
     ACTIVE = "active"
 
 
-class Disclosure(Protocol):
+class View(Protocol):
     """What a node asks for while it is compiling itself.
 
     A node knows what it is and what it holds. It does not know how an address
@@ -39,14 +39,14 @@ class Disclosure(Protocol):
     looks like — it is constructed long before it is registered and knows
     nothing about the forest it will hang in. So it asks.
 
-    This is the seam ADR 014 put here in place of the type switch the tree used
-    to carry. The tree asked each node what kind it was and rendered it on the
+    This is the seam ADR 014 put here in place of the type switch the view used
+    to carry. The view asked each node what kind it was and rendered it on the
     node's behalf, which meant a fifth kind of node would have been five edits
-    in a file that owns none of them. Now each node renders itself and asks
-    only for the two things the tree alone can answer: an address, and a
-    schema.
+    in a file that owns none of them. Now each node renders itself and asks only
+    for the two things the view alone can answer: an address, and a schema — and
+    it sources both from the `Index` it discloses.
 
-    `ContextTree` is the implementation that answers from a whole registered
+    `Disclosure` is the implementation that answers from a whole compiled
     forest. `_Alone` answers for a node nobody has registered.
     """
 
@@ -127,7 +127,7 @@ class ContextNode(ABC):
         self,
         level: CompileLevel | str = CompileLevel.ROUTE,
         *,
-        view: Disclosure | None = None,
+        view: View | None = None,
     ) -> CompiledContext:
         """Compile the node into the requested disclosure surface.
 
@@ -142,7 +142,7 @@ class ContextNode(ABC):
             return self._compile_route()
         return self._compile_active(view if view is not None else _ALONE)
 
-    def card(self, view: Disclosure) -> CompiledContext:
+    def card(self, view: View) -> CompiledContext:
         """Render one routing card: what this node is, and how to open it.
 
         Taking a view rather than a bare reference is what makes the card
@@ -188,7 +188,7 @@ class ContextNode(ABC):
         }
 
     @abstractmethod
-    def _compile_active(self, view: Disclosure) -> CompiledContext:
+    def _compile_active(self, view: View) -> CompiledContext:
         """Return the detailed surface for an explicitly activated node."""
 
         raise NotImplementedError
@@ -221,7 +221,7 @@ class _Alone:
     def card_for(self, ref: str) -> CompiledContext:
         raise ModelValidationError(
             f"Nothing here can resolve {ref!r}: this node is being compiled on "
-            "its own, outside any forest. Build a `ContextTree` from the root "
+            "its own, outside any forest. Build a `Disclosure` from the root "
             "that holds it and open it through that."
         )
 
@@ -235,7 +235,7 @@ _ALONE = _Alone()
 
 def group_cards(
     nodes: Iterable[ContextNode],
-    view: Disclosure,
+    view: View,
 ) -> CompiledContext:
     """Render one sibling set, grouped by kind.
 
@@ -256,4 +256,4 @@ def group_cards(
     return grouped
 
 
-__all__ = ["CompileLevel", "ContextNode", "Disclosure", "group_cards"]
+__all__ = ["CompileLevel", "ContextNode", "View", "group_cards"]

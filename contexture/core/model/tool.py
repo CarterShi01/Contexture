@@ -6,7 +6,7 @@ import inspect
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
-from .node import ContextNode, Disclosure
+from .node import ContextNode, View
 from ..types import CompiledContext
 
 
@@ -115,7 +115,7 @@ class Tool(ContextNode):
             not in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD)
         )
 
-    def card(self, view: Disclosure) -> CompiledContext:
+    def card(self, view: View) -> CompiledContext:
         """A tool's card is the fuller one: it has to be callable from itself.
 
         Every other kind is a name, a sentence and an address, because opening
@@ -138,7 +138,7 @@ class Tool(ContextNode):
             "input_schema": view.schema_of(self),
         }
 
-    def _compile_active(self, view: Disclosure) -> CompiledContext:
+    def _compile_active(self, view: View) -> CompiledContext:
         # The card, exactly. Reaching a capability two ways and being told two
         # different things about how to call it is worse than either answer
         # alone, so opening a tool and seeing its card in a role's payload are

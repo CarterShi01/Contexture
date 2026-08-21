@@ -18,7 +18,8 @@ from contexture.core.errors import (
 from contexture.core.model.role import Role
 from contexture.core.model.skill import Skill
 from contexture.core.model.tool import Tool
-from contexture.core.model.tree import ContextTree
+from contexture.core.model.disclosure import Disclosure
+from contexture.core.model.index import Index
 
 import sys
 from pathlib import Path
@@ -28,6 +29,50 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from serving import Marked  # noqa: E402
 
 PROCEDURE = "Read the status, then the logs, then the events."
+
+
+class BoundaryTests(unittest.TestCase):
+    """Disclosure discloses; the Index answers what is there.
+
+    The bug this pins is the one the whole refactor exists to prevent coming
+    back: a view that forwards every question to the thing underneath it is a
+    shell, not a layer. Traversing the address space is the index's job, and a
+    consumer that wants it reaches `view.index` rather than finding the method
+    re-exposed here. If one of these ever grows a forwarding method on
+    `Disclosure`, this fails and names it.
+    """
+
+    #: Everything that is a fact *about* the forest — where a node is, what one
+    #: of a kind there is, how a half-typed ref ranks. Index's, never the view's.
+    INDEX_ONLY = (
+        "walk",
+        "nodes_with_refs",
+        "of_kind",
+        "parent_of",
+        "children_of",
+        "matching_refs",
+        "signpost",
+        "roles_by_level",
+        "roles_with_refs",
+        "crossings",
+        "binding_of",
+    )
+
+    def test_every_traversal_lives_on_the_index_and_not_the_view(self) -> None:
+        for name in self.INDEX_ONLY:
+            with self.subTest(method=name):
+                self.assertTrue(
+                    hasattr(Index, name), f"Index should answer {name!r}"
+                )
+                self.assertFalse(
+                    hasattr(Disclosure, name),
+                    f"Disclosure re-exposes {name!r}; reach view.index instead.",
+                )
+
+    def test_the_view_holds_the_index_it_discloses(self) -> None:
+        view = _tree()
+        self.assertIsInstance(view.index, Index)
+        self.assertIs(view.registry, view.index)
 
 
 class GetPodLogs(Tool):
@@ -110,14 +155,14 @@ def _troubleshooter() -> Role:
     )
 
 
-def _tree() -> ContextTree:
+def _tree() -> Disclosure:
     team = Role(
         name="team",
         description="An engineering team.",
         instructions="Route to the right specialist.",
         children=[Troubleshooter(), Operator()],
     )
-    return ContextTree.of(team, bind=Marked)
+    return Disclosure.of(team, bind=Marked)
 
 
 class SkeletonTests(unittest.TestCase):
@@ -151,8 +196,8 @@ class SkeletonTests(unittest.TestCase):
             )
 
         self.assertEqual(
-            len(ContextTree.of(shallow).skeleton()["roles"]),
-            len(ContextTree.of(deep).skeleton()["roles"]),
+            len(Disclosure.of(shallow).skeleton()["roles"]),
+            len(Disclosure.of(deep).skeleton()["roles"]),
         )
 
     def test_the_skeleton_carries_no_instructions_and_no_schemas(self) -> None:
@@ -195,7 +240,7 @@ class SkeletonTests(unittest.TestCase):
             for index in range(40)
         ]
 
-        skeleton = ContextTree.of(roots).skeleton()
+        skeleton = Disclosure.of(roots).skeleton()
 
         self.assertEqual(len(skeleton["roles"]), 40)
         self.assertTrue(all("ref" in card for card in skeleton["roles"]))
@@ -290,7 +335,7 @@ class NameTests(unittest.TestCase):
 
     def test_a_role_name_may_not_contain_the_separator(self) -> None:
         with self.assertRaises(ModelValidationError) as caught:
-            ContextTree.of(self._role("a/b"))
+            Disclosure.of(self._role("a/b"))
 
         self.assertIn("/", str(caught.exception))
 
@@ -302,7 +347,7 @@ class NameTests(unittest.TestCase):
         ])
 
         with self.assertRaises(ModelValidationError):
-            ContextTree.of(deep)
+            Disclosure.of(deep)
 
     def test_a_member_name_may_not_contain_the_separator_either(self) -> None:
         """Every kind is a ref segment, not just roles."""
@@ -319,7 +364,7 @@ class NameTests(unittest.TestCase):
                 return "x"
 
         with self.assertRaises(ModelValidationError) as caught:
-            ContextTree.of(self._role("r", tools=[Weird()]))
+            Disclosure.of(self._role("r", tools=[Weird()]))
 
         self.assertIn("tool", str(caught.exception))
 
@@ -353,7 +398,7 @@ class DepthTests(unittest.TestCase):
         return role
 
     def test_the_skeleton_shows_only_the_root_however_deep_the_tower(self) -> None:
-        tree = ContextTree.of(self._tower())
+        tree = Disclosure.of(self._tower())
 
         self.assertEqual([c["ref"] for c in tree.skeleton()["roles"]], ["l1"])
         self.assertEqual(
@@ -373,14 +418,14 @@ class DepthTests(unittest.TestCase):
                 for i in range(3)
             ],
         )
-        refs = [ref for ref, _ in ContextTree.of(wide).index.roles_by_level()]
+        refs = [ref for ref, _ in Disclosure.of(wide).index.roles_by_level()]
 
         self.assertEqual(refs[:4], ["root", "root/a0", "root/a1", "root/a2"])
 
     def test_opening_a_role_never_recurses_past_its_own_children(self) -> None:
         """Each level costs one call. That is the whole point of the tree."""
 
-        tree = ContextTree.of(self._tower())
+        tree = Disclosure.of(self._tower())
 
         for ref, expected in (
             ("l1", ["l1/l2"]),
@@ -395,7 +440,7 @@ class DepthTests(unittest.TestCase):
                 )
 
     def test_a_procedure_four_levels_down_arrives_only_when_opened(self) -> None:
-        tree = ContextTree.of(self._tower())
+        tree = Disclosure.of(self._tower())
 
         for ref in ("l1", "l1/l2", "l1/l2/l3", "l1/l2/l3/l4"):
             with self.subTest(ref=ref):
@@ -487,19 +532,19 @@ class ResolutionTests(unittest.TestCase):
 
 class ConstructionTests(unittest.TestCase):
     def test_one_root_or_many_are_both_accepted(self) -> None:
-        single = ContextTree.of(Troubleshooter)
-        several = ContextTree.of([Troubleshooter, Operator])
+        single = Disclosure.of(Troubleshooter)
+        several = Disclosure.of([Troubleshooter, Operator])
 
         self.assertEqual(len(single.roots), 1)
         self.assertEqual(len(several.roots), 2)
 
     def test_an_empty_forest_is_rejected(self) -> None:
         with self.assertRaises(ModelValidationError):
-            ContextTree.of([])
+            Disclosure.of([])
 
     def test_two_roots_may_not_share_a_name(self) -> None:
         with self.assertRaises(ModelValidationError):
-            ContextTree.of([Troubleshooter, Troubleshooter])
+            Disclosure.of([Troubleshooter, Troubleshooter])
 
     def test_a_cycle_is_rejected_when_the_forest_is_built(self) -> None:
         """A cycle is only visible once the whole forest is in hand."""
@@ -514,7 +559,7 @@ class ConstructionTests(unittest.TestCase):
         parent.children.append(child)
 
         with self.assertRaises(ModelValidationError):
-            ContextTree.of(parent)
+            Disclosure.of(parent)
 
 
 if __name__ == "__main__":
@@ -530,7 +575,7 @@ class ReferenceTests(unittest.TestCase):
     """
 
     @staticmethod
-    def _with_uses(*refs: str) -> ContextTree:
+    def _with_uses(*refs: str) -> Disclosure:
         # The declared members are what the other tests address; the one built
         # here is the reference this helper exists to make, and its `uses` is
         # different on every call. Classes and instances sit in one list on
@@ -557,7 +602,7 @@ class ReferenceTests(unittest.TestCase):
             instructions="Route to the right specialist.",
             children=[troubleshooter, Operator()],
         )
-        return ContextTree.of(team, bind=Marked)
+        return Disclosure.of(team, bind=Marked)
 
     def test_every_addressable_node_is_enumerated_not_only_roles(self) -> None:
         """What completion offers and what `uses` is checked against.
@@ -629,7 +674,7 @@ class ReferenceTests(unittest.TestCase):
             )
             for name in ("triage", "escalate")
         ]
-        tree = ContextTree.of(
+        tree = Disclosure.of(
             Role(
                 name="team",
                 description="An engineering team.",
@@ -660,7 +705,7 @@ class ReferenceTests(unittest.TestCase):
                 uses=("team/troubleshooter/triage",),
             ),
         ]
-        tree = ContextTree.of(
+        tree = Disclosure.of(
             Role(
                 name="team",
                 description="An engineering team.",
@@ -697,7 +742,7 @@ class ReferenceTests(unittest.TestCase):
                 uses=("team/troubleshooter/a",),
             ),
         ]
-        tree = ContextTree.of(
+        tree = Disclosure.of(
             Role(
                 name="team",
                 description="A team.",
@@ -781,7 +826,7 @@ class ReferenceValidationTests(unittest.TestCase):
                 uses=("platform/operator/delete_pod",),
             )
         ]
-        tree = ContextTree.of(
+        tree = Disclosure.of(
             [
                 Role(
                     name="team",

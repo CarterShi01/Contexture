@@ -37,7 +37,7 @@ from __future__ import annotations
 from typing import Any
 
 from ...core.errors import ContextureError
-from ...core.model.tree import SEPARATOR
+from ...core.model.disclosure import SEPARATOR
 from ...core.mcp_interface.prompt import Prompt
 from ...core.mcp_interface.resource import Resource
 

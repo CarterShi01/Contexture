@@ -11,7 +11,7 @@ one — the instructions loaded at connect, then `contexture_discover`, then one
 arrived, with what it cost. No transport, no model, no agent in the room.
 
 **It calls the same functions the server does.** `instructions.build`,
-`ContextTree.skeleton`, `ContextTree.open`, `system_api.unresolved`: the four
+`Disclosure.skeleton`, `Disclosure.open`, `system_api.unresolved`: the four
 wrappers in `contexture.server.projection.gateway` do nothing but forward to
 these, so a payload printed here is the payload sent there, character for
 character. What this cannot see is the wire — that the process starts under a
@@ -63,7 +63,7 @@ from .core.model.tool import Tool
 from .core.types import JsonObject
 from .server import messages
 from .server.instructions import INSTRUCTIONS_LIMIT, SELF_CONTAINED_PREFIX
-from .core.model.tree import SEPARATOR, ContextTree
+from .core.model.disclosure import SEPARATOR, Disclosure
 
 #: The label for the one step that is not a call: what the host loads before
 #: it has asked this server anything.
@@ -200,7 +200,7 @@ class Trace:
 # ------------------------------------------------------------------ the steps
 
 
-def connect_step(tree: ContextTree, instructions: str) -> Step:
+def connect_step(tree: Disclosure, instructions: str) -> Step:
     """What the host loads before it has called anything.
 
     The three checks are the three ways this text fails in production, and
@@ -252,7 +252,7 @@ def connect_step(tree: ContextTree, instructions: str) -> Step:
     )
 
 
-def discover_step(tree: ContextTree) -> Step:
+def discover_step(tree: Disclosure) -> Step:
     """The first call a host makes: the roots, and nothing under them."""
 
     payload = tree.skeleton()
@@ -263,7 +263,7 @@ def discover_step(tree: ContextTree) -> Step:
     )
 
 
-def open_step(tree: ContextTree, ref: str) -> Step:
+def open_step(tree: Disclosure, ref: str) -> Step:
     """One `contexture_open`, including the refusal if the ref is wrong.
 
     A wrong reference is not an error here. It is the most useful thing this
@@ -394,7 +394,7 @@ def _is_content(node: object) -> bool:
     )
 
 
-def read_step(tree: ContextTree, ref: str) -> Step:
+def read_step(tree: Disclosure, ref: str) -> Step:
     """One `contexture_invoke_read_only` against content that takes no arguments."""
 
     try:
@@ -425,7 +425,7 @@ def read_step(tree: ContextTree, ref: str) -> Step:
 # ----------------------------------------------------------------- the replay
 
 
-def every_ref(tree: ContextTree) -> Iterator[str]:
+def every_ref(tree: Disclosure) -> Iterator[str]:
     """Every reference in the tree, breadth-first, each role before its members.
 
     This is the sweep behind `--all`: it is how a developer reads all of their
@@ -443,7 +443,7 @@ def every_ref(tree: ContextTree) -> Iterator[str]:
 
 
 def trace(
-    tree: ContextTree,
+    tree: Disclosure,
     refs: Sequence[str] = (),
     *,
     instructions: str,

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import ClassVar, Iterator
 
-from .node import ContextNode, Disclosure, group_cards
+from .node import ContextNode, View, group_cards
 from ..errors import (
     DuplicateNameError,
     LookupFailure,
@@ -195,7 +195,7 @@ class Role(ContextNode):
         if len(materialized) != len(set(materialized)):
             raise DuplicateNameError(f"A role contains duplicate {label}.")
 
-    def _compile_active(self, view: Disclosure) -> CompiledContext:
+    def _compile_active(self, view: View) -> CompiledContext:
         """Describe this role, and hand back a card for each member it holds.
 
         A role used to describe only itself, on the grounds that it could not

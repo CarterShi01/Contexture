@@ -34,7 +34,7 @@ from contexture.core.model.system_api import (
     wrong_door,
 )
 from contexture.core.model.tool import Tool
-from contexture.core.model.tree import ContextTree
+from contexture.core.model.disclosure import Disclosure
 from contexture.demo import fixtures
 from contexture.demo.role import KubernetesPlatform
 
@@ -56,7 +56,7 @@ POD = {"namespace": fixtures.NAMESPACE, "pod": fixtures.POD}
 def _api(*, bind: object = None, **kwargs: object) -> SystemAPI:
     """The demo, bound so that a card's schema says where it came from."""
 
-    tree = ContextTree.of(
+    tree = Disclosure.of(
         KubernetesPlatform, bind=_Derived if bind is None else bind
     )
     return SystemAPI(tree=tree, **kwargs)  # type: ignore[arg-type]
@@ -292,7 +292,7 @@ class ReferenceTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with self.assertRaises(ModelValidationError):
-            ContextTree.of(broken)
+            Disclosure.of(broken)
 
 
 class SignpostTests(unittest.TestCase):

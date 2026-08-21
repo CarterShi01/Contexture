@@ -46,7 +46,7 @@ from ..constants import (
 )
 from ..errors import ContextureError, LookupFailure, NodeNotFoundError
 from ..types import CompiledContext
-from .tree import ContextTree
+from .disclosure import Disclosure
 
 
 class Refused(ContextureError):
@@ -234,7 +234,7 @@ class SystemAPI:
     and the order they ask in changes nothing.
     """
 
-    tree: ContextTree
+    tree: Disclosure
 
     #: Refs a person has claimed, and a model may therefore not open.
     #:
