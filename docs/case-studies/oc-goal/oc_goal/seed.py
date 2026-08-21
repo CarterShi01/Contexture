@@ -8,7 +8,7 @@ all, which is the behaviour that matters: the demo has to be runnable on a
 machine that has never heard of one-creator, without ever being a thing that
 writes into a real one.
 
-The rows go in through the store rather than through the tools, because two of
+The rows go in through the repository rather than through the tools, because two of
 these fields cannot be set by any tool — `budget` and `status` are founder
 judgements, and a created area is always budget 0, paused. A seed that could
 only produce paused areas summing to zero would violate the invariant it is
@@ -18,10 +18,8 @@ from __future__ import annotations
 
 import sys
 
-from .citizens import default_context_config
-from .db import ObjectRows
 from .db.schema import db_path
-from .surface import utc_now
+from .repository import GoalRepository
 
 
 AREAS = [
@@ -94,37 +92,10 @@ FOCUS = {
 }
 
 
-def _server(now: str) -> dict:
-    return {"owner_ref": "principal://founder", "revision": 1,
-            "created_at": now, "updated_at": now}
-
-
 def seed(path: str | None = None) -> int:
     """Write the sample rows. Returns how many were inserted."""
 
-    areas = ObjectRows("area", path=path)
-    if areas.rows():
-        return 0
-
-    now = utc_now()
-    written = 0
-
-    for area in AREAS:
-        areas.put_row(area["slug"], {**area, **_server(now)})
-        written += 1
-
-    goals = ObjectRows("goal", path=path)
-    for goal in GOALS:
-        goals.put_row(goal["slug"], {**goal, "context": default_context_config(
-            memory_scopes=("project",), inheritance=("project",)), **_server(now)})
-        written += 1
-
-    focus = ObjectRows("focus", path=path)
-    if focus.get_row("current") is None:
-        focus.put_row("current", {**FOCUS, **_server(now)})
-        written += 1
-
-    return written
+    return GoalRepository(path).seed(areas=AREAS, goals=GOALS, focus=FOCUS)
 
 
 def main() -> int:

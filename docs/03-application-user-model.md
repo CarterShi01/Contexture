@@ -137,12 +137,18 @@ Contexture Application
 
 ### 4.3 与 brpc 和 MVC 的对应关系
 
+这里的 MVC 对应是整个 Controller 层，而不只是 `Tool`：`Role / Skill / Tool` 是
+三种业务 Controller，`ControllerManager / Index / Disclosure` 负责它们的持有、
+编译和路由。`Disclosure` 产出 payload，但它掌握的是路由与披露决策，不是最终
+View；最终 View 是连接 Contexture 的 Agent Host。完整请求链路和两个分析尺度见
+[Design 05](05-controller-framework-and-mvc.md)。
+
 | Contexture | brpc / MVC 中近似的角色 | 边界说明 |
 | --- | --- | --- |
 | `Contexture` | brpc `Server` 的业务装配 / MVC `Application` | 声明应用，不是运行中的 socket/server |
-| `Role` | Service / Controller module / bounded context | 组织业务责任，不直接成为 MCP method |
-| `Tool` | RPC method / Controller action | 框架实际执行的确定性入口 |
-| `Skill` | use case / workflow / playbook | 模型执行的方法，不是普通函数调用 |
+| `Role` | Service / composite Controller / bounded context | 组织业务责任和其他 Controller，不直接成为 MCP method |
+| `Tool` | RPC method / Controller action | 框架执行的确定性 Controller |
+| `Skill` | model-executed Controller / workflow / playbook | 控制模型执行的方法，不是普通函数调用 |
 | `Channels` | brpc Channel / DB client / DI container | 应用拥有的外部连接与句柄 |
 | `Principal` | RPC Controller / HTTP Request 中的调用者事实 | 框架按请求创建或绑定 |
 | `Prompt/Resource` | 额外发布的 command/route | 指向既有能力，不复制业务定义 |

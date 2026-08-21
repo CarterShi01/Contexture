@@ -745,6 +745,9 @@ visual map.
   model, its invariants, and why each boundary sits where it does.
 - [`docs/02-framework-layers.md`](docs/02-framework-layers.md) — the framework
   shape: declaration, compilation, and the server.
+- [`docs/05-controller-framework-and-mvc.md`](docs/05-controller-framework-and-mvc.md)
+  — the corrected MVC mapping: the Host is the View, Contexture is the whole
+  Controller layer, and the business application owns the Model.
 - [`docs/adr/013-a-constructor-is-the-declaration.md`](docs/adr/013-a-constructor-is-the-declaration.md)
   — why a class body is no longer read, what the twenty never-served objects it
   built at import were, and the three-language table that forced it.

@@ -3,7 +3,7 @@ name = "oc-goal"
 version = "0.1.0"
 description = "One-creator's Goal domain, served through Contexture."
 requires-python = ">=3.10"
-dependencies = ["contexture-mcp"]
+dependencies = ["contexture-mcp", "pydantic>=2.0"]
 
 # This project is served, not distributed: no build system, never installed
 # into the environment. `contexture serve` finds it by the table below and puts
@@ -11,8 +11,9 @@ dependencies = ["contexture-mcp"]
 [tool.uv]
 package = false
 
+[tool.uv.sources]
+contexture-mcp = { path = "../../.." }
+
 [tool.contexture]
-# The name a connecting host sees.
-name = "oc-goal"
-# Every root this server offers. A root is a role nothing else contains.
-roots = ["oc_goal.goal:GoalDomain"]
+# One lazy application declaration; importing it constructs no role or store.
+app = "oc_goal:app"

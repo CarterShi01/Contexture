@@ -36,7 +36,7 @@ Question 3 was the tell. The answer at the time was **three different
 mechanisms wearing one verb**: the README said business developers "extend"
 the abstractions, and a reader who tried to extend a `Resource` got a class the
 tree could never hold, in silence. `docs/case-studies/oc-goal` had already made
-exactly that mistake and nothing in the suite caught it.
+exactly that mistake and, at the time, nothing in the suite caught it.
 
 ### What is settled, so nobody re-derives it
 
@@ -162,25 +162,17 @@ What a consumer notices:
 | `discover` answering `{"roles": [...]}` | `{"roles", "skills", "tools"}` — the same three keys `open` uses |
 | `open` answering `sub_roles` | `roles` |
 
-**Three things still need a machine this one is not.** This checkout has no
-`mcp`, no `pip`, no `uv`, and no network, so:
+**One external verification remains.**
 
-1. **The five SDK-backed test modules never ran.** `test_app`, `test_binding`,
-   `test_channels`, `test_identity`, `test_inspection` fail to import here, and
-   three `test_scaffold.InspectFallbackTests` cases fail for the same reason —
-   the same eight as before this work started. Everything the refactor touched
-   is covered by the modules that *do* run, and all of those pass; the wire
-   itself is unverified. Run `python run_tests.py` where the SDK is installed.
-2. **The host verification is against a payload shape that no longer exists.**
+1. **The host verification is against a payload shape that no longer exists.**
    `docs/verification/hosts.md` records Claude Code navigating `sub_roles`;
    `discover` now answers with three keys. Re-run
    `docs/verification/verify_claude_code.md` before trusting that row.
-3. **`docs/case-studies/oc-goal` was deliberately left on the old syntax.** Its
-   seven subclass points still use class-body declarations, so `check.py` and
-   `contexture list` will fail there. The business-contract pattern it relies on
-   — `target`, `writes`, `precondition` as plain class attributes on a `Tool`
-   subclass — still works and is pinned by a test; only the identity fields and
-   the member lists move into constructors.
+
+The SDK-backed suite now runs here. `docs/case-studies/oc-goal` has also been
+rebuilt on the current Application and constructor declarations; its production
+binding check is part of the repository test suite, so this case study cannot
+silently stay behind the next API change.
 
 ---
 

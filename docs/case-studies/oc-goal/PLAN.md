@@ -1,127 +1,86 @@
-# oc-goal — plan
+# oc-goal — 重做计划与验收记录
 
-Phase 1 is done and is deliberately a **port, not a redesign**: the point of
-copying `domain/` across without improving it is that every later change has an
-equivalence test behind it. Optimising first would have meant optimising against
-nothing.
+本文取代 2026-08-19 的旧计划。旧计划基于已经删除的 Contexture class-body 声明、
+旧 Resource 模型和旧启动方式，不再用于执行。
 
----
+## 目标状态
 
-## Phase 1 — parity (done)
+完成时，oc-goal 应当是当前 Contexture Application 的正常用户，而不是框架兼容层：
 
-| | |
-| --- | --- |
-| scaffold | `contexture new oc-goal`, `assistant/` renamed to the role it holds |
-| kernel | `citizens/` — citizen, field, operation, document, schema, store, context_config |
-| storage | `db/` — three tables, DDL identical to `oc.db` |
-| model | `goal/model.py` verbatim |
-| nodes | `goal/{role,tools,skills,resources}.py`, `surface.py` |
-| seed | `python -m oc_goal.seed`, refuses a database that already holds areas |
-| check | `python check.py` — 34 assertions |
+- 从 `oc_goal:app` 惰性加载；import 不构建能力树、不打开数据库；
+- 所有节点使用显式构造函数声明；
+- 一个 Role、一个 Skill、十个 Tool、两个 Resource URI；
+- Tool 的类型签名是 agent 输入 schema 的唯一来源；
+- Pydantic model 是持久化值约束的唯一来源；
+- repository 保留 SQLite/CAS，Contexture 不持有业务状态；
+- 不存在 `Manager`、decorator reflector、自定义 schema compiler、operation context 或
+  store registry 的本地副本。
 
-**Verified.** `contexture list` renders the role: 1 skill, 8 tools (4 read-only,
-4 behind the writing door), 2 resources. `check.py` drives every node and
-asserts the five guarantees that had to survive the contract moving off
-`@write` and onto the Tool class: compare-and-set rejects a stale revision, the
-closed-set check rejects an unknown area, a field constraint rejects a
-too-short value, a created area is budget 0 / paused, an empty focus update is
-refused.
+## 执行阶段
 
-**Not verified.** Anything needing the MCP SDK, which cannot be installed on the
-machine this was built on: schema derivation from `invoke`'s type hints, the
-gateway refusing a write sent through the read-only door, stdio framing. That
-is the first item below and it is first for a reason.
+### 1. 重新建立基线 — 完成
 
----
+- 确认旧 `GoalDomain()` 在当前 Role API 上直接失败。
+- 读取 ADR 013/016/017，按“构造函数即声明、register/compile/disclose、Application
+  是惰性值”重新划分边界。
+- 从当前 one-creator 核对 Goal 的业务权威：Area/Goal 分形、human-owned 字段、CAS、
+  active budget 总和与 ContextConfig。
 
-## Phase 2 — the questions this demo exists to answer
+### 2. 删除第二套框架 — 完成
 
-### 2.1 Run it against a real host
+- 删除 `citizens/`、旧 `surface.py`、`wiring.py` 和通用 `db/rows.py`。
+- 用 `models.py`、`repository.py` 代替，不保留兼容 shim。
+- 保留与 one-creator 共享数据库所需的三表 DDL。
 
-`contexture serve`, connected to Claude Code, driven through
-`discover → open goal → open the skill → invoke`. Three things are untested
-until then, and one of them is load-bearing: **the writing door**. `check.py`
-calls `invoke` directly, so nothing has yet refused a write sent through
-`contexture_invoke_read_only`.
+### 3. 迁移到当前 Contexture — 完成
 
-### 2.2 How much of the kernel was the stdlib constraint?
+- 增加 `Contexture(name="oc-goal", roots=(GoalDomain,))`。
+- Role/Skill/Tool 全部改为显式构造。
+- Skill `uses` 使用完整 ref，并在 Index 编译时校验。
+- 内容先作为树中的无参只读 Tool，再由 Resource 发布稳定 URI。
+- `[tool.contexture]` 只指向 `oc_goal:app`。
 
-`field.py` (371) and `schema.py` (255) exist for one stated reason:
+### 4. 生产路径验证 — 完成
 
-> Hand-written rather than pydantic: the declaration layer's dependency surface
-> is a hard constraint (stdlib + PyYAML), and its gates run under a bare
-> `python3`.
+`check.py` 必须经 `compile_application → TypeHintBinding → SystemAPI` 调用，而不是直接
+调用 Tool 方法。验收覆盖：
 
-**That constraint does not exist here** — pydantic arrives with the MCP SDK. So:
-re-express the fields as `Annotated[..., pydantic.Field(...)]` and measure what
-is left. Six of `schema.py`'s seven reflection rules are things pydantic does
-natively; the seventh is the live closed set, which needs framework support
-either way (§2.4).
+- 两次编译产生互不共享的节点；
+- 12 个 ref 完整且稳定；
+- schema 含 slug/长度/嵌套 ContextConfig 约束，且不含 human-owned 字段；
+- seed、列表、单项读取、两个 Resource 内容；
+- 新 Area 的暂停/零预算默认；
+- CAS 成功与 stale revision 拒绝；
+- inactive Area 外键拒绝；
+- ContextConfig URI 拒绝；
+- Focus 空更新拒绝；
+- read/write gateway 双向错门拒绝。
 
-**This is the number that decides how the other ten domains migrate.** If 626
-lines compress to under a hundred, rewriting one-creator's declaration layer
-moves from "not worth it" to "the obvious next step". `check.py` is what makes
-the experiment safe to run.
+### 5. 仓库级回归 — 待每次变更执行
 
-### 2.3 Instance-level disclosure
+```bash
+cd docs/case-studies/oc-goal
+uv run python check.py
+uv run contexture check
+uv run contexture list
 
-Port `domain/context.py`'s compiler half and answer the design question it
-raises: a `ContextPack` is structurally a Role, so `open("goal/<slug>")` could
-return one goal's compiled working context — its own facts, its area, related
-work, trimmed to the receiver's budget.
+cd ../../..
+uv run python run_tests.py
+```
 
-Mechanically this is `Role.member()` resolving a slug that is not a static
-member, and the instance never enters the skeleton, so it costs nothing until
-someone opens it. What it needs first is where `receiver` and `budget` come
-from. Three options, in order of preference:
+本次重做的结果：case study 检查通过；CLI 报告 1 Role、1 Skill、10 Tool；真实
+stdio MCP 客户端完成 discover/open/invoke/resource read；仓库全量 347 项测试通过。
 
-1. process environment, as `principal` already is in one-creator
-2. the SDK's `Context`, which a tool may annotate — costs this file its
-   stdlib-only property
-3. arguments — **rejected**: a model that can set its own budget has no budget
+## 下一个子模块的启动门
 
-### 2.4 Feed the closed set into the schema
+只有以下事实成立，才开始迁移 one-creator 的第二个领域：
 
-`Area.keys(status="active")` is a live set, and one-creator puts it into the
-tool schema as an enum so a model cannot name an area that does not exist. Here
-it is a runtime rejection, which costs a round trip.
+1. oc-goal 的本地检查、CLI check/list 和 Contexture 全量测试全部通过；
+2. 没有为了 oc-goal 的个例修改 Contexture 内核；
+3. 迁移规则能明确区分 Role、Skill、Tool、Resource、model 和 repository；
+4. 新领域先记录行为基线，再删除其旧 Manager/reflector；
+5. 只有两个迁移实例确实重复的业务设施才进入共享抽象候选。
 
-Contexture derives schemas from type hints and cannot consult a store. Making
-this work is a framework change, and it is general rather than one-creator's:
-*a parameter whose valid values come from a callable, evaluated when the card is
-built.* `ContextTree._tool_card` already calls `schema_of(tool)` on every open,
-so the evaluation point exists; what does not is a way to declare it.
-
-### 2.5 Egress trimming
-
-The one guarantee weaker here than in the original (DESIGN §7). Needs a decision
-before this demo is ever pointed at data belonging to more than one person.
-
----
-
-## Phase 3 — what this says about the other ten domains
-
-Not to be started before 2.2 produces its number, because that number changes
-the answer. The shape is already visible, though:
-
-- `Manager` dissolves into a Role plus one class per operation
-- `Citizen` moves unchanged, or mostly unchanged if 2.2 goes well
-- `Storage` does not move at all — it answers "which bytes, under whose custody"
-  and Contexture holds none of your state
-- `project` / `project-intent` / `workitem` are the first case where **child
-  roles** are the right answer, because they are three authorities behind one
-  line of work rather than three separate jobs
-
----
-
-## Ground rules that held through Phase 1, and should keep holding
-
-1. **One write path.** Everything goes through `Citizen.upsert`; tools shape
-   arguments and nothing else. The moment a second path exists, the invariants
-   are decoration.
-2. **The DDL is copied, not designed.** Byte-identical schema is the entire
-   basis for sharing a database, and sharing a database is what makes
-   "equivalent" checkable.
-3. **`src/contexture/` stays untouched by this demo.** Framework gaps get
-   written down (DESIGN §8) and raised on their own, not patched from inside an
-   example.
+优先选择与 Goal 结构不同的领域，以检验规则而不是复制答案。旧计划建议的
+`project / project-intent / workitem` 仍是有价值的下一组，因为它们能验证 child Role
+是否真的是“互斥进入的责任分支”。

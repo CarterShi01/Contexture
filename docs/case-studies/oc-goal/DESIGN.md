@@ -1,268 +1,127 @@
-# oc-goal — design
+# oc-goal — 当前设计
 
-One real domain from [one-creator](https://github.com/CarterShi01/one-creator),
-rebuilt on Contexture's four objects, sharing the same database as the original.
+## 1. 目标
 
-The point is not the Goal domain. It is that a domain with real persistence,
-real constraints and a real cross-object invariant can be stated against
-`Role` / `Skill` / `Tool` / `Resource` — and that doing so removes a whole layer
-rather than renaming one.
+这是 one-creator 的局部重构样本。最终目标是逐个迁移其同构领域；选择 Goal，是因为
+它同时包含持久化、跨行不变量、动态外键、CAS、只允许人修改的字段和单例文档，足以
+暴露错误抽象，而又小到可以完整验证。
 
----
+本轮的判断标准是：**业务代码只表达业务，Contexture 已经回答的问题不在模块里再答
+一次。**
 
-## 1. Why this exists
+## 2. 五个边界
 
-Contexture's other reference application, `incident`, keeps its data in a
-124-line fixtures module. That is the right shape for demonstrating disclosure
-and the wrong shape for answering the question a business developer actually
-has: *what happens to my model layer?*
-
-one-creator has eleven first-class citizens behind an MCP server with 130 tools
-resident in every session. Moving one of them here answers three things at
-once:
-
-- **Does the object model hold?** A domain with a primary key, compare-and-set,
-  write-locked fields and a global invariant is a harder test than a fixture.
-- **What does the gateway actually save?** The layer that disappears is
-  measurable, not rhetorical — see §5.
-- **What is missing?** Two things, named in §7, and both are framework gaps
-  rather than porting mistakes.
-
----
-
-## 2. The domain in one paragraph
-
-An **Area** is attention that never ends: it holds a *budget* — a share of
-attention — and a maintenance standard. A **Goal** ends: it holds a *horizon*,
-which forces a review when it arrives, and criteria for success. Every goal
-names exactly one area. **Focus** is a singleton: the current main thread and
-not-doing list.
-
-One entry carrying both shapes would mean "entrepreneurship expires in
-2026-Q4", which is a distorted data model no presentation layer can fix. The
-budgets of active areas must total 100 — a global invariant, checked across all
-rows before any write lands.
-
----
-
-## 3. Four layers, and the empty one
-
-```
-serve         contexture serve            reads pyproject, builds the server
-disclosure    the five gateway tools      the framework's — nothing written here
-domain        goal/     role, tools, skills, resources, model
-              citizens/ what makes an object first-class
-storage       db/       three sqlite tables, schema identical to oc.db
+```text
+oc_goal.app
+  └── GoalDomain(Role)
+      ├── ReviewAttention(Skill)
+      └── ten Tools
+            │
+            ▼
+       GoalRepository
+            │
+            ▼
+       Area / Goal / Focus / ContextConfig
+            │
+            ▼
+       compatible SQLite tables
 ```
 
-**The empty layer is the finding.** In one-creator it is:
+每层只回答一个问题：
 
-| what | where | size |
-| --- | --- | ---: |
-| `@read(address=…, name=…, listing=…, priority=…)` | `goal/manager.py` | 5 methods' worth of decorator arguments |
-| Manager → DomainSurface reflection | `domain/compiler/reflect.py` | 254 lines |
-| surface → MCP registration | `brain-mcp/` | a registry, a persona gate, a validator |
-| signature-vs-contract drift check | `domain/manager.py` | 134 lines |
+| 层 | 回答什么 |
+| --- | --- |
+| `Contexture` Application | 这个应用由哪些根和 host-facing 文档组成？ |
+| `Role / Skill / Tool` | agent 看见什么，谁执行，如何调用？ |
+| Pydantic model | 一个有效业务值长什么样？ |
+| repository | 值存在哪里，怎样原子更新？ |
+| SQLite schema | 与 one-creator 共享的字节如何排列？ |
 
-Here a reference is a path through the role tree, and the surface is five tools
-whatever the declaration contains. None of the above has an equivalent — not a
-smaller version of it, none.
+## 3. 删除了什么
 
----
+旧 case study 从 one-creator 复制了 `Citizen`、`Field`、`Schema`、`OperationSpec`、
+`operation_context`、Store 注入、Manager 写契约和 Resource 内容对象。它能够工作，
+但实质上在 Contexture 应用内部保留了第二套框架。
 
-## 4. Three object models, and how they relate
+当前对应关系是：
 
-The thing to get right before writing any code was what `Citizen`, `Role` and
-one-creator's `GoalContext` are to each other. They are not layers of one
-hierarchy; they sit at different **meta-levels**.
+| 旧机制 | 当前落点 |
+| --- | --- |
+| class-body Role/Skill/Tool 声明 | 显式构造函数；不推断名字、描述或成员 |
+| `Manager` 和 decorator 反射 | 删除；一个 operation 就是一个普通 Tool 类 |
+| `Citizen` 元类和 Field DSL | 普通 Pydantic model 与 `Annotated` 类型 |
+| 手写 JSON Schema 反射 | 删除；Contexture 从 `invoke` 类型派生 |
+| `OperationSpec` + context variable | 删除；写权限由 Tool 签名和 repository 方法边界表达 |
+| injected store registry | 删除；`GoalRepository` 是显式基础设施边界 |
+| 自定义 Resource 内容类 | 无参只读 Tool；Resource 只是稳定 URI 的第二个地址 |
 
-| | class/instance split | instances |
-| --- | --- | --- |
-| `Citizen` | real | `Area` has as many as there are areas |
-| `Role` | degenerate | class and instance are one-to-one |
+旧运行时代码约 3900 行；当前应用源码约 1280 行，其中 SQLite DDL 和 seed 仍占约
+250 行。缩减来自删除重复机制，不来自压缩业务说明或放弃数据库安全。
 
-That is why `Citizen` does not and must not inherit `Role`: a row of data is not
-a responsibility boundary, and making every area a node would put the size of
-the data into the routing surface, which is precisely what the gateway exists
-to keep out.
+## 4. Contexture 对象如何分类
 
-So the relationship is **projection, not inheritance**:
+- `GoalDomain` 是 Role：它是一个责任边界，协调同一组能力。
+- `ReviewAttention` 是 Skill：它需要模型根据证据判断，框架不能确定性计算结论。
+- 查询和修改都是 Tool：它们有确定的输入和结果。
+- current focus 与 object shapes 也是无参只读 Tool：内容在树中只有一份。
+- 两个 Resource 只把上述 Tool 发布到 `goal://focus` 和 `goal://objects`；它们不拥有
+  第二份内容。
+- Area 和 Goal 实例不是 Role。数据库行不是路由分支；实例数量不能扩大能力树。
 
-```
-Citizen  ──── read three times ────▶  never subclassed
-   │  shapes    → ObjectShapes resource
-   │  written   → CitizenTool.target
-   │  queried   → the tools' bodies
-   ▼
-oc.db
-```
+Goal 保持扁平，没有 child Role。一次任务通常同时需要 Area 和 Goal 能力，把它们拆成
+互斥分支只会增加一次导航。
 
-`Citizen` is one-creator's `domain/citizen.py`, ported without a line changed
-except one `isinstance` check that referred to store classes this demo does not
-carry. It is the debt-free part of that codebase and there was nothing to
-improve by rewriting it.
+## 5. 业务不变量
 
-### Where the write contract went
+仍然保留：
 
-`Citizen.upsert` refuses to run outside an operation context:
+- Area 永不结束，拥有 `budget` 和 `standard`；Goal 有终点，拥有 `horizon` 和
+  `success`。
+- agent-facing Tool 的参数中没有 Area 的 `budget/status`，也没有 Goal 的 `status`。
+- 新 Area 固定为 `budget=0, status=paused`。
+- active Area 的预算合计必须为 100。
+- Goal 必须属于当前 active Area。
+- 已有 Area/Goal 的修改必须提供 `expected_revision`；比较发生在
+  `BEGIN IMMEDIATE` 事务内。
+- Goal ContextConfig 是严格嵌套模型，不接受未知字段、物理路径、重复 binding id 或
+  Goal 不允许的 inheritance。
+- Focus 空更新被拒绝。
 
-```python
-operation = current_operation()
-if operation is None or operation.kind != "write" or operation.target is not cls:
-    raise CitizenError(...)
-unknown = set(changes) - set(operation.patch_fields)
-```
+约束只有两个合理位置：能由一个值判断的在 Pydantic model；需要数据库当前状态或
+事务的在 repository。Tool 只负责一个 use case 的参数和返回形状。
 
-In one-creator that context is established by `Manager.invoke`, and the spec it
-carries comes from a `@write(...)` decorator. Neither survives: Contexture's
-Role *is* the operation surface, and running a second one alongside it was the
-thing to avoid.
+## 6. 与 one-creator 共享数据库
 
-But the guard checks the **spec**, never who established it. So the contract
-moved onto the Tool, as class attributes beside the `invoke` they constrain:
+三张表的列和索引保持兼容，`user_version` 不由本模块写入：
 
-```python
-class UpsertGoal(CitizenTool):
-    target       = Goal
-    patch_fields = ("why", "area", "title", "horizon", "success")
-    writes       = ("storage://oc.object-db#goal",)
+- 打开 one-creator 的 `oc.db` 时，`CREATE IF NOT EXISTS` 是 no-op；
+- 独立创建库时只创建 Area、Goal、Focus，one-creator 仍可随后完成自己的其余迁移；
+- JSON 文档和可查询列同时写入，读取时列值覆盖文档值，避免索引漂移；
+- CAS 的读取、比较和 UPDATE 位于同一事务。
 
-    async def invoke(self, slug: str, why: str, ...) -> dict: ...
-```
+## 7. 没有伪装成已解决的问题
 
-`invoke` is written by each subclass rather than generated by the base class,
-because **its signature is the input schema**. Wrapping a `mutate()` behind
-`**kwargs` would erase the schema; rebuilding the signature by reflection would
-create a second copy of it that can drift. Detecting that drift is what
-one-creator spends 134 lines on — writing `invoke` by hand makes those lines
-unnecessary rather than ported.
+两个问题仍应由后续、独立设计处理，而不是塞回这个领域：
 
----
+1. **实例级 context 编译。** `ContextConfig` 是 Goal 数据；按照 receiver/budget 编译
+   `ContextPack` 是 host/application 的披露策略，不是静态 Role 树的第二份实现。
+2. **来自 live store 的输入 enum。** Tool schema 能表达 slug 形状，但 active Area
+   集合在运行时变化。目前 repository 做权威拒绝；若要在调用前给模型动态 enum，应该
+   扩展 Contexture binding seam，而不是让 oc-goal 自建 schema compiler。
 
-## 5. Which node is which, and why
+## 8. 对后续领域的结论
 
-The four questions, applied to this domain:
+迁移另一个 one-creator 子模块时，先尝试同一映射：
 
-| | question | here |
-| --- | --- | --- |
-| **child role** | a branch entered *instead of* its siblings? | none — changing a goal and reviewing one need the same tools |
-| **skill** | a method, performed by the model, using the role's tools? | `review-the-attention-chain` |
-| **tool** | computable deterministically? | the other eight |
-| **resource** | already there, no arguments, stable URI? | `goal://focus`, `goal://objects` |
-
-Two of those are worth their own note.
-
-**`review` was a Tool that could not be written.** In one-creator it is a
-`@compile` operation with `status="planned"` and a body that raises
-`NotImplementedError`, and its docstring explains why: *"Material only, never a
-conclusion: the join is deterministic and happens on the server, the judgement
-is the model's job."* A capability whose judgement is the model's job is not a
-Tool. As a Skill it works today, because every tool its procedure calls already
-exists. Nothing was implemented to make that true; it was classified correctly.
-
-**`goal://objects` did not exist at all.** one-creator publishes each domain as
-three things — objects, operations, resources — and the object half never
-reached an agent: field constraints lived only inside each write tool's input
-schema, so nothing could answer "what is an Area" without first deciding to
-change one. Contexture has no node type for a schema either, so it lands as a
-Resource, where listing it costs one sentence and reading it costs the schema.
-
----
-
-## 6. What was ported, and what was not
-
-| from one-creator | lines | here |
-| --- | ---: | --- |
-| `domain/citizen.py` | 867 | verbatim |
-| `domain/field.py` | 371 | verbatim |
-| `domain/operation.py` | 268 | verbatim |
-| `domain/document.py` | 161 | verbatim |
-| `domain/schema.py` | 255 | verbatim |
-| `domain/store.py` | 731 | the two injected shapes only |
-| `domain/context.py` | 495 | the persisted half only — see below |
-| `kernel/object_store.py` | 439 | three tables' DDL |
-| `kernel/object_repository.py` | 239 | three tables' adapter |
-| `goal/model.py` | 120 | verbatim |
-| `goal/manager.py` | 288 | **dissolved** into tools + role |
-| `domain/manager.py` | 471 | **not ported** |
-| `domain/compiler/`, `surface.py`, `definition.py`, `refs.py` | ~600 | **not ported** |
-
-Nothing was "improved" on the way across. The one place this demo is
-deliberately not a copy is §7.
-
-### The context split
-
-`domain/context.py` holds two things with different reasons to change:
-
-- **data** — what a Goal row stores in its `context` column: memory scopes,
-  inheritance, explicit refs. Persisted, versioned, edited under CAS. **Ported**,
-  as `citizens/context_config.py`.
-- **compiler** — `ContextSource` / `ContextInventory` / `ContextPack` and
-  `compile_context`, which turn one Goal *instance* plus a receiver and a budget
-  into a trimmed pack. **Not ported**, because it is not a duplicate of anything
-  here: it is a second disclosure axis Contexture does not have, and copying it
-  in would settle a design question that should be answered deliberately.
-
----
-
-## 7. Two known gaps
-
-**Egress trimming is absent.** one-creator passes every record through an egress
-port before it leaves the process — a cross-cutting boundary belonging to no
-single citizen, injected by the host at registration. There is no host here to
-inject one, so the tools return the row. Defensible for a single-principal demo;
-not defensible the moment anything multi-tenant reads it. **This is the only
-guarantee weaker here than in the original.**
-
-**Post-write validators are empty.** one-creator points these at two scripts,
-and the second belongs to a domain this demo does not have. What they guarded is
-not all lost: the invariants that matter most are on the objects themselves, and
-`Area`'s active budgets summing to 100 runs in `probe.check()` *before* the row
-is written. Porting the rest is Phase 2.
-
----
-
-## 8. Two things Contexture does not have
-
-Found by doing this, not by reasoning about it. Both are framework gaps.
-
-**Instance-level disclosure.** Contexture splits by structure — `ROUTE` and
-`ACTIVE`. one-creator's context layer splits by *receiver and budget*:
-`required` sources are kept, optional ones are cut to fit `environment.budget`,
-and what was dropped is reported as `omitted` / `truncated`. Those are
-orthogonal axes, and Contexture has no equivalent of the second. A `ContextPack`
-is structurally a Role — guide → description, instructions → instructions,
-sources → resources, sinks → tools — minus any way to say "this view is
-trimmed".
-
-**A live closed set in a schema.** `area: Area` in one-creator puts the current
-active areas into the tool's schema as an enum, so a model cannot syntactically
-name one that does not exist. Contexture derives schemas from type hints, which
-cannot consult a store. The check survives here as a runtime rejection in
-`UpsertGoal.invoke` — correct, but it costs a round trip where the original cost
-nothing.
-
----
-
-## 9. Sharing a database with one-creator
-
-The three tables' DDL is copied column for column, and `user_version` is
-deliberately never written — the original stamps it, which is right for the
-owner of a thirteen-table schema and wrong for a three-table subset. Both
-directions are therefore safe:
-
-```
-demo opens one-creator's oc.db    every CREATE is IF NOT EXISTS: a no-op,
-                                  and the stamp stays at 3
-demo creates its own database     three tables, user_version 0 — one-creator's
-                                  own migration fills in the other ten
+```text
+Manager.summary/instructions  → Role
+需要模型判断的 compile/review → Skill
+确定性 operation             → Tool
+稳定 URI                     → Resource 指向一个无参只读 Tool
+Citizen field contract       → Pydantic model
+Store / transaction          → 独立 repository
 ```
 
-Concurrent writes are safe because compare-and-set is pushed into one
-`BEGIN IMMEDIATE` transaction in `db/rows.py`, exactly as the original does.
-Two servers writing the same row means the second one gets a `ConflictError`,
-which is the intended behaviour rather than a race.
-
-`OC_OBJECT_DB_PATH` points this at a real `oc.db`. Unset, it lands in a per-user
-directory, so `python check.py` works on a machine that has never heard of
-one-creator.
+只有当任务进入一个分支后不再需要兄弟分支时，才增加 child Role。不要迁移 Manager、
+reflector、registration chain 或通用 Citizen 内核；若多个迁移后的领域确实出现相同的
+业务基础设施，再从两个已验证实例中抽象，而不是从第一个样本预先造框架。

@@ -19,7 +19,7 @@ three-table subset. Leaving it alone makes both directions safe:
                                      migration runs and fills in the other ten
 
 Point `OC_OBJECT_DB_PATH` at `$HERMES_HOME/oc.db` to share one-creator's data.
-Unset, this lands in a per-user directory, so `contexture demo` works on a
+Unset, this lands in a per-user directory, so `oc-goal` works on a
 machine that has never heard of one-creator.
 """
 from __future__ import annotations

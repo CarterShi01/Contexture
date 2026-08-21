@@ -1,5 +1,5 @@
-"""SQLite behind the injected-store contract."""
-from .rows import ObjectRows, TABLES
+"""The database connection owned by the oc-goal application."""
+
 from .schema import connect, db_path
 
-__all__ = ["ObjectRows", "TABLES", "connect", "db_path"]
+__all__ = ["connect", "db_path"]
