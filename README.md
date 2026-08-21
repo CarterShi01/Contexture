@@ -682,7 +682,7 @@ codex  mcp add                 my-context -- uv run contexture serve
 
 Add child Roles, Skills, and Tools in `my_context/`; add Channels, Prompt, or
 Resource declarations to the same `app` only when the problem requires them.
-Continue with the task-oriented [Contexture Handbook](docs/handbook.md).
+Continue with the step-by-step [Contexture Handbook](docs/handbook.md).
 
 ### From a checkout
 
