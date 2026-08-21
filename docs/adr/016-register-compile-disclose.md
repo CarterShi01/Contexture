@@ -1,7 +1,19 @@
 # ADR 016 — 注册、编译、披露
 
-**Status:** proposed
+**Status:** accepted, implemented in v0.6.0
 **Date:** 2026-08-21
+
+**实现说明（accepted 时补记）。** 落地与提案有两处出入,都写在这里而不是改上文:
+
+1. **`node.path` 保留,未删。** 提案第 5 节说要删掉节点上的地址戳,只留
+   `channels`。落地时保留了它:一个能力会读 `self.path` 报告自己挂在哪(见
+   `channels_fixture` 的 `WhereAmI`),这是节点"自己要用"的东西,和 `channels`
+   同类。权威地址表仍然只在 `Index`;`node.path` 是给能力自省用的便利戳。
+2. **`instructions` 未并入 `surface/tools.py`。** 提案第 6 节的第四个安装器归队
+   是打磨项;`instructions.py` 已经自成一体,搬它只会为难 importer 而无结构收益,
+   留待后续。
+
+其余全部按提案落地:七步各一个 commit,`spec/golden/` 全程逐字节不变。
 
 **取代 [ADR 015](015-the-server-is-an-object.md) 的第 1–3 节所选的实现形态。**
 ADR 015 的判断是对的——`server` 该是一组各管一件事的对象——它落地出来的

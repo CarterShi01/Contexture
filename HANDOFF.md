@@ -241,17 +241,22 @@ them.
 
 ### What a `main()` looks like now
 
+Superseded by ADR 016 — `Dispatch` and `Assembly` are gone, the server takes a
+compiled `Index` and two typed lists:
+
 ```python
 manager = ControllerManager(channels=channels)
 manager.register_role(KubernetesPlatform)
 
-dispatch = Dispatch()
-tree     = manager.sealed(schema_of=dispatch.schema)
-assembly = Assembly.of(tree, execute=dispatch.execute, published=PUBLISHED)
+index = Index.of(manager, bind=TypeHintBinding)
 
-ContextureServer(assembly, name="my-context").start(
-    ContextureOptions(transport="stdio")
-)
+ContextureServer(
+    index,
+    name="my-context",
+    tools=TOOLS,
+    prompts=[RollBackARelease],
+    resources=[CrashLoopRunbook],
+).start(ContextureOptions(transport="stdio"))
 ```
 
 Seven objects rather than four lines of sugar, and the trade is deliberate: each

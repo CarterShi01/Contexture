@@ -84,7 +84,7 @@ form has exactly one author.
 | `Skill` | How should this class of work be performed? | Supply reusable workflow knowledge. |
 | `Tool` | Which operation can this Role run? | Execute one typed Python method. |
 | `Resource` | Which content can this Role read? | Address content without loading it. |
-| `ContextTree` | Where is the agent, what is next, and what has it paid for? | Deliver the role skeleton whole, resolve a reference, and open one node. |
+| `Disclosure` | Where is the agent, what is next, and what has it paid for? | Deliver the role skeleton whole, resolve a reference, and open one node. |
 
 A useful shorthand is:
 
@@ -525,7 +525,7 @@ nothing to subset — see §12.
 The tree is not involved in loading content at any point. It produces the
 descriptor; `contexture_read` produces the bytes.
 
-### 17.2 ContextTree
+### 17.2 Disclosure
 
 One class holds the navigation model, with three methods:
 
@@ -549,9 +549,9 @@ somewhere to live did not exist.
 
 The decision is real, and it is written down — as the reference. A ref's shape
 says which node, and which of `discover`, `open` and `read` was called says at
-which level. `ContextTree` is where that reading happens, and `RoleRegistry`
-folded into it: a cycle is only visible once the whole forest is in hand, which
-is here rather than in `core`.
+which level. `Disclosure` is where that reading happens; the facts it reads —
+every address, and the checks a cycle or a duplicate name needs the whole forest
+to see — belong to the `Index` it is compiled over (ADR 016).
 
 ### 17.3 The server projection
 
@@ -561,8 +561,8 @@ translates, and holds no business rules of its own:
 ```text
 Role tree                        MCP
 ------------------------------   -------------------------------------
-ContextTree.skeleton             the tool `contexture_discover`
-ContextTree.open                 the tool `contexture_open`
+Disclosure.skeleton             the tool `contexture_discover`
+Disclosure.open                 the tool `contexture_open`
 Resource.read                    the tool `contexture_read`
 Tool.invoke, read-only           the tool `contexture_invoke_read_only`
 Tool.invoke, writing             the tool `contexture_invoke`

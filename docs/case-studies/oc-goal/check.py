@@ -18,7 +18,7 @@ contract moved onto the Tool class.
 import asyncio
 import json
 
-from contexture.tree import ContextTree
+from contexture.core.model.disclosure import Disclosure
 from oc_goal.goal import GoalDomain
 from oc_goal.goal.model import Area, Goal
 from oc_goal.goal.resources import CurrentFocus, ObjectShapes
@@ -37,7 +37,7 @@ def check(label, condition, detail=""):
 
 
 async def main():
-    tree = ContextTree.of(GoalDomain())
+    tree = Disclosure.of(GoalDomain())
 
     print("\n[1] tree")
     roots = [r["ref"] for r in tree.skeleton()["roles"]]

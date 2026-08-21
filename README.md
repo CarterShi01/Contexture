@@ -170,8 +170,8 @@ the schema that reaches the wire, never how it was derived.
 
 Inversion of control runs the other way from a library: you never dispatch a
 request, parse arguments, or serialize a result. You declare what you own,
-register it, and hand the sealed result to a `ContextureServer`; the framework
-calls your code, not the reverse.
+register it, compile it into an `Index`, and hand that to a `ContextureServer`;
+the framework calls your code, not the reverse.
 
 ## Three languages, one behaviour
 
@@ -417,31 +417,38 @@ yours.
 
 For a graph served from a process this command does not own — embedded in an
 existing service, or built inside a test — write the entry point yourself. It
-is five objects, and every one of them is something you make a decision about:
+is four objects, and every one of them is something you make a decision about:
 
 ```python
 from contexture import ControllerManager
 from contexture.server import (
-    Assembly, ContextureOptions, ContextureServer, Dispatch,
+    TOOLS, ContextureOptions, ContextureServer, Index, TypeHintBinding,
 )
 
 def main() -> None:
     manager = ControllerManager(channels=channels)      # what it may reach
     manager.register_role(KubernetesPlatform)           # what it serves
 
-    dispatch = Dispatch()                               # schemas, and running a tool
-    tree     = manager.sealed(schema_of=dispatch.schema)
-    assembly = Assembly.of(tree, execute=dispatch.execute, published=PUBLISHED)
+    index = Index.of(manager, bind=TypeHintBinding)     # compile it, once
 
-    ContextureServer(assembly, name="my-context").start(
-        ContextureOptions(transport="stdio")
-    )
+    ContextureServer(
+        index,
+        name="my-context",
+        tools=TOOLS,                                    # fixed; you cannot add
+        prompts=[RollBackARelease],                     # a person's door
+        resources=[CrashLoopRunbook],                   # a host's door
+    ).start(ContextureOptions(transport="stdio"))
 ```
 
-Three phases, and the second one is a wall: `ContextureServer` takes a *sealed*
-assembly and has no way to register anything, so nothing can add a capability to
-a graph that is already being served. Importing this module builds nothing —
-every node comes into existence inside `register_role`.
+Four phases, and the second one is a wall: `ContextureServer` takes a *compiled*
+`Index` and has no way to register anything, so nothing can add a capability to a
+graph that is already being served. Importing this module builds nothing — every
+node comes into existence inside `register_role`, and the whole forest is frozen
+into the index by `Index.of`.
+
+The three keyword planes are the same split as **Three planes, one verb** above:
+`tools=TOOLS` is the one you cannot vary, because it is the plane a business
+cannot extend; `prompts=` and `resources=` are the two ways in you write by hand.
 
 `dispatch` appearing twice is deliberate. The schema written on a tool's card
 and the check its arguments are measured against come from one derivation, and
